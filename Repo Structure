@@ -1,96 +1,68 @@
-work-suite/
+Pioneer-Work-Suite/
 ├─ apps/
-│  ├─ api/                  # Backend (Node/TS, e.g. Express or Nest)
+│  ├─ api/
 │  │  ├─ src/
 │  │  │  ├─ main.ts
 │  │  │  ├─ config/
 │  │  │  │  └─ env.ts
 │  │  │  ├─ db/
 │  │  │  │  └─ client.ts
+│  │  │  ├─ middleware/
+│  │  │  │  ├─ auth.ts
+│  │  │  │  └─ errorHandler.ts
 │  │  │  ├─ modules/
+│  │  │  │  ├─ health/
+│  │  │  │  │  └─ health.routes.ts
 │  │  │  │  ├─ auth/
+│  │  │  │  │  ├─ auth.routes.ts
 │  │  │  │  │  ├─ auth.controller.ts
-│  │  │  │  │  ├─ auth.service.ts
-│  │  │  │  │  └─ auth.routes.ts
+│  │  │  │  │  └─ auth.service.ts
 │  │  │  │  ├─ organizations/
+│  │  │  │  │  ├─ organizations.routes.ts
 │  │  │  │  │  ├─ organizations.controller.ts
-│  │  │  │  │  ├─ organizations.service.ts
-│  │  │  │  │  └─ organizations.routes.ts
-│  │  │  │  ├─ invoices/
-│  │  │  │  │  ├─ invoices.controller.ts
-│  │  │  │  │  ├─ invoices.service.ts
-│  │  │  │  │  └─ invoices.routes.ts
-│  │  │  │  └─ health/
-│  │  │  │     └─ health.routes.ts
+│  │  │  │  │  └─ organizations.service.ts
+│  │  │  │  └─ invoices/
+│  │  │  │     ├─ invoices.routes.ts
+│  │  │  │     ├─ invoices.controller.ts
+│  │  │  │     └─ invoices.service.ts
 │  │  │  └─ types/
 │  │  │     └─ express.d.ts
-│  │  ├─ package.json
-│  │  ├─ tsconfig.json
-│  │  └─ .env.example
+│  │  └─ package.json      # (to be added / finalized)
 │  │
-│  ├─ web/                  # Frontend (React + TS + Vite)
-│  │  ├─ src/
-│  │  │  ├─ main.tsx
-│  │  │  ├─ App.tsx
-│  │  │  ├─ routes/
-│  │  │  │  ├─ LoginPage.tsx
-│  │  │  │  ├─ OrgSelectPage.tsx
-│  │  │  │  ├─ InvoicesListPage.tsx
-│  │  │  │  └─ InvoiceEditorPage.tsx
-│  │  │  ├─ components/
-│  │  │  │  ├─ layout/
-│  │  │  │  │  └─ ShellLayout.tsx
-│  │  │  │  └─ invoices/
-│  │  │  │     ├─ InvoiceTable.tsx
-│  │  │  │     └─ InvoiceForm.tsx
-│  │  │  ├─ api/
-│  │  │  │  ├─ httpClient.ts
-│  │  │  │  ├─ authApi.ts
-│  │  │  │  └─ invoicesApi.ts
-│  │  │  ├─ store/
-│  │  │  │  └─ authStore.ts
-│  │  │  └─ styles/
-│  │  │     └─ globals.css
-│  │  ├─ index.html
-│  │  ├─ vite.config.ts
-│  │  ├─ package.json
-│  │  └─ tsconfig.json
-│  │
-│  └─ desktop/              # Desktop shell (Tauri)
-│     ├─ src-tauri/
-│     │  ├─ src/
-│     │  │  └─ main.rs
-│     │  ├─ tauri.conf.json
-│     │  └─ Cargo.toml
-│     ├─ package.json       # Convenience scripts for dev/build
-│     └─ README.md
+│  └─ web/
+│     ├─ src/
+│     │  ├─ main.tsx
+│     │  ├─ App.tsx
+│     │  ├─ api/           # (to be added)
+│     │  │  ├─ httpClient.ts
+│     │  │  ├─ authApi.ts
+│     │  │  ├─ orgsApi.ts
+│     │  │  └─ invoicesApi.ts
+│     │  ├─ pages/         # (to be added)
+│     │  │  ├─ LoginPage.tsx
+│     │  │  ├─ RegisterPage.tsx
+│     │  │  ├─ OrgListPage.tsx
+│     │  │  ├─ InvoiceListPage.tsx
+│     │  │  └─ InvoiceEditorPage.tsx
+│     │  ├─ store/         # (to be added)
+│     │  │  └─ authStore.ts
+│     │  ├─ styles/
+│     │  │  └─ globals.css
+│     │  └─ utils/         # optional later
+│     └─ package.json      # Vite + React + TS config
 │
 ├─ packages/
-│  ├─ shared/               # Shared types & utilities
-│  │  ├─ src/
-│  │  │  ├─ models/
-│  │  │  │  ├─ Invoice.ts
-│  │  │  │  ├─ User.ts
-│  │  │  │  └─ Organization.ts
-│  │  │  ├─ dto/
-│  │  │  │  ├─ InvoiceDto.ts
-│  │  │  │  └─ AuthDto.ts
-│  │  │  └─ index.ts
-│  │  ├─ package.json
-│  │  └─ tsconfig.json
-│  │
-│  └─ ui/                   # Optional shared UI components
+│  └─ shared/
 │     ├─ src/
-│     │  ├─ components/
-│     │  │  ├─ Button.tsx
-│     │  │  ├─ TextInput.tsx
-│     │  │  └─ PageHeader.tsx
-│     │  └─ index.ts
+│     │  ├─ index.ts
+│     │  └─ models/
+│     │     ├─ User.ts
+│     │     ├─ Organization.ts
+│     │     └─ Invoice.ts
 │     ├─ package.json
 │     └─ tsconfig.json
 │
-├─ package.json             # Root – workspaces + scripts
-├─ pnpm-workspace.yaml      # (or use yarn/npm workspaces instead)
-├─ tsconfig.base.json       # Shared TS config
-├─ .gitignore
-└─ README.md
+├─ package.json             # monorepo root (workspaces + scripts)
+├─ pnpm-workspace.yaml
+├─ tsconfig.base.json
+└─ README.md (and any notes/docs)
