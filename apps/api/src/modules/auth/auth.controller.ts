@@ -26,7 +26,6 @@ export class AuthController {
 
   async me(req: Request, res: Response, next: NextFunction) {
     try {
-      // When we add auth middleware, req.user will exist
       if (!req.user) {
         return res.status(401).json({ error: 'Unauthenticated' });
       }
