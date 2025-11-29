@@ -29,7 +29,9 @@ export class InvoicesController {
     try {
       const { orgId, invoiceId } = req.params;
       const invoice = await service.getById(orgId, invoiceId);
-      if (!invoice) return res.status(404).json({ error: 'Not found' });
+      if (!invoice) {
+        return res.status(404).json({ error: 'Not found' });
+      }
       res.json(invoice);
     } catch (err) {
       next(err);
