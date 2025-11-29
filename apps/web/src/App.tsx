@@ -1,5 +1,7 @@
 // apps/web/src/App.tsx
 import React, { useState } from "react";
+import { Routes, Route, Navigate } from "react-router-dom";
+import LoginPage from "./pages/LoginPage";
 
 const App: React.FC = () => {
   const [isTodoOpen, setIsTodoOpen] = useState(true);
@@ -12,10 +14,18 @@ const App: React.FC = () => {
           <span className="app-name">Pioneer Work Suite</span>
         </div>
         <nav className="sidebar-nav">
-          <button className="nav-item">Dashboard</button>
-          <button className="nav-item">Invoices</button>
-          <button className="nav-item">Spreadsheets</button>
-          <button className="nav-item">Email</button>
+          <button className="nav-item" type="button">
+            Dashboard
+          </button>
+          <button className="nav-item" type="button">
+            Invoices
+          </button>
+          <button className="nav-item" type="button">
+            Spreadsheets
+          </button>
+          <button className="nav-item" type="button">
+            Email
+          </button>
         </nav>
       </aside>
 
@@ -31,17 +41,20 @@ const App: React.FC = () => {
           </header>
 
           <section className="workspace-body">
-            {/* Placeholder for now; we’ll replace with real pages/routes later */}
-            <div className="workspace-placeholder">
-              <p>Pick a module from the left to get started.</p>
-            </div>
+            {/* Routes decide what appears in the workspace */}
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
+              {/* Later you’ll add more routes here (register, orgs, invoices, etc.) */}
+              <Route path="*" element={<Navigate to="/login" replace />} />
+            </Routes>
           </section>
         </main>
 
         {/* Right to-do panel */}
         <aside
           className={
-            "sidebar-right" + (isTodoOpen ? " sidebar-right-open" : " sidebar-right-collapsed")
+            "sidebar-right" +
+            (isTodoOpen ? " sidebar-right-open" : " sidebar-right-collapsed")
           }
         >
           <div className="todo-header">
@@ -57,7 +70,6 @@ const App: React.FC = () => {
 
           {isTodoOpen && (
             <div className="todo-body">
-              {/* Simple static list for now; later we’ll wire real tasks */}
               <ul className="todo-list">
                 <li>Set up your first organization</li>
                 <li>Create a test invoice</li>
