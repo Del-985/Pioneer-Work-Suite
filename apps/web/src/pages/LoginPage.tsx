@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { login as apiLogin } from "../api/authApi";
 
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();
@@ -7,25 +8,47 @@ const LoginPage: React.FC = () => {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [rememberMe, setRememberMe] = useState(true);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
 
-    // TODO: wire this to your auth API + store
-    console.log("Login attempt:", { email, password, rememberMe });
+    // basic guard
+    if (!email || !password) return;
 
-    // Once login works, you might:
-    // - set token in store
-    // - navigate("/orgs");
+    setIsSubmitting(true);
+    setError(null);
+
+    try {
+      const { user, token } = await apiLogin(email, password);
+
+      // store token; rememberMe could later change how we store it
+      window.localStorage.setItem("token", token);
+      window.localStorage.setItem("userEmail", user.email);
+      window.localStorage.setItem("userName", user.name);
+
+      // TODO: later we can use a global auth store instead of localStorage-only
+
+      // after successful login, send them to organizations (we'll build that route later)
+      navigate("/orgs");
+    } catch (err: any) {
+      console.error("Login error:", err);
+      const message =
+        err?.response?.data?.error ||
+        err?.message ||
+        "Unable to log in. Please check your credentials.";
+      setError(message);
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   function handleRegisterClick() {
-    // This assumes you'll later create a /register route
     navigate("/register");
   }
 
   function handleForgotPasswordClick() {
-    // Placeholder route for now; you can add it later
     navigate("/forgot-password");
   }
 
@@ -113,8 +136,14 @@ const LoginPage: React.FC = () => {
             </button>
           </div>
 
-          <button type="submit" className="auth-primary-button">
-            Log in
+          {error && <p className="auth-error">{error}</p>}
+
+          <button
+            type="submit"
+            className="auth-primary-button"
+            disabled={isSubmitting}
+          >
+            {isSubmitting ? "Logging in..." : "Log in"}
           </button>
 
           <div className="auth-footer">
