@@ -1,108 +1,111 @@
 // apps/api/src/tasks.ts
-import express, { Request, Response } from "express";
+import express from "express";
 import { authMiddleware } from "./auth";
 
 const router = express.Router();
 
-type TaskStatus = "todo" | "done";
+// All tasks are per-student in memory for v1
+type TaskStatus = "todo" | "in_progress" | "done";
 
 interface Task {
   id: string;
   ownerId: string;
   title: string;
   status: TaskStatus;
-  dueDate?: string; // ISO string
+  createdAt: string;
+  dueDate?: string | null;
 }
 
-// In-memory task store (per-user via ownerId)
 const tasks: Task[] = [];
 let taskIdCounter = 1;
 
-// Helper: get current user id or send 401 and return null
-function getCurrentUserId(req: Request, res: Response): string | null {
-  const user = (req as any).user as { id: string } | undefined;
-  if (!user) {
-    res.status(401).json({ error: "Unauthenticated" });
-    return null;
-  }
-  return user.id;
-}
-
-// Protect all /tasks routes with auth
+// Require auth for all /tasks routes
 router.use(authMiddleware);
 
-// GET /tasks
-// List current student's tasks
+// GET /tasks - list tasks for current user
 router.get("/", (req, res) => {
-  const userId = getCurrentUserId(req, res);
-  if (!userId) return;
+  const user = (req as any).user as { id: string } | undefined;
 
-  const userTasks = tasks.filter((t) => t.ownerId === userId);
-  return res.json(userTasks);
+  if (!user) {
+    return res.status(401).json({ error: "Unauthenticated" });
+  }
+
+  const userTasks = tasks.filter((t) => t.ownerId === user.id);
+  return res.json({ tasks: userTasks });
 });
 
-// POST /tasks
-// Create a new task
+// POST /tasks - create a new task
 router.post("/", (req, res) => {
-  const userId = getCurrentUserId(req, res);
-  if (!userId) return;
+  const user = (req as any).user as { id: string } | undefined;
+
+  if (!user) {
+    return res.status(401).json({ error: "Unauthenticated" });
+  }
 
   const { title, dueDate } = req.body || {};
-  const taskTitle =
-    title && String(title).trim().length > 0 ? String(title) : "Untitled task";
+
+  if (!title || typeof title !== "string") {
+    return res.status(400).json({ error: "Title is required" });
+  }
 
   const task: Task = {
     id: String(taskIdCounter++),
-    ownerId: userId,
-    title: taskTitle,
+    ownerId: user.id,
+    title: title.trim(),
     status: "todo",
-    dueDate: typeof dueDate === "string" ? dueDate : undefined,
+    createdAt: new Date().toISOString(),
+    dueDate: dueDate ?? null,
   };
 
+  // 👇 This is the ONLY place we push, so only one task is created.
   tasks.push(task);
 
-  return res.status(201).json(task);
+  return res.status(201).json({ task });
 });
 
-// PUT /tasks/:id
-// Partial update: title, status, dueDate
+// PUT /tasks/:id - update a task (title / status / dueDate)
 router.put("/:id", (req, res) => {
-  const userId = getCurrentUserId(req, res);
-  if (!userId) return;
+  const user = (req as any).user as { id: string } | undefined;
 
-  const id = req.params.id;
-  const task = tasks.find((t) => t.id === id && t.ownerId === userId);
+  if (!user) {
+    return res.status(401).json({ error: "Unauthenticated" });
+  }
+
+  const { id } = req.params;
+  const { title, status, dueDate } = req.body || {};
+
+  const task = tasks.find((t) => t.id === id && t.ownerId === user.id);
 
   if (!task) {
     return res.status(404).json({ error: "Task not found" });
   }
 
-  const { title, status, dueDate } = req.body || {};
-
-  if (typeof title === "string") {
-    task.title = title;
+  if (typeof title === "string" && title.trim().length > 0) {
+    task.title = title.trim();
   }
 
-  if (status === "todo" || status === "done") {
+  if (status && (status === "todo" || status === "in_progress" || status === "done")) {
     task.status = status;
   }
 
-  if (typeof dueDate === "string" || dueDate === null) {
-    task.dueDate = typeof dueDate === "string" ? dueDate : undefined;
+  if (dueDate !== undefined) {
+    task.dueDate = dueDate ?? null;
   }
 
-  return res.json(task);
+  return res.json({ task });
 });
 
-// DELETE /tasks/:id
+// DELETE /tasks/:id - delete a task
 router.delete("/:id", (req, res) => {
-  const userId = getCurrentUserId(req, res);
-  if (!userId) return;
+  const user = (req as any).user as { id: string } | undefined;
 
-  const id = req.params.id;
-  const index = tasks.findIndex(
-    (t) => t.id === id && t.ownerId === userId
-  );
+  if (!user) {
+    return res.status(401).json({ error: "Unauthenticated" });
+  }
+
+  const { id } = req.params;
+
+  const index = tasks.findIndex((t) => t.id === id && t.ownerId === user.id);
 
   if (index === -1) {
     return res.status(404).json({ error: "Task not found" });
