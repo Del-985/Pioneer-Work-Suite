@@ -1,3 +1,4 @@
+// apps/web/src/api/tasks.ts
 import { http } from "./http";
 
 export type TaskStatus = "todo" | "in_progress" | "done";
@@ -7,28 +8,38 @@ export interface Task {
   title: string;
   status: TaskStatus;
   dueDate?: string | null;
-  createdAt: string;
+  createdAt?: string;
 }
 
 /**
  * GET /tasks
  */
-export async function getTasks(): Promise<Task[]> {
-  const { data } = await http.get<{ tasks: Task[] }>("/tasks");
-  return data.tasks;
+export async function fetchTasks(): Promise<Task[]> {
+  const { data } = await http.get("/tasks");
+
+  // Backend returns { tasks: [...] }
+  if (data && Array.isArray(data.tasks)) {
+    return data.tasks as Task[];
+  }
+
+  // Fallback if backend shape changes
+  if (Array.isArray(data)) {
+    return data as Task[];
+  }
+
+  return [];
 }
 
 /**
  * POST /tasks
  */
-export async function createTask(title: string, dueDate?: string | null): Promise<Task> {
-  const payload: { title: string; dueDate?: string | null } = { title };
-  if (dueDate !== undefined) {
-    payload.dueDate = dueDate;
+export async function createTask(title: string): Promise<Task> {
+  const { data } = await http.post("/tasks", { title });
+  // Expecting { task: {...} }
+  if (data && data.task) {
+    return data.task as Task;
   }
-
-  const { data } = await http.post<{ task: Task }>("/tasks", payload);
-  return data.task;
+  return data as Task;
 }
 
 /**
@@ -38,8 +49,11 @@ export async function updateTask(
   id: string,
   updates: Partial<Pick<Task, "title" | "status" | "dueDate">>
 ): Promise<Task> {
-  const { data } = await http.put<{ task: Task }>(`/tasks/${id}`, updates);
-  return data.task;
+  const { data } = await http.put(`/tasks/${id}`, updates);
+  if (data && data.task) {
+    return data.task as Task;
+  }
+  return data as Task;
 }
 
 /**
