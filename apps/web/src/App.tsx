@@ -1,4 +1,35 @@
 import React, { useState } from "react";
+import { Routes, Route, Navigate } from "react-router-dom";
+import LoginPage from "./pages/LoginPage";
+import RegisterPage from "./pages/RegisterPage";
+
+const RequireAuth: React.FC<{ children: React.ReactElement }> = ({ children }) => {
+  const hasToken =
+    typeof window !== "undefined" && !!window.localStorage.getItem("token");
+
+  if (!hasToken) {
+    return <Navigate to="/login" replace />;
+  }
+
+  return children;
+};
+
+const Dashboard: React.FC = () => {
+  const userName =
+    typeof window !== "undefined"
+      ? window.localStorage.getItem("userName") || "Student"
+      : "Student";
+
+  return (
+    <div className="workspace-placeholder">
+      <h2>Welcome, {userName}</h2>
+      <p>
+        This is your student workspace. In v1, you&apos;ll be able to write documents,
+        track tasks, and later expand to email and spreadsheets.
+      </p>
+    </div>
+  );
+};
 
 const App: React.FC = () => {
   const [isTodoOpen, setIsTodoOpen] = useState(true);
@@ -13,14 +44,20 @@ const App: React.FC = () => {
         </div>
 
         <nav className="sidebar-nav">
-          <button className="nav-item" type="button">
+          <button
+            className="nav-item"
+            type="button"
+            onClick={() => {
+              window.location.href = "/Pioneer-Work-Suite/dashboard";
+            }}
+          >
             Dashboard
           </button>
-          <button className="nav-item" type="button">
-            Documents
+          <button className="nav-item" type="button" disabled>
+            Documents (coming soon)
           </button>
-          <button className="nav-item" type="button">
-            Tasks
+          <button className="nav-item" type="button" disabled>
+            Tasks (coming soon)
           </button>
         </nav>
       </aside>
@@ -32,18 +69,37 @@ const App: React.FC = () => {
           <header className="workspace-header">
             <h1>Student Workspace</h1>
             <p className="workspace-subtitle">
-              This is your hub for writing, tasks, and future tools like email and spreadsheets.
+              Sign in, register, and access your student dashboard.
             </p>
           </header>
 
           <section className="workspace-body">
-            <div className="workspace-placeholder">
-              <h2>Welcome to Pioneer (Student)</h2>
-              <p>
-                The backend is live. Next up: we&apos;ll add login and registration to connect to your
-                student account, then hook documents and tasks into this workspace.
-              </p>
-            </div>
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/register" element={<RegisterPage />} />
+              <Route
+                path="/dashboard"
+                element={
+                  <RequireAuth>
+                    <Dashboard />
+                  </RequireAuth>
+                }
+              />
+              {/* Default route: if token, go to dashboard; else go to login */}
+              <Route
+                path="/"
+                element={
+                  typeof window !== "undefined" &&
+                  window.localStorage.getItem("token") ? (
+                    <Navigate to="/dashboard" replace />
+                  ) : (
+                    <Navigate to="/login" replace />
+                  )
+                }
+              />
+              {/* Catch-all */}
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
           </section>
         </main>
 
@@ -68,10 +124,9 @@ const App: React.FC = () => {
           {isTodoOpen && (
             <div className="todo-body">
               <ul className="todo-list">
-                <li>Wire login to /auth/login</li>
-                <li>Wire register to /auth/register</li>
-                <li>Hook documents UI to /documents</li>
-                <li>Hook tasks UI to /tasks</li>
+                <li>Register a student account</li>
+                <li>Log in with your new account</li>
+                <li>Come back later for documents and tasks UI</li>
               </ul>
             </div>
           )}
