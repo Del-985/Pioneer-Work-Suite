@@ -1,16 +1,14 @@
 import axios from "axios";
 
-const API_BASE_URL = import.meta.env.VITE_API_URL;
+const API_BASE_URL =
+  import.meta.env.VITE_API_URL || "https://pioneer-work-suite.onrender.com";
 
-if (!API_BASE_URL) {
-  // Not fatal for build, but will make API calls fail at runtime.
-  // This is just a warning in the console.
+if (!import.meta.env.VITE_API_URL) {
   console.warn(
-    "VITE_API_URL is not set. API requests from the frontend will fail until it is configured."
+    'VITE_API_URL is not set. Falling back to "https://pioneer-work-suite.onrender.com".'
   );
 }
 
-// Central axios instance for the whole app
 export const http = axios.create({
   baseURL: API_BASE_URL,
 });
