@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import { authRouter } from "./auth";
 import { documentsRouter } from "./documents";
+import { tasksRouter } from "./tasks";
 
 const app = express();
 
@@ -24,6 +25,9 @@ app.use("/auth", authRouter);
 
 // Student documents (requires auth)
 app.use("/documents", documentsRouter);
+
+// Student tasks (requires auth)
+app.use("/tasks", tasksRouter);
 
 const PORT = process.env.PORT || 4000;
 
