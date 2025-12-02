@@ -1,0 +1,284 @@
+/* ========== Global reset & base styles ========== */
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+    sans-serif;
+  background-color: #05070a;
+  color: #f5f5f5;
+}
+
+/* Root app container */
+.app {
+  height: 100vh;
+  display: flex;
+  background-color: #05070a;
+}
+
+.app-dark {
+  color-scheme: dark;
+}
+
+/* ========== Left sidebar ========== */
+
+.sidebar-left {
+  width: 220px;
+  background: radial-gradient(circle at top left, #22253a 0, #10121a 40%, #05070a 100%);
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.sidebar-logo {
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #3f64ff, #7f3dff);
+  box-shadow: 0 0 20px rgba(127, 61, 255, 0.5);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.app-name {
+  font-weight: 600;
+  font-size: 14px;
+  letter-spacing: 0.04em;
+}
+
+.app-tagline {
+  font-size: 11px;
+  opacity: 0.9;
+}
+
+.sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.nav-item {
+  all: unset;
+  cursor: pointer;
+  padding: 8px 10px;
+  border-radius: 6px;
+  font-size: 14px;
+  color: #c6c9ff;
+  display: flex;
+  align-items: center;
+  transition: background 0.15s ease, color 0.15s ease, transform 0.08s ease;
+}
+
+.nav-item::before {
+  content: "•";
+  font-size: 10px;
+  margin-right: 8px;
+  color: #5055ff;
+}
+
+.nav-item:hover {
+  background: rgba(80, 85, 255, 0.16);
+  color: #ffffff;
+  transform: translateX(1px);
+}
+
+/* ========== Main layout (center + right) ========== */
+
+.main-layout {
+  flex: 1;
+  display: flex;
+  min-width: 0;
+  background: radial-gradient(circle at top, #131624 0, #05070a 60%);
+}
+
+/* ========== Center workspace ========== */
+
+.workspace {
+  flex: 1;
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.workspace-header {
+  margin-bottom: 16px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding-bottom: 10px;
+}
+
+.workspace-header h1 {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.workspace-subtitle {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #9da2c8;
+}
+
+.workspace-body {
+  flex: 1;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.workspace-placeholder {
+  margin-top: 24px;
+  padding: 18px 20px;
+  border-radius: 12px;
+  background: rgba(12, 16, 32, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  max-width: 520px;
+  width: 100%;
+  text-align: left;
+  color: #c9ccef;
+  font-size: 14px;
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.6);
+}
+
+.workspace-placeholder h2 {
+  margin: 0 0 8px;
+  font-size: 18px;
+}
+
+/* ========== Right to-do panel ========== */
+
+.sidebar-right {
+  position: relative;
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+  background: linear-gradient(180deg, #101323, #05070a);
+  display: flex;
+  flex-direction: column;
+  transition: width 0.2s ease, max-width 0.2s ease;
+}
+
+/* Open vs collapsed state */
+.sidebar-right-open {
+  width: 260px;
+  max-width: 260px;
+}
+
+.sidebar-right-collapsed {
+  width: 40px;
+  max-width: 40px;
+}
+
+/* Header row with toggle button */
+.todo-header {
+  display: flex;
+  align-items: center;
+  padding: 10px 8px;
+  gap: 8px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.todo-toggle {
+  all: unset;
+  cursor: pointer;
+  width: 24px;
+  height: 24px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  color: #d6d9ff;
+  background: radial-gradient(circle at 30% 0, #3f64ff, #1a1f3b 60%, #05070a);
+  box-shadow: 0 0 10px rgba(63, 100, 255, 0.4);
+}
+
+.todo-toggle:hover {
+  filter: brightness(1.1);
+}
+
+.todo-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 500;
+  color: #f0f1ff;
+}
+
+/* To-do content */
+.todo-body {
+  padding: 10px 10px 14px;
+  overflow-y: auto;
+}
+
+.todo-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  font-size: 13px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.todo-list li {
+  padding: 8px 10px;
+  border-radius: 8px;
+  background: rgba(12, 16, 32, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  color: #c7caec;
+}
+
+/* Scrollbar styling for todo body */
+.todo-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.todo-body::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.todo-body::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 999px;
+}
+
+/* ========== Responsiveness ========== */
+
+@media (max-width: 900px) {
+  .sidebar-left {
+    width: 180px;
+  }
+
+  .sidebar-right-open {
+    width: 220px;
+    max-width: 220px;
+  }
+}
+
+@media (max-width: 720px) {
+  .sidebar-left {
+    display: none;
+  }
+
+  .sidebar-right-open {
+    display: none;
+  }
+
+  .workspace {
+    padding: 12px 10px;
+  }
+}
