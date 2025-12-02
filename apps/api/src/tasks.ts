@@ -1,5 +1,5 @@
 // apps/api/src/tasks.ts
-import express from "express";
+import express, { Request, Response } from "express";
 import { authMiddleware } from "./auth";
 
 const router = express.Router();
@@ -18,28 +18,34 @@ interface Task {
 const tasks: Task[] = [];
 let taskIdCounter = 1;
 
+// Helper: get current user id or send 401 and return null
+function getCurrentUserId(req: Request, res: Response): string | null {
+  const user = (req as any).user as { id: string } | undefined;
+  if (!user) {
+    res.status(401).json({ error: "Unauthenticated" });
+    return null;
+  }
+  return user.id;
+}
+
 // Protect all /tasks routes with auth
 router.use(authMiddleware);
 
 // GET /tasks
 // List current student's tasks
 router.get("/", (req, res) => {
-  const user = (req as any).user as { id: string } | undefined;
-  if (!user) {
-    return res.status(401).json({ error: "Unauthenticated" });
-  }
+  const userId = getCurrentUserId(req, res);
+  if (!userId) return;
 
-  const userTasks = tasks.filter((t) => t.ownerId === user.id);
+  const userTasks = tasks.filter((t) => t.ownerId === userId);
   return res.json(userTasks);
 });
 
 // POST /tasks
 // Create a new task
 router.post("/", (req, res) => {
-  const user = (req as any).user as { id: string } | undefined;
-  if (!user) {
-    return res.status(401).json({ error: "Unauthenticated" });
-  }
+  const userId = getCurrentUserId(req, res);
+  if (!userId) return;
 
   const { title, dueDate } = req.body || {};
   const taskTitle =
@@ -47,7 +53,7 @@ router.post("/", (req, res) => {
 
   const task: Task = {
     id: String(taskIdCounter++),
-    ownerId: user.id,
+    ownerId: userId,
     title: taskTitle,
     status: "todo",
     dueDate: typeof dueDate === "string" ? dueDate : undefined,
@@ -58,31 +64,19 @@ router.post("/", (req, res) => {
   return res.status(201).json(task);
 });
 
-// Helper: find task owned by current user
-function findUserTask(req: express.Request) {
-  const user = (req as any).user as { id: string } | undefined;
-  if (!user) {
-    return { error: { status: 401, body: { error: "Unauthenticated" } } };
-  }
-
-  const id = req.params.id;
-  const task = tasks.find((t) => t.id === id && t.ownerId === user.id);
-  if (!task) {
-    return { error: { status: 404, body: { error: "Task not found" } } };
-  }
-
-  return { user, task };
-}
-
 // PUT /tasks/:id
 // Partial update: title, status, dueDate
 router.put("/:id", (req, res) => {
-  const result = findUserTask(req);
-  if ("error" in result) {
-    return res.status(result.error.status).json(result.error.body);
+  const userId = getCurrentUserId(req, res);
+  if (!userId) return;
+
+  const id = req.params.id;
+  const task = tasks.find((t) => t.id === id && t.ownerId === userId);
+
+  if (!task) {
+    return res.status(404).json({ error: "Task not found" });
   }
 
-  const { task } = result;
   const { title, status, dueDate } = req.body || {};
 
   if (typeof title === "string") {
@@ -102,17 +96,19 @@ router.put("/:id", (req, res) => {
 
 // DELETE /tasks/:id
 router.delete("/:id", (req, res) => {
-  const result = findUserTask(req);
-  if ("error" in result) {
-    return res.status(result.error.status).json(result.error.body);
+  const userId = getCurrentUserId(req, res);
+  if (!userId) return;
+
+  const id = req.params.id;
+  const index = tasks.findIndex(
+    (t) => t.id === id && t.ownerId === userId
+  );
+
+  if (index === -1) {
+    return res.status(404).json({ error: "Task not found" });
   }
 
-  const index = tasks.findIndex(
-    (t) => t.id === result.task.id && t.ownerId === result.task.ownerId
-  );
-  if (index >= 0) {
-    tasks.splice(index, 1);
-  }
+  tasks.splice(index, 1);
 
   return res.status(204).send();
 });
