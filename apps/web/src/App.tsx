@@ -1,9 +1,9 @@
+// apps/web/src/App.tsx
 import React, { useState, useEffect } from "react";
 import { Routes, Route, Navigate, Link } from "react-router-dom";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
-import type { Task } from "./api/tasks";
-import { getTasks, createTask, updateTask, deleteTask } from "./api/tasks";
+import { fetchTasks, createTask, updateTask, deleteTask, Task } from "./api/tasks";
 
 const RequireAuth: React.FC<{ children: React.ReactElement }> = ({ children }) => {
   const hasToken =
@@ -36,16 +36,15 @@ const Dashboard: React.FC = () => {
 const App: React.FC = () => {
   const [isTodoOpen, setIsTodoOpen] = useState(true);
 
-  // Tasks state
+  const hasToken =
+    typeof window !== "undefined" && !!window.localStorage.getItem("token");
+
+  // ---- Tasks state ----
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
   const [tasksError, setTasksError] = useState<string | null>(null);
   const [newTaskTitle, setNewTaskTitle] = useState("");
 
-  const hasToken =
-    typeof window !== "undefined" && !!window.localStorage.getItem("token");
-
-  // Load tasks when user is authenticated
   useEffect(() => {
     if (!hasToken) {
       setTasks([]);
@@ -56,9 +55,9 @@ const App: React.FC = () => {
       try {
         setTasksLoading(true);
         setTasksError(null);
-        const data = await getTasks();
-        setTasks(data);
-      } catch (err: any) {
+        const loaded = await fetchTasks();
+        setTasks(loaded);
+      } catch (err) {
         console.error("Error loading tasks:", err);
         setTasksError("Unable to load tasks.");
       } finally {
@@ -70,11 +69,12 @@ const App: React.FC = () => {
   async function handleAddTask(e: React.FormEvent) {
     e.preventDefault();
     if (!newTaskTitle.trim()) return;
+
     try {
       const created = await createTask(newTaskTitle.trim());
       setTasks((prev) => [created, ...prev]);
       setNewTaskTitle("");
-    } catch (err: any) {
+    } catch (err) {
       console.error("Error creating task:", err);
       setTasksError("Unable to create task.");
     }
@@ -93,7 +93,7 @@ const App: React.FC = () => {
 
     try {
       await updateTask(task.id, { status: nextStatus });
-    } catch (err: any) {
+    } catch (err) {
       console.error("Error updating task:", err);
       setTasksError("Unable to update task.");
     }
@@ -104,7 +104,7 @@ const App: React.FC = () => {
     setTasks((prev) => prev.filter((t) => t.id !== id));
     try {
       await deleteTask(id);
-    } catch (err: any) {
+    } catch (err) {
       console.error("Error deleting task:", err);
       setTasksError("Unable to delete task.");
     }
@@ -155,7 +155,6 @@ const App: React.FC = () => {
                   </RequireAuth>
                 }
               />
-              {/* Default route: if token, go to dashboard; else go to login */}
               <Route
                 path="/"
                 element={
@@ -166,7 +165,6 @@ const App: React.FC = () => {
                   )
                 }
               />
-              {/* Catch-all */}
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </section>
