@@ -1,6 +1,7 @@
 // apps/api/src/server.ts
 import express from "express";
 import cors from "cors";
+import { authRouter } from "./auth";
 
 const app = express();
 
@@ -8,7 +9,7 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Simple health check
+// Health check
 app.get("/health", (_req, res) => {
   res.json({
     status: "ok",
@@ -17,8 +18,8 @@ app.get("/health", (_req, res) => {
   });
 });
 
-// TODO: later we'll add auth routes here, e.g.
-// app.use("/auth", authRouter);
+// Student auth routes (register, login, me)
+app.use("/auth", authRouter);
 
 const PORT = process.env.PORT || 4000;
 
