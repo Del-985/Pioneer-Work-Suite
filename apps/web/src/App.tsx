@@ -66,19 +66,25 @@ const App: React.FC = () => {
     })();
   }, [hasToken]);
 
-  async function handleAddTask(e: React.FormEvent) {
-    e.preventDefault();
-    if (!newTaskTitle.trim()) return;
+async function handleAddTask(e: React.FormEvent) {
+  e.preventDefault();
+  if (!newTaskTitle.trim()) return;
 
-    try {
-      const created = await createTask(newTaskTitle.trim());
-      setTasks((prev) => [created, ...prev]);
-      setNewTaskTitle("");
-    } catch (err) {
-      console.error("Error creating task:", err);
-      setTasksError("Unable to create task.");
-    }
+  // Clear any old error when we try again
+  setTasksError(null);
+
+  try {
+    const created = await createTask(newTaskTitle.trim());
+    setTasks((prev) => [created, ...prev]);
+    setNewTaskTitle("");
+
+    // Successful create → clear "Unable to load tasks" if it was set
+    setTasksError(null);
+  } catch (err) {
+    console.error("Error creating task:", err);
+    setTasksError("Unable to create task.");
   }
+}
 
   async function handleToggleTask(task: Task) {
     const nextStatus: Task["status"] =
