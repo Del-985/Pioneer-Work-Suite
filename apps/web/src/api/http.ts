@@ -1,13 +1,8 @@
 import axios from "axios";
 
-const API_BASE_URL =
-  import.meta.env.VITE_API_URL || "https://pioneer-work-suite.onrender.com";
-
-if (!import.meta.env.VITE_API_URL) {
-  console.warn(
-    'VITE_API_URL is not set. Falling back to "https://pioneer-work-suite.onrender.com".'
-  );
-}
+// For v1, we hardcode the backend API base URL.
+// This avoids any env/config issues in GitHub Pages.
+const API_BASE_URL = "https://pioneer-work-suite.onrender.com";
 
 export const http = axios.create({
   baseURL: API_BASE_URL,
