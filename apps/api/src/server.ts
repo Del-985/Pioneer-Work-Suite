@@ -2,6 +2,7 @@
 import express from "express";
 import cors from "cors";
 import { authRouter } from "./auth";
+import { documentsRouter } from "./documents";
 
 const app = express();
 
@@ -20,6 +21,9 @@ app.get("/health", (_req, res) => {
 
 // Student auth routes (register, login, me)
 app.use("/auth", authRouter);
+
+// Student documents (requires auth)
+app.use("/documents", documentsRouter);
 
 const PORT = process.env.PORT || 4000;
 
