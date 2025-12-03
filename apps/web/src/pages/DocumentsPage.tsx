@@ -36,7 +36,7 @@ const DocumentsPage: React.FC = () => {
   // Autosave timer ref
   const autosaveTimeoutRef = useRef<number | null>(null);
 
-  // Find the currently selected document object
+  // Find the currently selected document object (may briefly be null)
   const selectedDoc = selectedId
     ? documents.find((d) => d.id === selectedId) || null
     : null;
@@ -57,8 +57,7 @@ const DocumentsPage: React.FC = () => {
         setListError(null);
         const docs = await fetchDocuments();
 
-        // Important: don't clobber existing docs if something (like "New")
-        // already populated state while the fetch was in flight.
+        // Don't clobber existing docs if a new one was created while fetch was in flight
         setDocuments((prev) => (prev.length > 0 ? prev : docs));
       } catch (err) {
         console.error("Error loading documents:", err);
@@ -118,7 +117,7 @@ const DocumentsPage: React.FC = () => {
       setSwitchingDoc(true);
       setEditTitle(created.title);
       setEditContent(created.content || "");
-      setLastSavedAt(created.updatedAt);
+      setLastSavedAt(created.updatedAt || created.createdAt || null);
       window.setTimeout(() => {
         setSwitchingDoc(false);
       }, 200);
@@ -192,7 +191,8 @@ const DocumentsPage: React.FC = () => {
 
   // Schedule autosave whenever title/content changes
   useEffect(() => {
-    if (!selectedDoc) {
+    // If there is no doc selected or no backing doc yet, skip autosave
+    if (!selectedId || !selectedDoc) {
       clearAutosaveTimer();
       return;
     }
@@ -223,7 +223,7 @@ const DocumentsPage: React.FC = () => {
             doc.id === updated.id ? updated : doc
           )
         );
-        setLastSavedAt(updated.updatedAt);
+        setLastSavedAt(updated.updatedAt || updated.createdAt || null);
       } catch (err) {
         console.error("Error autosaving document:", err);
         setSaveError("Autosave failed.");
@@ -238,10 +238,10 @@ const DocumentsPage: React.FC = () => {
     return () => {
       clearAutosaveTimer();
     };
-  }, [editTitle, editContent, selectedDoc]);
+  }, [editTitle, editContent, selectedId, selectedDoc]);
 
   // Derived UI bits
-  const hasSelection = !!selectedDoc;
+  const hasSelection = selectedId !== null; // <- trust the selection id, not selectedDoc
 
   function renderSaveStatus() {
     if (!hasSelection) return null;
@@ -271,18 +271,35 @@ const DocumentsPage: React.FC = () => {
     }
 
     if (lastSavedAt) {
-      return (
-        <span style={{ fontSize: 12, color: "#6f7598" }}>
-          Saved at{" "}
-          {new Date(lastSavedAt).toLocaleTimeString([], {
-            hour: "2-digit",
-            minute: "2-digit",
-          })}
-        </span>
-      );
+      const d = new Date(lastSavedAt);
+      if (!isNaN(d.getTime())) {
+        return (
+          <span style={{ fontSize: 12, color: "#6f7598" }}>
+            Saved at{" "}
+            {d.toLocaleTimeString([], {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </span>
+        );
+      }
     }
 
     return null;
+  }
+
+  // Helper: safe label for "Updated X"
+  function getUpdatedLabel(doc: Document): string {
+    const raw = doc.updatedAt || doc.createdAt;
+    if (!raw) return "Just now";
+
+    const d = new Date(raw);
+    if (isNaN(d.getTime())) return "Just now";
+
+    return d.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+    });
   }
 
   return (
@@ -404,13 +421,7 @@ const DocumentsPage: React.FC = () => {
 
           {documents.map((doc) => {
             const isActive = doc.id === selectedId;
-            const updatedLabel = new Date(
-              doc.updatedAt
-            ).toLocaleDateString(undefined, {
-              month: "short",
-              day: "numeric",
-            });
-
+            const updatedLabel = getUpdatedLabel(doc);
             const isDeleting = deletingId === doc.id;
 
             return (
