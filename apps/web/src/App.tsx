@@ -109,7 +109,7 @@ const App: React.FC = () => {
     }
   }
 
-  // ---- Tasks state for the right-hand panel ----
+  // ---- Tasks state for both TasksPage and right-hand panel ----
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
   const [tasksError, setTasksError] = useState<string | null>(null);
@@ -157,20 +157,29 @@ const App: React.FC = () => {
     })();
   }, [hasToken]);
 
-  async function handleAddTask(e: React.FormEvent) {
-    e.preventDefault();
-    if (!newTaskTitle.trim()) return;
+  // Shared helper: create a task from a title (used by TasksPage & sidebar)
+  async function createTaskFromTitle(title: string) {
+    const trimmed = title.trim();
+    if (!trimmed) return;
 
     setTasksError(null);
 
     try {
-      const created = await createTask(newTaskTitle.trim());
+      const created = await createTask(trimmed);
       setTasks((prev) => [created, ...prev]);
-      setNewTaskTitle("");
     } catch (err) {
       console.error("Error creating task:", err);
       setTasksError("Unable to create task.");
     }
+  }
+
+  // Sidebar-only handler for its form
+  async function handleAddTask(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newTaskTitle.trim()) return;
+
+    await createTaskFromTitle(newTaskTitle);
+    setNewTaskTitle("");
   }
 
   async function handleToggleTask(task: Task) {
@@ -261,7 +270,14 @@ const App: React.FC = () => {
                 path="/tasks"
                 element={
                   <RequireAuth>
-                    <TasksPage />
+                    <TasksPage
+                      tasks={tasks}
+                      loading={tasksLoading}
+                      error={tasksError}
+                      onCreate={createTaskFromTitle}
+                      onToggle={handleToggleTask}
+                      onDelete={handleDeleteTask}
+                    />
                   </RequireAuth>
                 }
               />
