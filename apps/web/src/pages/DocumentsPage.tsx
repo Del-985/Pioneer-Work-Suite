@@ -1,5 +1,5 @@
 // apps/web/src/pages/DocumentsPage.tsx
-import React, { useEffect, useState, useRef } from "react";
+import React, { useEffect, useState } from "react";
 import {
   fetchDocuments,
   createDocument,
@@ -7,8 +7,6 @@ import {
   deleteDocument,
   Document,
 } from "../api/documents";
-
-const AUTOSAVE_DELAY_MS = 1500; // wait 1.5s after last change
 
 const DocumentsPage: React.FC = () => {
   // List state
@@ -33,21 +31,10 @@ const DocumentsPage: React.FC = () => {
   // “Loading…” when switching between docs (purely UI)
   const [switchingDoc, setSwitchingDoc] = useState(false);
 
-  // Autosave timer ref
-  const autosaveTimeoutRef = useRef<number | null>(null);
-
   // Find the currently selected document object (for labels / updatedAt)
   const selectedDoc = selectedId
     ? documents.find((d) => d.id === selectedId) || null
     : null;
-
-  // Helper: clear any pending autosave timer
-  function clearAutosaveTimer() {
-    if (autosaveTimeoutRef.current !== null) {
-      window.clearTimeout(autosaveTimeoutRef.current);
-      autosaveTimeoutRef.current = null;
-    }
-  }
 
   // Load all documents on mount
   useEffect(() => {
@@ -81,56 +68,10 @@ const DocumentsPage: React.FC = () => {
     }
   }, [documents, selectedId]);
 
-  // When you click a doc in the list
-  function handleSelect(id: string) {
-    clearAutosaveTimer(); // don’t autosave while switching
-    const doc = documents.find((d) => d.id === id);
-    setSelectedId(id);
-    if (doc) {
-      setSwitchingDoc(true);
-      setEditTitle(doc.title);
-      setEditContent(doc.content);
-      setLastSavedAt(doc.updatedAt || doc.createdAt || null);
-      setSaveError(null);
-      setIsSaving(false);
-
-      window.setTimeout(() => {
-        setSwitchingDoc(false);
-      }, 200);
-    }
-  }
-
-  // Create a new document and select it
-  async function handleCreateNew() {
-    clearAutosaveTimer();
-    setCreating(true);
-    setSaveError(null);
-    try {
-      const created = await createDocument("Untitled document", "");
-      // Prepend to list
-      setDocuments((prev) => [created, ...prev]);
-      // Focus editor on it
-      setSelectedId(created.id);
-      setSwitchingDoc(true);
-      setEditTitle(created.title);
-      setEditContent(created.content || "");
-      setLastSavedAt(created.updatedAt || created.createdAt || null);
-      window.setTimeout(() => {
-        setSwitchingDoc(false);
-      }, 200);
-    } catch (err) {
-      console.error("Error creating document:", err);
-      setSaveError("Unable to create document.");
-    } finally {
-      setCreating(false);
-    }
-  }
-
-  // Manual save button – always fires a PUT
-  async function handleManualSave() {
+  // Helper: save the currently selected document to the backend
+  async function saveCurrentDocument() {
     if (!selectedId) return;
 
-    clearAutosaveTimer(); // don’t double-fire with autosave
     setIsSaving(true);
     setSaveError(null);
 
@@ -151,32 +92,92 @@ const DocumentsPage: React.FC = () => {
       );
       setLastSavedAt(updated.updatedAt || updated.createdAt || null);
     } catch (err) {
-      console.error("Error in manual save:", err);
+      console.error("Error saving document:", err);
       setSaveError("Save failed.");
     } finally {
       setIsSaving(false);
     }
   }
 
+  // When you click a doc in the list:
+  // 1) Save the current doc (if any),
+  // 2) Switch to the new one.
+  async function handleSelect(id: string) {
+    if (selectedId && selectedId !== id) {
+      await saveCurrentDocument();
+    }
+
+    const doc = documents.find((d) => d.id === id);
+    setSelectedId(id);
+    if (doc) {
+      setSwitchingDoc(true);
+      setEditTitle(doc.title);
+      setEditContent(doc.content);
+      setLastSavedAt(doc.updatedAt || doc.createdAt || null);
+      setSaveError(null);
+      setIsSaving(false);
+
+      window.setTimeout(() => {
+        setSwitchingDoc(false);
+      }, 200);
+    }
+  }
+
+  // Create a new document:
+  // 1) Save current doc (if any),
+  // 2) Create new,
+  // 3) Select it.
+  async function handleCreateNew() {
+    try {
+      if (selectedId) {
+        await saveCurrentDocument();
+      }
+    } catch {
+      // If saving current doc fails, we still allow creating a new one,
+      // but keep the error message.
+    }
+
+    setCreating(true);
+    setSaveError(null);
+    try {
+      const created = await createDocument("Untitled document", "");
+      setDocuments((prev) => [created, ...prev]);
+      setSelectedId(created.id);
+      setSwitchingDoc(true);
+      setEditTitle(created.title);
+      setEditContent(created.content || "");
+      setLastSavedAt(created.updatedAt || created.createdAt || null);
+      window.setTimeout(() => {
+        setSwitchingDoc(false);
+      }, 200);
+    } catch (err) {
+      console.error("Error creating document:", err);
+      setSaveError("Unable to create document.");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  // Manual save button – always fires a PUT
+  async function handleManualSave() {
+    await saveCurrentDocument();
+  }
+
   // Delete a document (with confirmation if not empty), using live editor content
   async function handleDelete(id: string) {
     const doc = documents.find((d) => d.id === id);
 
-    // Decide emptiness based on CURRENT editor state if this is the selected doc.
     let titleEmpty = true;
     let contentEmpty = true;
 
     if (id === selectedId) {
-      // Use the live editor values
       titleEmpty = !editTitle || editTitle.trim().length === 0;
       contentEmpty = !editContent || editContent.trim().length === 0;
     } else if (doc) {
-      // Fallback for non-selected docs: use stored values
       titleEmpty = !doc.title || doc.title.trim().length === 0;
       contentEmpty = !doc.content || doc.content.trim().length === 0;
     }
 
-    // Only ask for confirmation if the doc isn't empty (including unsaved edits)
     if (!titleEmpty || !contentEmpty) {
       const confirmed = window.confirm(
         "This document has content. Are you sure you want to delete it?"
@@ -186,14 +187,9 @@ const DocumentsPage: React.FC = () => {
       }
     }
 
-    if (id === selectedId) {
-      clearAutosaveTimer();
-    }
-
     setDeletingId(id);
     setSaveError(null);
 
-    // Optimistic UI update
     const previousDocs = documents;
     const remaining = documents.filter((d) => d.id !== id);
     setDocuments(remaining);
@@ -220,12 +216,10 @@ const DocumentsPage: React.FC = () => {
 
     try {
       await deleteDocument(id);
-      // If backend says 404, we treat it as "already gone" and keep UI as-is.
     } catch (err: any) {
       console.error("Error deleting document:", err);
       const status = err?.response?.status;
       if (!status || status !== 404) {
-        // Serious error → rollback and show message
         setDocuments(previousDocs);
         setSaveError("Unable to delete document.");
       }
@@ -234,53 +228,7 @@ const DocumentsPage: React.FC = () => {
     }
   }
 
-  // AUTOSAVE: ultra-simple, always fires after 1.5s of no edits, if a doc is selected
-  useEffect(() => {
-    if (!selectedId) {
-      clearAutosaveTimer();
-      return;
-    }
-
-    // Clear any previous timer
-    clearAutosaveTimer();
-
-    const targetId = selectedId;
-    const currentTitle = editTitle;
-    const currentContent = editContent;
-
-    const timeoutId = window.setTimeout(async () => {
-      try {
-        setIsSaving(true);
-        setSaveError(null);
-        const updated = await updateDocument(targetId, {
-          title: currentTitle,
-          content: currentContent,
-        });
-
-        setDocuments((prev) =>
-          prev.map((doc) =>
-            doc.id === updated.id ? updated : doc
-          )
-        );
-        setLastSavedAt(updated.updatedAt || updated.createdAt || null);
-      } catch (err) {
-        console.error("Error autosaving document:", err);
-        setSaveError("Autosave failed.");
-      } finally {
-        setIsSaving(false);
-        autosaveTimeoutRef.current = null;
-      }
-    }, AUTOSAVE_DELAY_MS);
-
-    autosaveTimeoutRef.current = timeoutId;
-
-    return () => {
-      clearAutosaveTimer();
-    };
-  }, [editTitle, editContent, selectedId]);
-
-  // Derived UI bits
-  const hasSelection = selectedId !== null; // trust the selection id
+  const hasSelection = selectedId !== null;
 
   function renderSaveStatus() {
     if (!hasSelection) return null;
@@ -327,7 +275,6 @@ const DocumentsPage: React.FC = () => {
     return null;
   }
 
-  // Helper: safe label for "Updated X"
   function getUpdatedLabel(doc: Document): string {
     const raw = doc.updatedAt || doc.createdAt;
     if (!raw) return "Just now";
@@ -345,7 +292,7 @@ const DocumentsPage: React.FC = () => {
     <div
       style={{
         display: "flex",
-        flexDirection: "column", // stacked for mobile
+        flexDirection: "column",
         gap: 16,
         height: "100%",
       }}
