@@ -298,4 +298,212 @@ const App: React.FC = () => {
                         flex: 1,
                         padding: "4px 6px",
                         borderRadius: 999,
-                       
+                        border:
+                          sidebarMode === "documents"
+                            ? "1px solid rgba(63,100,255,0.9)"
+                            : "1px solid rgba(255,255,255,0.18)",
+                        background:
+                          sidebarMode === "documents"
+                            ? "rgba(63,100,255,0.15)"
+                            : "transparent",
+                        color: "#f5f5f5",
+                        fontSize: 11,
+                        cursor: "pointer",
+                      }}
+                    >
+                      Docs
+                    </button>
+                  </div>
+
+                  {sidebarMode === "tasks" ? (
+                    <>
+                      {/* Tasks UI */}
+                      <form
+                        onSubmit={handleAddTask}
+                        style={{
+                          display: "flex",
+                          gap: 6,
+                          marginBottom: 10,
+                        }}
+                      >
+                        <input
+                          type="text"
+                          value={newTaskTitle}
+                          onChange={(e) => setNewTaskTitle(e.target.value)}
+                          placeholder="Add a task..."
+                          style={{
+                            flex: 1,
+                            padding: "6px 8px",
+                            borderRadius: 999,
+                            border: "1px solid rgba(255,255,255,0.18)",
+                            background: "#05070a",
+                            color: "#f5f5f5",
+                            fontSize: 12,
+                          }}
+                        />
+                        <button
+                          type="submit"
+                          style={{
+                            padding: "6px 10px",
+                            borderRadius: 999,
+                            border: "none",
+                            fontSize: 12,
+                            cursor: "pointer",
+                            background:
+                              "linear-gradient(135deg, #3f64ff, #7f3dff)",
+                            color: "#ffffff",
+                          }}
+                        >
+                          +
+                        </button>
+                      </form>
+
+                      {tasksLoading && (
+                        <p style={{ fontSize: 12, color: "#9da2c8" }}>
+                          Loading tasks...
+                        </p>
+                      )}
+
+                      {tasksError && (
+                        <p style={{ fontSize: 12, color: "#ff7b88" }}>
+                          {tasksError}
+                        </p>
+                      )}
+
+                      {!tasksLoading &&
+                        tasks.length === 0 &&
+                        !tasksError && (
+                          <p style={{ fontSize: 12, color: "#9da2c8" }}>
+                            No tasks yet. Add your first one above.
+                          </p>
+                        )}
+
+                      <ul className="todo-list">
+                        {tasks.map((task) => (
+                          <li
+                            key={task.id}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              gap: 8,
+                            }}
+                          >
+                            <label
+                              style={{
+                                display: "flex",
+                                alignItems: "center",
+                                gap: 8,
+                                cursor: "pointer",
+                              }}
+                            >
+                              <input
+                                type="checkbox"
+                                checked={task.status === "done"}
+                                onChange={() => handleToggleTask(task)}
+                              />
+                              <span
+                                style={{
+                                  fontSize: 13,
+                                  textDecoration:
+                                    task.status === "done"
+                                      ? "line-through"
+                                      : "none",
+                                  color:
+                                    task.status === "done"
+                                      ? "#6f7598"
+                                      : "#f5f5f5",
+                                }}
+                              >
+                                {task.title}
+                              </span>
+                            </label>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteTask(task.id)}
+                              style={{
+                                all: "unset",
+                                cursor: "pointer",
+                                fontSize: 11,
+                                opacity: 0.7,
+                              }}
+                              aria-label="Delete task"
+                            >
+                              ✕
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  ) : (
+                    <>
+                      {/* Documents quick list */}
+                      {sidebarDocsLoading && (
+                        <p style={{ fontSize: 12, color: "#9da2c8" }}>
+                          Loading documents...
+                        </p>
+                      )}
+
+                      {sidebarDocsError && (
+                        <p style={{ fontSize: 12, color: "#ff7b88" }}>
+                          {sidebarDocsError}
+                        </p>
+                      )}
+
+                      {!sidebarDocsLoading &&
+                        sidebarDocs.length === 0 &&
+                        !sidebarDocsError && (
+                          <p style={{ fontSize: 12, color: "#9da2c8" }}>
+                            No documents yet. Create one from the Documents
+                            page.
+                          </p>
+                        )}
+
+                      <ul className="todo-list">
+                        {sidebarDocs.map((doc) => (
+                          <li
+                            key={doc.id}
+                            style={{
+                              padding: "4px 2px",
+                              fontSize: 12,
+                              whiteSpace: "nowrap",
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                            }}
+                          >
+                            {doc.title || "Untitled document"}
+                          </li>
+                        ))}
+                      </ul>
+
+                      <div
+                        style={{
+                          marginTop: 8,
+                          display: "flex",
+                          justifyContent: "flex-end",
+                        }}
+                      >
+                        <Link
+                          to="/documents"
+                          style={{
+                            fontSize: 11,
+                            color: "#aeb7ff",
+                            textDecoration: "underline",
+                          }}
+                        >
+                          Open Documents
+                        </Link>
+                      </div>
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </aside>
+      </div>
+    </div>
+  );
+};
+
+export default App;
