@@ -43,7 +43,7 @@ const Dashboard: React.FC = () => {
 };
 
 const App: React.FC = () => {
-  const [isTodoOpen, setIsTodoOpen] = useState(true);
+  const [isTodoOpen, setIsTodoOpen] = useState(false);
 
   const hasToken =
     typeof window !== "undefined" && !!window.localStorage.getItem("token");
