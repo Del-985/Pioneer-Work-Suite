@@ -4,6 +4,7 @@ import { Routes, Route, Navigate, Link } from "react-router-dom";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import TasksPage from "./pages/TasksPage";
+import DocumentsPage from "./pages/DocumentsPage";
 import {
   fetchTasks,
   createTask,
@@ -43,6 +44,7 @@ const Dashboard: React.FC = () => {
 };
 
 const App: React.FC = () => {
+  // start collapsed so the bottom tasks panel isn't in your face
   const [isTodoOpen, setIsTodoOpen] = useState(false);
 
   const hasToken =
@@ -137,9 +139,9 @@ const App: React.FC = () => {
           <Link className="nav-item" to="/dashboard">
             Dashboard
           </Link>
-          <button className="nav-item" type="button" disabled>
-            Documents (coming soon)
-          </button>
+          <Link className="nav-item" to="/documents">
+            Documents
+          </Link>
           <Link className="nav-item" to="/tasks">
             Tasks
           </Link>
@@ -153,7 +155,7 @@ const App: React.FC = () => {
           <header className="workspace-header">
             <h1>Student Workspace</h1>
             <p className="workspace-subtitle">
-              Sign in, register, and access your student dashboard and tasks.
+              Sign in, register, and access your dashboard, documents, and tasks.
             </p>
           </header>
 
@@ -166,6 +168,14 @@ const App: React.FC = () => {
                 element={
                   <RequireAuth>
                     <Dashboard />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/documents"
+                element={
+                  <RequireAuth>
+                    <DocumentsPage />
                   </RequireAuth>
                 }
               />
