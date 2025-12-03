@@ -21,7 +21,7 @@ const DocumentsPage: React.FC = () => {
   const [editTitle, setEditTitle] = useState("");
   const [editContent, setEditContent] = useState("");
 
-  // Autosave status
+  // Save status
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
@@ -36,7 +36,7 @@ const DocumentsPage: React.FC = () => {
   // Autosave timer ref
   const autosaveTimeoutRef = useRef<number | null>(null);
 
-  // Find the currently selected document object (may briefly be null)
+  // Find the currently selected document object (for labels / updatedAt)
   const selectedDoc = selectedId
     ? documents.find((d) => d.id === selectedId) || null
     : null;
@@ -49,16 +49,14 @@ const DocumentsPage: React.FC = () => {
     }
   }
 
-  // Load all documents on mount (but don't auto-select here)
+  // Load all documents on mount
   useEffect(() => {
     (async () => {
       try {
         setListLoading(true);
         setListError(null);
         const docs = await fetchDocuments();
-
-        // Don't clobber existing docs if a new one was created while fetch was in flight
-        setDocuments((prev) => (prev.length > 0 ? prev : docs));
+        setDocuments(docs);
       } catch (err) {
         console.error("Error loading documents:", err);
         setListError("Failed to load documents.");
@@ -68,7 +66,7 @@ const DocumentsPage: React.FC = () => {
     })();
   }, []);
 
-  // Separate effect: auto-select first doc *only* if nothing is selected yet
+  // Auto-select first doc if nothing is selected yet
   useEffect(() => {
     if (!selectedId && documents.length > 0) {
       const first = documents[0];
@@ -96,7 +94,6 @@ const DocumentsPage: React.FC = () => {
       setSaveError(null);
       setIsSaving(false);
 
-      // Tiny visual “loading” delay (pure UX)
       window.setTimeout(() => {
         setSwitchingDoc(false);
       }, 200);
@@ -126,6 +123,38 @@ const DocumentsPage: React.FC = () => {
       setSaveError("Unable to create document.");
     } finally {
       setCreating(false);
+    }
+  }
+
+  // Manual save button – always fires a PUT
+  async function handleManualSave() {
+    if (!selectedId) return;
+
+    clearAutosaveTimer(); // don’t double-fire with autosave
+    setIsSaving(true);
+    setSaveError(null);
+
+    const targetId = selectedId;
+    const currentTitle = editTitle;
+    const currentContent = editContent;
+
+    try {
+      const updated = await updateDocument(targetId, {
+        title: currentTitle,
+        content: currentContent,
+      });
+
+      setDocuments((prev) =>
+        prev.map((doc) =>
+          doc.id === updated.id ? updated : doc
+        )
+      );
+      setLastSavedAt(updated.updatedAt || updated.createdAt || null);
+    } catch (err) {
+      console.error("Error in manual save:", err);
+      setSaveError("Save failed.");
+    } finally {
+      setIsSaving(false);
     }
   }
 
@@ -205,70 +234,20 @@ const DocumentsPage: React.FC = () => {
     }
   }
 
-  // AUTOSAVE:
-  // - If there is a selected doc whose DB content is "" and editor content just changed,
-  //   we do an IMMEDIATE save (no debounce) – this is the “force DB to accept new doc” piece.
-  // - Otherwise, we do a debounced save.
+  // AUTOSAVE: ultra-simple, always fires after 1.5s of no edits, if a doc is selected
   useEffect(() => {
     if (!selectedId) {
       clearAutosaveTimer();
       return;
     }
 
-    // If we don't even have a doc object yet (very tiny window), just do debounced save.
-    const baseTitle = selectedDoc?.title ?? "";
-    const baseContent = selectedDoc?.content ?? "";
-
     // Clear any previous timer
     clearAutosaveTimer();
-
-    const changed =
-      editTitle !== baseTitle || editContent !== baseContent;
-
-    // Nothing changed vs last known version → no save
-    if (!changed) {
-      return;
-    }
 
     const targetId = selectedId;
     const currentTitle = editTitle;
     const currentContent = editContent;
 
-    // Is this the first change from empty content?
-    const isFirstChangeFromEmpty =
-      selectedDoc &&
-      selectedDoc.content === "" &&
-      currentContent !== selectedDoc.content;
-
-    //Immediate save for first change from empty → non-empty
-    if (isFirstChangeFromEmpty) {
-      (async () => {
-        try {
-          setIsSaving(true);
-          setSaveError(null);
-          const updated = await updateDocument(targetId, {
-            title: currentTitle,
-            content: currentContent,
-          });
-
-          setDocuments((prev) =>
-            prev.map((doc) =>
-              doc.id === updated.id ? updated : doc
-            )
-          );
-          setLastSavedAt(updated.updatedAt || updated.createdAt || null);
-        } catch (err) {
-          console.error("Error autosaving document (immediate):", err);
-          setSaveError("Autosave failed.");
-        } finally {
-          setIsSaving(false);
-        }
-      })();
-
-      return; // skip debounce in this special case
-    }
-
-    // 🕒 Normal debounced autosave for all other changes
     const timeoutId = window.setTimeout(async () => {
       try {
         setIsSaving(true);
@@ -298,7 +277,7 @@ const DocumentsPage: React.FC = () => {
     return () => {
       clearAutosaveTimer();
     };
-  }, [editTitle, editContent, selectedId, selectedDoc]);
+  }, [editTitle, editContent, selectedId]);
 
   // Derived UI bits
   const hasSelection = selectedId !== null; // trust the selection id
@@ -601,7 +580,33 @@ const DocumentsPage: React.FC = () => {
                   fontWeight: 500,
                 }}
               />
-              <div>{renderSaveStatus()}</div>
+              <div
+                style={{
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 8,
+                }}
+              >
+                <div>{renderSaveStatus()}</div>
+                <button
+                  type="button"
+                  onClick={handleManualSave}
+                  disabled={!selectedId || isSaving}
+                  style={{
+                    padding: "4px 8px",
+                    borderRadius: 999,
+                    border: "none",
+                    fontSize: 11,
+                    cursor: !selectedId || isSaving ? "default" : "pointer",
+                    background: "rgba(127,61,255,0.2)",
+                    color: "#c6b3ff",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {isSaving ? "Saving…" : "Save now"}
+                </button>
+              </div>
             </div>
 
             <textarea
