@@ -61,7 +61,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         documents, track tasks, and later expand to email and spreadsheets.
       </p>
 
-      {/* Simple “settings” for right panel content */}
+      {/* Right panel preference */}
       <div style={{ marginTop: 12 }}>
         <label style={{ fontSize: 13, color: "#9da2c8" }}>
           Right panel content:
@@ -92,13 +92,12 @@ const Dashboard: React.FC<DashboardProps> = ({
 };
 
 const App: React.FC = () => {
-  // start collapsed so the bottom panel isn't in your face
   const [isTodoOpen, setIsTodoOpen] = useState(false);
 
   const hasToken =
     typeof window !== "undefined" && !!window.localStorage.getItem("token");
 
-  // Sidebar mode is now a user setting (Tasks vs Documents)
+  // Sidebar mode preference
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>(() =>
     loadInitialSidebarMode()
   );
@@ -116,12 +115,19 @@ const App: React.FC = () => {
   const [tasksError, setTasksError] = useState<string | null>(null);
   const [newTaskTitle, setNewTaskTitle] = useState("");
 
+  // This token increments whenever the Tasks page changes tasks
+  const [tasksRefreshToken, setTasksRefreshToken] = useState(0);
+
+  function handleTasksChangedFromPage() {
+    setTasksRefreshToken((prev) => prev + 1);
+  }
+
   // ---- Documents state for the right-hand panel (list only) ----
   const [sidebarDocs, setSidebarDocs] = useState<Doc[]>([]);
   const [sidebarDocsLoading, setSidebarDocsLoading] = useState(false);
   const [sidebarDocsError, setSidebarDocsError] = useState<string | null>(null);
 
-  // Load tasks + documents when authenticated
+  // Load tasks + documents when authenticated OR when tasksRefreshToken changes
   useEffect(() => {
     if (!hasToken) {
       setTasks([]);
@@ -156,19 +162,20 @@ const App: React.FC = () => {
         setSidebarDocsLoading(false);
       }
     })();
-  }, [hasToken]);
+  }, [hasToken, tasksRefreshToken]);
 
   async function handleAddTask(e: React.FormEvent) {
     e.preventDefault();
     if (!newTaskTitle.trim()) return;
 
-    // Clear any stale error when trying again
     setTasksError(null);
 
     try {
       const created = await createTask(newTaskTitle.trim());
       setTasks((prev) => [created, ...prev]);
       setNewTaskTitle("");
+      // Sidebar-created tasks also count as a change
+      setTasksRefreshToken((prev) => prev + 1);
     } catch (err) {
       console.error("Error creating task:", err);
       setTasksError("Unable to create task.");
@@ -179,7 +186,6 @@ const App: React.FC = () => {
     const nextStatus: Task["status"] =
       task.status === "done" ? "todo" : "done";
 
-    // Optimistic update
     setTasks((prev) =>
       prev.map((t) =>
         t.id === task.id ? { ...t, status: nextStatus } : t
@@ -188,6 +194,7 @@ const App: React.FC = () => {
 
     try {
       await updateTask(task.id, { status: nextStatus });
+      setTasksRefreshToken((prev) => prev + 1);
     } catch (err) {
       console.error("Error updating task:", err);
       setTasksError("Unable to update task.");
@@ -195,11 +202,11 @@ const App: React.FC = () => {
   }
 
   async function handleDeleteTask(id: string) {
-    // Optimistic remove
     setTasks((prev) => prev.filter((t) => t.id !== id));
 
     try {
       await deleteTask(id);
+      setTasksRefreshToken((prev) => prev + 1);
     } catch (err) {
       console.error("Error deleting task:", err);
       setTasksError("Unable to delete task.");
@@ -228,7 +235,6 @@ const App: React.FC = () => {
         </nav>
       </aside>
 
-      {/* Main content + right panel wrapper */}
       <div className="main-layout">
         {/* Main workspace */}
         <main className="workspace">
@@ -266,11 +272,10 @@ const App: React.FC = () => {
                 path="/tasks"
                 element={
                   <RequireAuth>
-                    <TasksPage />
+                    <TasksPage onTasksChanged={handleTasksChangedFromPage} />
                   </RequireAuth>
                 }
               />
-              {/* Default route: if token, go to dashboard; else go to login */}
               <Route
                 path="/"
                 element={
@@ -281,7 +286,6 @@ const App: React.FC = () => {
                   )
                 }
               />
-              {/* Catch-all */}
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </section>
@@ -439,7 +443,7 @@ const App: React.FC = () => {
                 </>
               ) : (
                 <>
-                  {/* Documents-only panel (mini list) */}
+                  {/* Documents-only panel */}
                   {sidebarDocsLoading && (
                     <p style={{ fontSize: 12, color: "#9da2c8" }}>
                       Loading documents...
