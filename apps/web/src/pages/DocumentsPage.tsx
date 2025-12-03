@@ -76,7 +76,7 @@ const DocumentsPage: React.FC = () => {
       setSwitchingDoc(true);
       setEditTitle(first.title);
       setEditContent(first.content);
-      setLastSavedAt(first.updatedAt);
+      setLastSavedAt(first.updatedAt || first.createdAt || null);
       window.setTimeout(() => {
         setSwitchingDoc(false);
       }, 200);
@@ -92,7 +92,7 @@ const DocumentsPage: React.FC = () => {
       setSwitchingDoc(true);
       setEditTitle(doc.title);
       setEditContent(doc.content);
-      setLastSavedAt(doc.updatedAt);
+      setLastSavedAt(doc.updatedAt || doc.createdAt || null);
       setSaveError(null);
       setIsSaving(false);
 
@@ -129,7 +129,7 @@ const DocumentsPage: React.FC = () => {
     }
   }
 
-  // Delete a document (with confirmation if not empty)
+  // Delete a document (with confirmation if not empty), optimistic
   async function handleDelete(id: string) {
     const doc = documents.find((d) => d.id === id);
 
@@ -156,34 +156,44 @@ const DocumentsPage: React.FC = () => {
     setDeletingId(id);
     setSaveError(null);
 
+    // Optimistic update: remove from UI immediately
+    const previousDocs = documents;
+    const remaining = documents.filter((d) => d.id !== id);
+    setDocuments(remaining);
+
+    if (selectedId === id) {
+      if (remaining.length > 0) {
+        const first = remaining[0];
+        setSelectedId(first.id);
+        setSwitchingDoc(true);
+        setEditTitle(first.title);
+        setEditContent(first.content);
+        setLastSavedAt(first.updatedAt || first.createdAt || null);
+        window.setTimeout(() => {
+          setSwitchingDoc(false);
+        }, 200);
+      } else {
+        setSelectedId(null);
+        setEditTitle("");
+        setEditContent("");
+        setLastSavedAt(null);
+        setSwitchingDoc(false);
+      }
+    }
+
     try {
       await deleteDocument(id);
-      setDocuments((prev) => prev.filter((d) => d.id !== id));
-
-      // If we deleted the one currently open, pick another or clear selection
-      if (selectedId === id) {
-        const remaining = documents.filter((d) => d.id !== id);
-        if (remaining.length > 0) {
-          const first = remaining[0];
-          setSelectedId(first.id);
-          setSwitchingDoc(true);
-          setEditTitle(first.title);
-          setEditContent(first.content);
-          setLastSavedAt(first.updatedAt);
-          window.setTimeout(() => {
-            setSwitchingDoc(false);
-          }, 200);
-        } else {
-          setSelectedId(null);
-          setEditTitle("");
-          setEditContent("");
-          setLastSavedAt(null);
-          setSwitchingDoc(false);
-        }
-      }
-    } catch (err) {
+      // If backend says 404, we treat it as "already gone" and keep UI as-is.
+    } catch (err: any) {
       console.error("Error deleting document:", err);
-      setSaveError("Unable to delete document.");
+
+      const status = err?.response?.status;
+      if (status && status !== 404) {
+        // Serious error → rollback and show message
+        setDocuments(previousDocs);
+        setSaveError("Unable to delete document.");
+      }
+      // For 404, do nothing: optimistic UI is already correct.
     } finally {
       setDeletingId(null);
     }
@@ -241,7 +251,7 @@ const DocumentsPage: React.FC = () => {
   }, [editTitle, editContent, selectedId, selectedDoc]);
 
   // Derived UI bits
-  const hasSelection = selectedId !== null; // <- trust the selection id, not selectedDoc
+  const hasSelection = selectedId !== null; // trust the selection id
 
   function renderSaveStatus() {
     if (!hasSelection) return null;
