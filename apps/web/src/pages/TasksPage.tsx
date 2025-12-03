@@ -8,12 +8,7 @@ import {
   Task,
 } from "../api/tasks";
 
-interface TasksPageProps {
-  // Optional callback for when tasks change, so App (sidebar) can refresh
-  onTasksChanged?: () => void;
-}
-
-const TasksPage: React.FC<TasksPageProps> = ({ onTasksChanged }) => {
+const TasksPage: React.FC = () => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -44,7 +39,6 @@ const TasksPage: React.FC<TasksPageProps> = ({ onTasksChanged }) => {
       const created = await createTask(newTitle.trim());
       setTasks((prev) => [created, ...prev]);
       setNewTitle("");
-      onTasksChanged?.(); // notify parent (App) that tasks changed
     } catch (err) {
       console.error("Error creating task:", err);
       setError("Unable to create task.");
@@ -64,7 +58,6 @@ const TasksPage: React.FC<TasksPageProps> = ({ onTasksChanged }) => {
 
     try {
       await updateTask(task.id, { status: nextStatus });
-      onTasksChanged?.();
     } catch (err) {
       console.error("Error updating task:", err);
       setError("Unable to update task.");
@@ -77,7 +70,6 @@ const TasksPage: React.FC<TasksPageProps> = ({ onTasksChanged }) => {
 
     try {
       await deleteTask(id);
-      onTasksChanged?.();
     } catch (err) {
       console.error("Error deleting task:", err);
       setError("Unable to delete task.");
@@ -90,7 +82,7 @@ const TasksPage: React.FC<TasksPageProps> = ({ onTasksChanged }) => {
         <h2>Tasks</h2>
         <p>
           Track your work here. These tasks are stored in your account and also
-          feed into the right-hand Tasks panel (when selected).
+          appear in the right-hand Tasks panel when it&apos;s set to Tasks mode.
         </p>
       </div>
 
