@@ -1,336 +1,426 @@
 // apps/web/src/pages/DocumentsPage.tsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import {
   fetchDocuments,
   createDocument,
   updateDocument,
-  deleteDocument,
   Document,
 } from "../api/documents";
 
+const AUTOSAVE_DELAY_MS = 1500; // wait 1.5s after last change
+
 const DocumentsPage: React.FC = () => {
+  // List state
   const [documents, setDocuments] = useState<Document[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [listLoading, setListLoading] = useState(false);
+  const [listError, setListError] = useState<string | null>(null);
 
+  // Currently selected document
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [title, setTitle] = useState("");
-  const [content, setContent] = useState("");
+  const [editTitle, setEditTitle] = useState("");
+  const [editContent, setEditContent] = useState("");
 
-  const [saving, setSaving] = useState(false);
+  // Autosave status
+  const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
 
-  // Load docs on mount
+  // New doc button loading
+  const [creating, setCreating] = useState(false);
+
+  // Load all documents on mount
   useEffect(() => {
     (async () => {
       try {
-        setLoading(true);
-        setError(null);
-        const loaded = await fetchDocuments();
-        setDocuments(loaded);
+        setListLoading(true);
+        setListError(null);
+        const docs = await fetchDocuments();
+        setDocuments(docs);
 
-        // v1.1 change: DO NOT auto-select the first document.
-        // User must explicitly pick or create a doc to start editing.
+        // If nothing selected yet, pick the most recent if any
+        if (!selectedId && docs.length > 0) {
+          const first = docs[0];
+          setSelectedId(first.id);
+          setEditTitle(first.title);
+          setEditContent(first.content);
+          setLastSavedAt(first.updatedAt);
+        }
       } catch (err) {
         console.error("Error loading documents:", err);
-        setError("Unable to load documents.");
+        setListError("Failed to load documents.");
       } finally {
-        setLoading(false);
+        setListLoading(false);
       }
     })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function handleSelectDoc(doc: Document) {
-    setSelectedId(doc.id);
-    setTitle(doc.title);
-    setContent(doc.content);
-    setError(null);
-  }
-
-  async function handleNewDocument() {
-    setError(null);
-    try {
-      const created = await createDocument("Untitled document", "");
-      setDocuments((prev) => [created, ...prev]);
-      setSelectedId(created.id);
-      setTitle(created.title);
-      setContent(created.content);
-    } catch (err) {
-      console.error("Error creating document:", err);
-      setError("Unable to create document.");
-    }
-  }
-
-  async function handleDeleteSelected() {
-    if (!selectedId) return;
-    const toDelete = selectedId;
-
-    // Optimistic UI: remove locally first
-    const remaining = documents.filter((d) => d.id !== toDelete);
-    setDocuments(remaining);
-
-    // Decide what to show next
-    if (remaining.length > 0) {
-      const next = remaining[0];
-      setSelectedId(next.id);
-      setTitle(next.title);
-      setContent(next.content);
-    } else {
-      setSelectedId(null);
-      setTitle("");
-      setContent("");
-    }
-
-    try {
-      await deleteDocument(toDelete);
-    } catch (err) {
-      console.error("Error deleting document:", err);
-      setError("Unable to delete document.");
-    }
-  }
-
-  async function handleSave() {
-    if (!selectedId) {
-      // No doc selected; in v1.1 we just do nothing here.
-      return;
-    }
-
-    setSaving(true);
-    setError(null);
-
-    try {
-      const updated = await updateDocument(selectedId, {
-        title,
-        content,
-      });
-
-      setDocuments((prev) =>
-        prev.map((d) => (d.id === updated.id ? updated : d))
-      );
-    } catch (err) {
-      console.error("Error saving document:", err);
-      setError("Unable to save document.");
-    } finally {
-      setSaving(false);
-    }
-  }
-
+  // Find the currently selected document object
   const selectedDoc = selectedId
-    ? documents.find((d) => d.id === selectedId)
+    ? documents.find((d) => d.id === selectedId) || null
     : null;
 
+  // When you click a doc in the list
+  function handleSelect(id: string) {
+    const doc = documents.find((d) => d.id === id);
+    setSelectedId(id);
+    if (doc) {
+      setEditTitle(doc.title);
+      setEditContent(doc.content);
+      setLastSavedAt(doc.updatedAt);
+      setSaveError(null);
+    }
+  }
+
+  // Create a new document and select it
+  async function handleCreateNew() {
+    setCreating(true);
+    setSaveError(null);
+    try {
+      const created = await createDocument("Untitled document", "");
+      // Prepend to list
+      setDocuments((prev) => [created, ...prev]);
+      // Focus editor on it
+      setSelectedId(created.id);
+      setEditTitle(created.title);
+      setEditContent(created.content || "");
+      setLastSavedAt(created.updatedAt);
+    } catch (err) {
+      console.error("Error creating document:", err);
+      setSaveError("Unable to create document.");
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  // Autosave implementation
+  const queueAutosave = useCallback(() => {
+    if (!selectedId) return;
+    if (!selectedDoc) return;
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(async () => {
+      // If nothing actually changed, skip
+      if (
+        editTitle === selectedDoc.title &&
+        editContent === selectedDoc.content
+      ) {
+        return;
+      }
+
+      try {
+        setIsSaving(true);
+        setSaveError(null);
+        const updated = await updateDocument(selectedDoc.id, {
+          title: editTitle,
+          content: editContent,
+        });
+
+        // Update in list
+        setDocuments((prev) =>
+          prev.map((doc) =>
+            doc.id === updated.id ? updated : doc
+          )
+        );
+        setLastSavedAt(updated.updatedAt);
+      } catch (err) {
+        console.error("Error autosaving document:", err);
+        setSaveError("Autosave failed.");
+      } finally {
+        setIsSaving(false);
+      }
+    }, AUTOSAVE_DELAY_MS);
+
+    return () => {
+      clearTimeout(timeoutId);
+      controller.abort();
+    };
+  }, [selectedId, selectedDoc, editTitle, editContent]);
+
+  // Fire autosave when editTitle/editContent change
+  useEffect(() => {
+    const cleanup = queueAutosave();
+    return () => {
+      if (cleanup) cleanup();
+    };
+  }, [editTitle, editContent, queueAutosave]);
+
+  // Derived UI bits
+  const hasSelection = !!selectedDoc;
+
+  function renderSaveStatus() {
+    if (!hasSelection) return null;
+
+    if (isSaving) {
+      return (
+        <span style={{ fontSize: 12, color: "#9da2c8" }}>
+          Saving…
+        </span>
+      );
+    }
+
+    if (saveError) {
+      return (
+        <span style={{ fontSize: 12, color: "#ff7b88" }}>
+          {saveError}
+        </span>
+      );
+    }
+
+    if (lastSavedAt) {
+      return (
+        <span style={{ fontSize: 12, color: "#6f7598" }}>
+          Saved at{" "}
+          {new Date(lastSavedAt).toLocaleTimeString([], {
+            hour: "2-digit",
+            minute: "2-digit",
+          })}
+        </span>
+      );
+    }
+
+    return null;
+  }
+
   return (
-    <div style={{ display: "flex", height: "100%", gap: 16 }}>
-      {/* Left: documents list */}
+    <div
+      style={{
+        display: "grid",
+        gridTemplateColumns: "minmax(220px, 280px) minmax(0, 1fr)",
+        gap: 16,
+        height: "100%",
+      }}
+    >
+      {/* Left: document list */}
       <div
         style={{
-          width: 220,
-          minWidth: 220,
-          borderRadius: 16,
-          border: "1px solid rgba(255,255,255,0.06)",
-          background: "#050713",
-          padding: 10,
           display: "flex",
           flexDirection: "column",
-          gap: 8,
+          borderRadius: 12,
+          border: "1px solid rgba(255,255,255,0.08)",
+          background: "#050713",
+          overflow: "hidden",
         }}
       >
         <div
           style={{
+            padding: "10px 12px",
+            borderBottom: "1px solid rgba(255,255,255,0.06)",
             display: "flex",
             alignItems: "center",
             justifyContent: "space-between",
-            marginBottom: 4,
+            gap: 8,
           }}
         >
-          <span style={{ fontSize: 13, fontWeight: 600 }}>Documents</span>
+          <div>
+            <h2
+              style={{
+                margin: 0,
+                fontSize: 14,
+                fontWeight: 500,
+              }}
+            >
+              Documents
+            </h2>
+            {listLoading ? (
+              <p
+                style={{
+                  margin: 0,
+                  marginTop: 2,
+                  fontSize: 11,
+                  color: "#9da2c8",
+                }}
+              >
+                Loading…
+              </p>
+            ) : (
+              <p
+                style={{
+                  margin: 0,
+                  marginTop: 2,
+                  fontSize: 11,
+                  color: "#6f7598",
+                }}
+              >
+                {documents.length} total
+              </p>
+            )}
+          </div>
           <button
             type="button"
-            onClick={handleNewDocument}
+            onClick={handleCreateNew}
+            disabled={creating}
             style={{
-              border: "none",
+              padding: "6px 10px",
               borderRadius: 999,
-              padding: "4px 8px",
-              cursor: "pointer",
-              fontSize: 11,
-              background: "linear-gradient(135deg, #3f64ff, #7f3dff)",
+              border: "none",
+              cursor: creating ? "default" : "pointer",
+              background: creating
+                ? "rgba(127,61,255,0.6)"
+                : "linear-gradient(135deg, #3f64ff, #7f3dff)",
               color: "#ffffff",
+              fontSize: 12,
+              fontWeight: 500,
+              whiteSpace: "nowrap",
             }}
           >
-            New
+            {creating ? "Creating…" : "New"}
           </button>
         </div>
 
-        {loading && (
-          <p style={{ fontSize: 12, color: "#9da2c8" }}>Loading…</p>
-        )}
-
-        {!loading && documents.length === 0 && (
-          <p style={{ fontSize: 12, color: "#9da2c8" }}>
-            No documents yet. Create your first one.
-          </p>
+        {listError && (
+          <div
+            style={{
+              padding: "8px 12px",
+              fontSize: 12,
+              color: "#ff7b88",
+            }}
+          >
+            {listError}
+          </div>
         )}
 
         <div
           style={{
             flex: 1,
             overflowY: "auto",
-            paddingRight: 4,
+            padding: "6px 0",
           }}
         >
-          {documents.map((doc) => (
-            <button
-              key={doc.id}
-              type="button"
-              onClick={() => handleSelectDoc(doc)}
+          {documents.length === 0 && !listLoading && !listError && (
+            <p
               style={{
-                width: "100%",
-                textAlign: "left",
-                borderRadius: 10,
-                border:
-                  selectedId === doc.id
-                    ? "1px solid rgba(63,100,255,0.9)"
-                    : "1px solid rgba(255,255,255,0.06)",
-                background:
-                  selectedId === doc.id ? "#101531" : "transparent",
-                padding: "6px 8px",
-                marginBottom: 4,
-                cursor: "pointer",
+                padding: "8px 12px",
+                fontSize: 12,
+                color: "#9da2c8",
               }}
             >
-              <div
+              No documents yet. Create your first one above.
+            </p>
+          )}
+
+          {documents.map((doc) => {
+            const isActive = doc.id === selectedId;
+            const updatedLabel = new Date(
+              doc.updatedAt
+            ).toLocaleDateString(undefined, {
+              month: "short",
+              day: "numeric",
+            });
+
+            return (
+              <button
+                key={doc.id}
+                type="button"
+                onClick={() => handleSelect(doc.id)}
                 style={{
-                  fontSize: 12,
-                  fontWeight: 500,
-                  color: "#f5f5ff",
-                  marginBottom: 2,
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
+                  width: "100%",
+                  textAlign: "left",
+                  padding: "8px 12px",
+                  border: "none",
+                  borderLeft: isActive
+                    ? "3px solid #7f3dff"
+                    : "3px solid transparent",
+                  background: isActive
+                    ? "rgba(127,61,255,0.15)"
+                    : "transparent",
+                  cursor: "pointer",
+                  display: "flex",
+                  flexDirection: "column",
+                  gap: 2,
                 }}
               >
-                {doc.title || "Untitled document"}
-              </div>
-              <div
-                style={{
-                  fontSize: 11,
-                  color: "#9da2c8",
-                  whiteSpace: "nowrap",
-                  overflow: "hidden",
-                  textOverflow: "ellipsis",
-                }}
-              >
-                {doc.content || "Empty"}
-              </div>
-            </button>
-          ))}
+                <span
+                  style={{
+                    fontSize: 13,
+                    fontWeight: isActive ? 500 : 400,
+                    color: "#f5f5f5",
+                    whiteSpace: "nowrap",
+                    overflow: "hidden",
+                    textOverflow: "ellipsis",
+                  }}
+                >
+                  {doc.title || "Untitled document"}
+                </span>
+                <span
+                  style={{
+                    fontSize: 11,
+                    color: "#6f7598",
+                  }}
+                >
+                  Updated {updatedLabel}
+                </span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
       {/* Right: editor */}
-      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 8 }}>
-        <div className="workspace-placeholder" style={{ marginBottom: 4 }}>
-          <h2 style={{ marginBottom: 4 }}>Document editor</h2>
-          <p style={{ fontSize: 13 }}>
-            For v1, this is a simple text editor. Select a document or create a
-            new one to start editing.
-          </p>
-        </div>
-
-        {error && (
-          <p style={{ fontSize: 13, color: "#ff7b88" }}>{error}</p>
-        )}
-
-        {/* If no document selected, show a friendly message instead of editor */}
-        {!selectedDoc && !loading && documents.length === 0 && (
-          <p style={{ fontSize: 13, color: "#9da2c8" }}>
-            Create a new document to start writing.
-          </p>
-        )}
-
-        {!selectedDoc && !loading && documents.length > 0 && (
-          <p style={{ fontSize: 13, color: "#9da2c8" }}>
-            Select a document from the list on the left to start editing.
-          </p>
-        )}
-
-        {selectedDoc && (
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          borderRadius: 12,
+          border: "1px solid rgba(255,255,255,0.08)",
+          background: "#05070a",
+          padding: 12,
+          minHeight: 0,
+        }}
+      >
+        {!hasSelection ? (
+          <div className="workspace-placeholder">
+            <h2>Select or create a document</h2>
+            <p>
+              Pick a document from the list on the left, or create a new one to
+              start writing.
+            </p>
+          </div>
+        ) : (
           <>
-            {/* Editor controls */}
             <div
               style={{
+                marginBottom: 8,
                 display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                marginBottom: 6,
+                flexDirection: "column",
+                gap: 4,
               }}
             >
-              <div style={{ display: "flex", gap: 8 }}>
-                <button
-                  type="button"
-                  onClick={handleSave}
-                  disabled={saving}
-                  style={{
-                    border: "none",
-                    borderRadius: 999,
-                    padding: "6px 12px",
-                    cursor: "pointer",
-                    fontSize: 12,
-                    background:
-                      "linear-gradient(135deg, #3f64ff, #7f3dff)",
-                    color: "#ffffff",
-                  }}
-                >
-                  {saving ? "Saving…" : "Save"}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleDeleteSelected}
-                  style={{
-                    border: "none",
-                    borderRadius: 999,
-                    padding: "6px 12px",
-                    cursor: "pointer",
-                    fontSize: 12,
-                    background: "rgba(255,124,124,0.12)",
-                    color: "#ff9b9b",
-                  }}
-                >
-                  Delete
-                </button>
-              </div>
+              <input
+                type="text"
+                value={editTitle}
+                onChange={(e) => setEditTitle(e.target.value)}
+                placeholder="Document title"
+                style={{
+                  padding: "8px 10px",
+                  borderRadius: 8,
+                  border: "1px solid rgba(255,255,255,0.16)",
+                  background: "#050713",
+                  color: "#f5f5f5",
+                  fontSize: 14,
+                  fontWeight: 500,
+                }}
+              />
+              <div>{renderSaveStatus()}</div>
             </div>
 
-            {/* Title + content inputs */}
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="Document title"
-              style={{
-                marginBottom: 6,
-                padding: "8px 10px",
-                borderRadius: 10,
-                border: "1px solid rgba(255,255,255,0.16)",
-                background: "#05070a",
-                color: "#f5f5f5",
-                fontSize: 14,
-              }}
-            />
             <textarea
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              placeholder="Start typing..."
+              value={editContent}
+              onChange={(e) => setEditContent(e.target.value)}
+              placeholder="Start writing your document here..."
               style={{
                 flex: 1,
-                minHeight: 220,
-                resize: "vertical",
-                padding: "10px 12px",
-                borderRadius: 12,
+                resize: "none",
+                borderRadius: 8,
                 border: "1px solid rgba(255,255,255,0.16)",
-                background: "#05070a",
+                background: "#050713",
                 color: "#f5f5f5",
+                padding: 10,
                 fontSize: 13,
                 lineHeight: 1.5,
+                fontFamily:
+                  '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif',
+                minHeight: 0,
               }}
             />
           </>
