@@ -115,19 +115,12 @@ const App: React.FC = () => {
   const [tasksError, setTasksError] = useState<string | null>(null);
   const [newTaskTitle, setNewTaskTitle] = useState("");
 
-  // This token increments whenever the Tasks page changes tasks
-  const [tasksRefreshToken, setTasksRefreshToken] = useState(0);
-
-  function handleTasksChangedFromPage() {
-    setTasksRefreshToken((prev) => prev + 1);
-  }
-
   // ---- Documents state for the right-hand panel (list only) ----
   const [sidebarDocs, setSidebarDocs] = useState<Doc[]>([]);
   const [sidebarDocsLoading, setSidebarDocsLoading] = useState(false);
   const [sidebarDocsError, setSidebarDocsError] = useState<string | null>(null);
 
-  // Load tasks + documents when authenticated OR when tasksRefreshToken changes
+  // Load tasks + documents when authenticated
   useEffect(() => {
     if (!hasToken) {
       setTasks([]);
@@ -162,7 +155,7 @@ const App: React.FC = () => {
         setSidebarDocsLoading(false);
       }
     })();
-  }, [hasToken, tasksRefreshToken]);
+  }, [hasToken]);
 
   async function handleAddTask(e: React.FormEvent) {
     e.preventDefault();
@@ -174,8 +167,6 @@ const App: React.FC = () => {
       const created = await createTask(newTaskTitle.trim());
       setTasks((prev) => [created, ...prev]);
       setNewTaskTitle("");
-      // Sidebar-created tasks also count as a change
-      setTasksRefreshToken((prev) => prev + 1);
     } catch (err) {
       console.error("Error creating task:", err);
       setTasksError("Unable to create task.");
@@ -194,7 +185,6 @@ const App: React.FC = () => {
 
     try {
       await updateTask(task.id, { status: nextStatus });
-      setTasksRefreshToken((prev) => prev + 1);
     } catch (err) {
       console.error("Error updating task:", err);
       setTasksError("Unable to update task.");
@@ -206,7 +196,6 @@ const App: React.FC = () => {
 
     try {
       await deleteTask(id);
-      setTasksRefreshToken((prev) => prev + 1);
     } catch (err) {
       console.error("Error deleting task:", err);
       setTasksError("Unable to delete task.");
@@ -272,7 +261,7 @@ const App: React.FC = () => {
                 path="/tasks"
                 element={
                   <RequireAuth>
-                    <TasksPage onTasksChanged={handleTasksChangedFromPage} />
+                    <TasksPage />
                   </RequireAuth>
                 }
               />
