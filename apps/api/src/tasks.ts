@@ -1,71 +1,110 @@
 // apps/api/src/tasks.ts
 import express from "express";
-import { authMiddleware } from "./auth";
+import { authMiddleware, User } from "./auth";
+import { prisma } from "./prisma";
 
 const router = express.Router();
 
-// All tasks are per-student in memory for v1
+// All /tasks routes require authentication
+router.use(authMiddleware);
+
 type TaskStatus = "todo" | "in_progress" | "done";
 
-interface Task {
+interface TaskResponse {
   id: string;
-  ownerId: string;
   title: string;
   status: TaskStatus;
   createdAt: string;
   dueDate?: string | null;
 }
 
-const tasks: Task[] = [];
-let taskIdCounter = 1;
-
-// Require auth for all /tasks routes
-router.use(authMiddleware);
+// Helper to map Prisma Task to API shape
+function mapTask(task: any): TaskResponse {
+  return {
+    id: task.id,
+    title: task.title,
+    status: (task.status as TaskStatus) || "todo",
+    createdAt: task.createdAt instanceof Date
+      ? task.createdAt.toISOString()
+      : String(task.createdAt),
+    dueDate:
+      task.dueDate instanceof Date
+        ? task.dueDate.toISOString()
+        : task.dueDate ?? null,
+  };
+}
 
 // GET /tasks - list tasks for current user
-router.get("/", (req, res) => {
-  const user = (req as any).user as { id: string } | undefined;
+router.get("/", async (req, res) => {
+  const user = (req as any).user as User | undefined;
 
   if (!user) {
     return res.status(401).json({ error: "Unauthenticated" });
   }
 
-  const userTasks = tasks.filter((t) => t.ownerId === user.id);
-  return res.json({ tasks: userTasks });
+  try {
+    const tasks = await prisma.task.findMany({
+      where: { userId: user.id },
+      orderBy: { createdAt: "desc" },
+    });
+
+    const mapped = tasks.map(mapTask);
+
+    // For safety with the existing frontend, return just the array.
+    // (Your frontend's fetchTasks already expects a Task[] from /tasks.)
+    return res.json(mapped);
+  } catch (err) {
+    console.error("Error in GET /tasks:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
 });
 
-// POST /tasks - create a new task
-router.post("/", (req, res) => {
-  const user = (req as any).user as { id: string } | undefined;
+// POST /tasks - create a new task for current user
+router.post("/", async (req, res) => {
+  const user = (req as any).user as User | undefined;
 
   if (!user) {
     return res.status(401).json({ error: "Unauthenticated" });
   }
 
-  const { title, dueDate } = req.body || {};
+  const { title, status, dueDate } = req.body || {};
 
   if (!title || typeof title !== "string") {
     return res.status(400).json({ error: "Title is required" });
   }
 
-  const task: Task = {
-    id: String(taskIdCounter++),
-    ownerId: user.id,
-    title: title.trim(),
-    status: "todo",
-    createdAt: new Date().toISOString(),
-    dueDate: dueDate ?? null,
-  };
+  const statusValue: TaskStatus =
+    status === "in_progress" || status === "done" ? status : "todo";
 
-  // 👇 This is the ONLY place we push, so only one task is created.
-  tasks.push(task);
+  let parsedDueDate: Date | null = null;
+  if (dueDate) {
+    const d = new Date(dueDate);
+    if (!isNaN(d.getTime())) {
+      parsedDueDate = d;
+    }
+  }
 
-  return res.status(201).json({ task });
+  try {
+    const created = await prisma.task.create({
+      data: {
+        title: title.trim(),
+        status: statusValue,
+        userId: user.id,
+        dueDate: parsedDueDate,
+      },
+    });
+
+    const mapped = mapTask(created);
+    return res.status(201).json(mapped);
+  } catch (err) {
+    console.error("Error in POST /tasks:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
 });
 
-// PUT /tasks/:id - update a task (title / status / dueDate)
-router.put("/:id", (req, res) => {
-  const user = (req as any).user as { id: string } | undefined;
+// PUT /tasks/:id - update task (title/status/dueDate)
+router.put("/:id", async (req, res) => {
+  const user = (req as any).user as User | undefined;
 
   if (!user) {
     return res.status(401).json({ error: "Unauthenticated" });
@@ -74,30 +113,55 @@ router.put("/:id", (req, res) => {
   const { id } = req.params;
   const { title, status, dueDate } = req.body || {};
 
-  const task = tasks.find((t) => t.id === id && t.ownerId === user.id);
-
-  if (!task) {
-    return res.status(404).json({ error: "Task not found" });
-  }
-
+  // Build update data dynamically
+  const data: any = {};
   if (typeof title === "string" && title.trim().length > 0) {
-    task.title = title.trim();
+    data.title = title.trim();
   }
 
-  if (status && (status === "todo" || status === "in_progress" || status === "done")) {
-    task.status = status;
+  if (typeof status === "string") {
+    if (status === "todo" || status === "in_progress" || status === "done") {
+      data.status = status;
+    }
   }
 
   if (dueDate !== undefined) {
-    task.dueDate = dueDate ?? null;
+    if (dueDate === null || dueDate === "") {
+      data.dueDate = null;
+    } else {
+      const d = new Date(dueDate);
+      if (!isNaN(d.getTime())) {
+        data.dueDate = d;
+      }
+    }
   }
 
-  return res.json({ task });
+  try {
+    // Ensure this task belongs to the current user
+    const existing = await prisma.task.findFirst({
+      where: { id, userId: user.id },
+    });
+
+    if (!existing) {
+      return res.status(404).json({ error: "Task not found" });
+    }
+
+    const updated = await prisma.task.update({
+      where: { id: existing.id },
+      data,
+    });
+
+    const mapped = mapTask(updated);
+    return res.json(mapped);
+  } catch (err) {
+    console.error("Error in PUT /tasks/:id:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
 });
 
 // DELETE /tasks/:id - delete a task
-router.delete("/:id", (req, res) => {
-  const user = (req as any).user as { id: string } | undefined;
+router.delete("/:id", async (req, res) => {
+  const user = (req as any).user as User | undefined;
 
   if (!user) {
     return res.status(401).json({ error: "Unauthenticated" });
@@ -105,15 +169,24 @@ router.delete("/:id", (req, res) => {
 
   const { id } = req.params;
 
-  const index = tasks.findIndex((t) => t.id === id && t.ownerId === user.id);
+  try {
+    const existing = await prisma.task.findFirst({
+      where: { id, userId: user.id },
+    });
 
-  if (index === -1) {
-    return res.status(404).json({ error: "Task not found" });
+    if (!existing) {
+      return res.status(404).json({ error: "Task not found" });
+    }
+
+    await prisma.task.delete({
+      where: { id: existing.id },
+    });
+
+    return res.status(204).send();
+  } catch (err) {
+    console.error("Error in DELETE /tasks/:id:", err);
+    return res.status(500).json({ error: "Internal server error" });
   }
-
-  tasks.splice(index, 1);
-
-  return res.status(204).send();
 });
 
 export { router as tasksRouter };
