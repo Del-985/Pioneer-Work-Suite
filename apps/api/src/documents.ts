@@ -1,121 +1,128 @@
 // apps/api/src/documents.ts
-import express, { Request, Response } from "express";
+import express from "express";
 import { authMiddleware } from "./auth";
 
 const router = express.Router();
+
+// All documents are per-student in memory for v1
 
 interface Document {
   id: string;
   ownerId: string;
   title: string;
   content: string;
-  updatedAt: string; // ISO string
+  createdAt: string;
+  updatedAt: string;
 }
 
-// In-memory document store (per-user via ownerId)
 const documents: Document[] = [];
-let docIdCounter = 1;
+let documentIdCounter = 1;
 
-// Helper: get current user id or send 401 and return null
-function getCurrentUserId(req: Request, res: Response): string | null {
-  const user = (req as any).user as { id: string } | undefined;
-  if (!user) {
-    res.status(401).json({ error: "Unauthenticated" });
-    return null;
-  }
-  return user.id;
-}
-
-// Apply auth to all /documents routes
+// Require auth for all /documents routes
 router.use(authMiddleware);
 
-// GET /documents
-// List current student's documents
+// GET /documents - list documents for current user
 router.get("/", (req, res) => {
-  const userId = getCurrentUserId(req, res);
-  if (!userId) return;
+  const user = (req as any).user as { id: string } | undefined;
 
-  const userDocs = documents.filter((doc) => doc.ownerId === userId);
-  return res.json(userDocs);
+  if (!user) {
+    return res.status(401).json({ error: "Unauthenticated" });
+  }
+
+  const userDocs = documents.filter((d) => d.ownerId === user.id);
+  return res.json({ documents: userDocs });
 });
 
-// POST /documents
-// Create a new document
+// POST /documents - create a new document
 router.post("/", (req, res) => {
-  const userId = getCurrentUserId(req, res);
-  if (!userId) return;
+  const user = (req as any).user as { id: string } | undefined;
+
+  if (!user) {
+    return res.status(401).json({ error: "Unauthenticated" });
+  }
 
   const { title, content } = req.body || {};
 
-  const docTitle =
-    title && String(title).trim().length > 0 ? String(title) : "Untitled";
-  const docContent = typeof content === "string" ? content : "";
+  if (!title || typeof title !== "string") {
+    return res.status(400).json({ error: "Title is required" });
+  }
 
   const now = new Date().toISOString();
 
   const doc: Document = {
-    id: String(docIdCounter++),
-    ownerId: userId,
-    title: docTitle,
-    content: docContent,
+    id: String(documentIdCounter++),
+    ownerId: user.id,
+    title: title.trim(),
+    content: typeof content === "string" ? content : "",
+    createdAt: now,
     updatedAt: now,
   };
 
   documents.push(doc);
 
-  return res.status(201).json(doc);
+  return res.status(201).json({ document: doc });
 });
 
-// GET /documents/:id
+// GET /documents/:id - get a single document by id
 router.get("/:id", (req, res) => {
-  const userId = getCurrentUserId(req, res);
-  if (!userId) return;
+  const user = (req as any).user as { id: string } | undefined;
 
-  const id = req.params.id;
-  const doc = documents.find((d) => d.id === id && d.ownerId === userId);
+  if (!user) {
+    return res.status(401).json({ error: "Unauthenticated" });
+  }
+
+  const { id } = req.params;
+  const doc = documents.find((d) => d.id === id && d.ownerId === user.id);
 
   if (!doc) {
     return res.status(404).json({ error: "Document not found" });
   }
 
-  return res.json(doc);
+  return res.json({ document: doc });
 });
 
-// PUT /documents/:id
-// Partial update: title and/or content
+// PUT /documents/:id - update title/content
 router.put("/:id", (req, res) => {
-  const userId = getCurrentUserId(req, res);
-  if (!userId) return;
+  const user = (req as any).user as { id: string } | undefined;
 
-  const id = req.params.id;
-  const doc = documents.find((d) => d.id === id && d.ownerId === userId);
-
-  if (!doc) {
-    return res.status(404).json({ error: "Document not found" });
+  if (!user) {
+    return res.status(401).json({ error: "Unauthenticated" });
   }
 
+  const { id } = req.params;
   const { title, content } = req.body || {};
 
-  if (typeof title === "string") {
-    doc.title = title;
+  const doc = documents.find((d) => d.id === id && d.ownerId === user.id);
+
+  if (!doc) {
+    return res.status(404).json({ error: "Document not found" });
   }
+
+  if (typeof title === "string" && title.trim().length > 0) {
+    doc.title = title.trim();
+  }
+
   if (typeof content === "string") {
     doc.content = content;
   }
 
   doc.updatedAt = new Date().toISOString();
 
-  return res.json(doc);
+  return res.json({ document: doc });
 });
 
-// DELETE /documents/:id
+// DELETE /documents/:id - delete a document
 router.delete("/:id", (req, res) => {
-  const userId = getCurrentUserId(req, res);
-  if (!userId) return;
+  const user = (req as any).user as { id: string } | undefined;
 
-  const id = req.params.id;
+  if (!user) {
+    return res.status(401).json({ error: "Unauthenticated" });
+  }
+
+  const { id } = req.params;
+
   const index = documents.findIndex(
-    (d) => d.id === id && d.ownerId === userId
+    (d) => d.id === id && d.ownerId === user.id
   );
 
   if (index === -1) {
