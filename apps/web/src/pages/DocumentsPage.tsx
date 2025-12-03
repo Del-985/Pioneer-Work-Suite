@@ -129,23 +129,31 @@ const DocumentsPage: React.FC = () => {
     }
   }
 
-  // Delete a document (with confirmation if not empty), optimistic
+  // Delete a document (with confirmation if not empty), using live editor content
   async function handleDelete(id: string) {
     const doc = documents.find((d) => d.id === id);
 
-    if (doc) {
-      const titleEmpty = !doc.title || doc.title.trim().length === 0;
-      const contentEmpty =
-        !doc.content || doc.content.trim().length === 0;
+    // Decide emptiness based on CURRENT editor state if this is the selected doc.
+    let titleEmpty = true;
+    let contentEmpty = true;
 
-      // Only ask for confirmation if the doc isn't empty
-      if (!titleEmpty || !contentEmpty) {
-        const confirmed = window.confirm(
-          "This document has content. Are you sure you want to delete it?"
-        );
-        if (!confirmed) {
-          return;
-        }
+    if (id === selectedId) {
+      // Use the live editor values
+      titleEmpty = !editTitle || editTitle.trim().length === 0;
+      contentEmpty = !editContent || editContent.trim().length === 0;
+    } else if (doc) {
+      // Fallback for non-selected docs: use stored values
+      titleEmpty = !doc.title || doc.title.trim().length === 0;
+      contentEmpty = !doc.content || doc.content.trim().length === 0;
+    }
+
+    // Only ask for confirmation if the doc isn't empty (including unsaved edits)
+    if (!titleEmpty || !contentEmpty) {
+      const confirmed = window.confirm(
+        "This document has content. Are you sure you want to delete it?"
+      );
+      if (!confirmed) {
+        return;
       }
     }
 
@@ -156,7 +164,7 @@ const DocumentsPage: React.FC = () => {
     setDeletingId(id);
     setSaveError(null);
 
-    // Optimistic update: remove from UI immediately
+    // Optimistic UI update
     const previousDocs = documents;
     const remaining = documents.filter((d) => d.id !== id);
     setDocuments(remaining);
@@ -186,14 +194,12 @@ const DocumentsPage: React.FC = () => {
       // If backend says 404, we treat it as "already gone" and keep UI as-is.
     } catch (err: any) {
       console.error("Error deleting document:", err);
-
       const status = err?.response?.status;
-      if (status && status !== 404) {
+      if (!status || status !== 404) {
         // Serious error → rollback and show message
         setDocuments(previousDocs);
         setSaveError("Unable to delete document.");
       }
-      // For 404, do nothing: optimistic UI is already correct.
     } finally {
       setDeletingId(null);
     }
@@ -201,28 +207,32 @@ const DocumentsPage: React.FC = () => {
 
   // Schedule autosave whenever title/content changes
   useEffect(() => {
-    // If there is no doc selected or no backing doc yet, skip autosave
-    if (!selectedId || !selectedDoc) {
+    // If there is no doc selected at all, skip autosave
+    if (!selectedId) {
       clearAutosaveTimer();
       return;
     }
 
+    // We might not have selectedDoc yet (race right after create/select).
+    // Treat the "last saved" version as empty in that case.
+    const baseTitle = selectedDoc?.title ?? "";
+    const baseContent = selectedDoc?.content ?? "";
+
     // Clear any previous timer
     clearAutosaveTimer();
 
-    // If nothing changed compared to the selected doc in state, skip
-    if (
-      editTitle === selectedDoc.title &&
-      editContent === selectedDoc.content
-    ) {
+    // If nothing changed compared to the last saved version, skip
+    if (editTitle === baseTitle && editContent === baseContent) {
       return;
     }
+
+    const targetId = selectedId;
 
     const timeoutId = window.setTimeout(async () => {
       try {
         setIsSaving(true);
         setSaveError(null);
-        const updated = await updateDocument(selectedDoc.id, {
+        const updated = await updateDocument(targetId, {
           title: editTitle,
           content: editContent,
         });
