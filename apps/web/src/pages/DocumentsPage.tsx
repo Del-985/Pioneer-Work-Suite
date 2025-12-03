@@ -28,12 +28,8 @@ const DocumentsPage: React.FC = () => {
         const loaded = await fetchDocuments();
         setDocuments(loaded);
 
-        if (loaded.length > 0) {
-          const first = loaded[0];
-          setSelectedId(first.id);
-          setTitle(first.title);
-          setContent(first.content);
-        }
+        // v1.1 change: DO NOT auto-select the first document.
+        // User must explicitly pick or create a doc to start editing.
       } catch (err) {
         console.error("Error loading documents:", err);
         setError("Unable to load documents.");
@@ -69,10 +65,10 @@ const DocumentsPage: React.FC = () => {
     const toDelete = selectedId;
 
     // Optimistic UI: remove locally first
-    setDocuments((prev) => prev.filter((d) => d.id !== toDelete));
-
-    // Choose next doc to show
     const remaining = documents.filter((d) => d.id !== toDelete);
+    setDocuments(remaining);
+
+    // Decide what to show next
     if (remaining.length > 0) {
       const next = remaining[0];
       setSelectedId(next.id);
@@ -94,8 +90,7 @@ const DocumentsPage: React.FC = () => {
 
   async function handleSave() {
     if (!selectedId) {
-      // If nothing selected yet, create a new doc instead
-      await handleNewDocument();
+      // No doc selected; in v1.1 we just do nothing here.
       return;
     }
 
@@ -236,8 +231,8 @@ const DocumentsPage: React.FC = () => {
         <div className="workspace-placeholder" style={{ marginBottom: 4 }}>
           <h2 style={{ marginBottom: 4 }}>Document editor</h2>
           <p style={{ fontSize: 13 }}>
-            This is a simple text editor for v1. Titles and content are saved to
-            your student account.
+            For v1, this is a simple text editor. Select a document or create a
+            new one to start editing.
           </p>
         </div>
 
@@ -245,91 +240,101 @@ const DocumentsPage: React.FC = () => {
           <p style={{ fontSize: 13, color: "#ff7b88" }}>{error}</p>
         )}
 
-        {!selectedDoc && documents.length === 0 && !loading && (
+        {/* If no document selected, show a friendly message instead of editor */}
+        {!selectedDoc && !loading && documents.length === 0 && (
           <p style={{ fontSize: 13, color: "#9da2c8" }}>
             Create a new document to start writing.
           </p>
         )}
 
-        {/* Editor controls */}
-        {selectedId && (
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              marginBottom: 6,
-            }}
-          >
-            <div style={{ display: "flex", gap: 8 }}>
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={saving}
-                style={{
-                  border: "none",
-                  borderRadius: 999,
-                  padding: "6px 12px",
-                  cursor: "pointer",
-                  fontSize: 12,
-                  background: "linear-gradient(135deg, #3f64ff, #7f3dff)",
-                  color: "#ffffff",
-                }}
-              >
-                {saving ? "Saving…" : "Save"}
-              </button>
-              <button
-                type="button"
-                onClick={handleDeleteSelected}
-                style={{
-                  border: "none",
-                  borderRadius: 999,
-                  padding: "6px 12px",
-                  cursor: "pointer",
-                  fontSize: 12,
-                  background: "rgba(255,124,124,0.12)",
-                  color: "#ff9b9b",
-                }}
-              >
-                Delete
-              </button>
-            </div>
-          </div>
+        {!selectedDoc && !loading && documents.length > 0 && (
+          <p style={{ fontSize: 13, color: "#9da2c8" }}>
+            Select a document from the list on the left to start editing.
+          </p>
         )}
 
-        {/* Title + content inputs */}
-        <input
-          type="text"
-          value={title}
-          onChange={(e) => setTitle(e.target.value)}
-          placeholder="Document title"
-          style={{
-            marginBottom: 6,
-            padding: "8px 10px",
-            borderRadius: 10,
-            border: "1px solid rgba(255,255,255,0.16)",
-            background: "#05070a",
-            color: "#f5f5f5",
-            fontSize: 14,
-          }}
-        />
-        <textarea
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          placeholder="Start typing..."
-          style={{
-            flex: 1,
-            minHeight: 220,
-            resize: "vertical",
-            padding: "10px 12px",
-            borderRadius: 12,
-            border: "1px solid rgba(255,255,255,0.16)",
-            background: "#05070a",
-            color: "#f5f5f5",
-            fontSize: 13,
-            lineHeight: 1.5,
-          }}
-        />
+        {selectedDoc && (
+          <>
+            {/* Editor controls */}
+            <div
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                marginBottom: 6,
+              }}
+            >
+              <div style={{ display: "flex", gap: 8 }}>
+                <button
+                  type="button"
+                  onClick={handleSave}
+                  disabled={saving}
+                  style={{
+                    border: "none",
+                    borderRadius: 999,
+                    padding: "6px 12px",
+                    cursor: "pointer",
+                    fontSize: 12,
+                    background:
+                      "linear-gradient(135deg, #3f64ff, #7f3dff)",
+                    color: "#ffffff",
+                  }}
+                >
+                  {saving ? "Saving…" : "Save"}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeleteSelected}
+                  style={{
+                    border: "none",
+                    borderRadius: 999,
+                    padding: "6px 12px",
+                    cursor: "pointer",
+                    fontSize: 12,
+                    background: "rgba(255,124,124,0.12)",
+                    color: "#ff9b9b",
+                  }}
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+
+            {/* Title + content inputs */}
+            <input
+              type="text"
+              value={title}
+              onChange={(e) => setTitle(e.target.value)}
+              placeholder="Document title"
+              style={{
+                marginBottom: 6,
+                padding: "8px 10px",
+                borderRadius: 10,
+                border: "1px solid rgba(255,255,255,0.16)",
+                background: "#05070a",
+                color: "#f5f5f5",
+                fontSize: 14,
+              }}
+            />
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              placeholder="Start typing..."
+              style={{
+                flex: 1,
+                minHeight: 220,
+                resize: "vertical",
+                padding: "10px 12px",
+                borderRadius: 12,
+                border: "1px solid rgba(255,255,255,0.16)",
+                background: "#05070a",
+                color: "#f5f5f5",
+                fontSize: 13,
+                lineHeight: 1.5,
+              }}
+            />
+          </>
+        )}
       </div>
     </div>
   );
