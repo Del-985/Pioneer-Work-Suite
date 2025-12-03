@@ -12,6 +12,12 @@ import {
   deleteTask,
   Task,
 } from "./api/tasks";
+import {
+  fetchDocuments,
+  Document as Doc,
+} from "./api/documents";
+
+type SidebarMode = "tasks" | "documents";
 
 const RequireAuth: React.FC<{ children: React.ReactElement }> = ({
   children,
@@ -44,36 +50,59 @@ const Dashboard: React.FC = () => {
 };
 
 const App: React.FC = () => {
-  // start collapsed so the bottom tasks panel isn't in your face
+  // start collapsed so the bottom panel isn't in your face
   const [isTodoOpen, setIsTodoOpen] = useState(false);
 
   const hasToken =
     typeof window !== "undefined" && !!window.localStorage.getItem("token");
 
-  // ---- Tasks state for the right-hand To-Do panel ----
+  // ---- Sidebar mode: tasks vs documents ----
+  const [sidebarMode, setSidebarMode] = useState<SidebarMode>("tasks");
+
+  // ---- Tasks state for the right-hand panel ----
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
   const [tasksError, setTasksError] = useState<string | null>(null);
   const [newTaskTitle, setNewTaskTitle] = useState("");
 
-  // Load tasks when authenticated
+  // ---- Documents state for the right-hand panel (list only) ----
+  const [sidebarDocs, setSidebarDocs] = useState<Doc[]>([]);
+  const [sidebarDocsLoading, setSidebarDocsLoading] = useState(false);
+  const [sidebarDocsError, setSidebarDocsError] = useState<string | null>(null);
+
+  // Load tasks + documents when authenticated
   useEffect(() => {
     if (!hasToken) {
       setTasks([]);
+      setSidebarDocs([]);
       return;
     }
 
     (async () => {
+      // Tasks
       try {
         setTasksLoading(true);
         setTasksError(null);
-        const loaded = await fetchTasks();
-        setTasks(loaded);
+        const loadedTasks = await fetchTasks();
+        setTasks(loadedTasks);
       } catch (err) {
         console.error("Error loading tasks:", err);
         setTasksError("Unable to load tasks.");
       } finally {
         setTasksLoading(false);
+      }
+
+      // Documents (for sidebar list)
+      try {
+        setSidebarDocsLoading(true);
+        setSidebarDocsError(null);
+        const docs = await fetchDocuments();
+        setSidebarDocs(docs);
+      } catch (err) {
+        console.error("Error loading documents for sidebar:", err);
+        setSidebarDocsError("Unable to load documents.");
+      } finally {
+        setSidebarDocsLoading(false);
       }
     })();
   }, [hasToken]);
@@ -204,7 +233,7 @@ const App: React.FC = () => {
           </section>
         </main>
 
-        {/* Right to-do panel */}
+        {/* Right panel */}
         <aside
           className={
             "sidebar-right" +
@@ -219,7 +248,7 @@ const App: React.FC = () => {
             >
               {isTodoOpen ? "➜" : "⬅"}
             </button>
-            {isTodoOpen && <h2 className="todo-title">To-Do</h2>}
+            {isTodoOpen && <h2 className="todo-title">Panel</h2>}
           </div>
 
           {isTodoOpen && (
@@ -232,128 +261,41 @@ const App: React.FC = () => {
                 </ul>
               ) : (
                 <>
-                  <form
-                    onSubmit={handleAddTask}
+                  {/* Mode selector */}
+                  <div
                     style={{
                       display: "flex",
                       gap: 6,
                       marginBottom: 10,
                     }}
                   >
-                    <input
-                      type="text"
-                      value={newTaskTitle}
-                      onChange={(e) => setNewTaskTitle(e.target.value)}
-                      placeholder="Add a task..."
+                    <button
+                      type="button"
+                      onClick={() => setSidebarMode("tasks")}
                       style={{
                         flex: 1,
-                        padding: "6px 8px",
+                        padding: "4px 6px",
                         borderRadius: 999,
-                        border: "1px solid rgba(255,255,255,0.18)",
-                        background: "#05070a",
-                        color: "#f5f5f5",
-                        fontSize: 12,
-                      }}
-                    />
-                    <button
-                      type="submit"
-                      style={{
-                        padding: "6px 10px",
-                        borderRadius: 999,
-                        border: "none",
-                        fontSize: 12,
-                        cursor: "pointer",
+                        border:
+                          sidebarMode === "tasks"
+                            ? "1px solid rgba(63,100,255,0.9)"
+                            : "1px solid rgba(255,255,255,0.18)",
                         background:
-                          "linear-gradient(135deg, #3f64ff, #7f3dff)",
-                        color: "#ffffff",
+                          sidebarMode === "tasks"
+                            ? "rgba(63,100,255,0.15)"
+                            : "transparent",
+                        color: "#f5f5f5",
+                        fontSize: 11,
+                        cursor: "pointer",
                       }}
                     >
-                      +
+                      Tasks
                     </button>
-                  </form>
-
-                  {tasksLoading && (
-                    <p style={{ fontSize: 12, color: "#9da2c8" }}>
-                      Loading tasks...
-                    </p>
-                  )}
-
-                  {tasksError && (
-                    <p style={{ fontSize: 12, color: "#ff7b88" }}>
-                      {tasksError}
-                    </p>
-                  )}
-
-                  {!tasksLoading && tasks.length === 0 && !tasksError && (
-                    <p style={{ fontSize: 12, color: "#9da2c8" }}>
-                      No tasks yet. Add your first one above.
-                    </p>
-                  )}
-
-                  <ul className="todo-list">
-                    {tasks.map((task) => (
-                      <li
-                        key={task.id}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: 8,
-                        }}
-                      >
-                        <label
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 8,
-                            cursor: "pointer",
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={task.status === "done"}
-                            onChange={() => handleToggleTask(task)}
-                          />
-                          <span
-                            style={{
-                              fontSize: 13,
-                              textDecoration:
-                                task.status === "done"
-                                  ? "line-through"
-                                  : "none",
-                              color:
-                                task.status === "done"
-                                  ? "#6f7598"
-                                  : "#f5f5f5",
-                            }}
-                          >
-                            {task.title}
-                          </span>
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteTask(task.id)}
-                          style={{
-                            all: "unset",
-                            cursor: "pointer",
-                            fontSize: 11,
-                            opacity: 0.7,
-                          }}
-                          aria-label="Delete task"
-                        >
-                          ✕
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              )}
-            </div>
-          )}
-        </aside>
-      </div>
-    </div>
-  );
-};
-
-export default App;
+                    <button
+                      type="button"
+                      onClick={() => setSidebarMode("documents")}
+                      style={{
+                        flex: 1,
+                        padding: "4px 6px",
+                        borderRadius: 999,
+                       
