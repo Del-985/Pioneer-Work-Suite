@@ -1,99 +1,33 @@
 // apps/web/src/pages/TasksPage.tsx
-import React, { useEffect, useState } from "react";
-import {
-  fetchTasks,
-  createTask,
-  updateTask,
-  deleteTask,
-  Task,
-} from "../api/tasks";
+import React, { useState } from "react";
+import { Task } from "../api/tasks";
 
-const TasksPage: React.FC = () => {
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+interface TasksPageProps {
+  tasks: Task[];
+  loading: boolean;
+  error: string | null;
+  onCreate: (title: string) => Promise<void> | void;
+  onToggle: (task: Task) => Promise<void> | void;
+  onDelete: (id: string) => Promise<void> | void;
+}
+
+const TasksPage: React.FC<TasksPageProps> = ({
+  tasks,
+  loading,
+  error,
+  onCreate,
+  onToggle,
+  onDelete,
+}) => {
   const [newTitle, setNewTitle] = useState("");
-
-  useEffect(() => {
-    (async () => {
-      try {
-        setLoading(true);
-        setError(null);
-        const loaded = await fetchTasks();
-        setTasks(loaded);
-      } catch (err: any) {
-        console.error("Error loading tasks:", err);
-        const msgFromServer =
-          err?.response?.data?.error ||
-          (err?.response?.status
-            ? `Error ${err.response.status}`
-            : null);
-        setError(msgFromServer || "Unable to load tasks.");
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
-    if (!newTitle.trim()) return;
+    const trimmed = newTitle.trim();
+    if (!trimmed) return;
 
-    setError(null);
-    try {
-      const created = await createTask(newTitle.trim());
-      setTasks((prev) => [created, ...prev]);
-      setNewTitle("");
-    } catch (err: any) {
-      console.error("Error creating task:", err);
-      const msgFromServer =
-        err?.response?.data?.error ||
-        (err?.response?.status
-          ? `Error ${err.response.status}`
-          : null);
-      setError(msgFromServer || "Unable to create task.");
-    }
-  }
-
-  async function handleToggle(task: Task) {
-    const nextStatus: Task["status"] =
-      task.status === "done" ? "todo" : "done";
-
-    // Optimistic update
-    setTasks((prev) =>
-      prev.map((t) =>
-        t.id === task.id ? { ...t, status: nextStatus } : t
-      )
-    );
-
-    try {
-      await updateTask(task.id, { status: nextStatus });
-    } catch (err: any) {
-      console.error("Error updating task:", err);
-      const msgFromServer =
-        err?.response?.data?.error ||
-        (err?.response?.status
-          ? `Error ${err.response.status}`
-          : null);
-      setError(msgFromServer || "Unable to update task.");
-    }
-  }
-
-  async function handleDelete(id: string) {
-    // Optimistic remove
-    setTasks((prev) => prev.filter((t) => t.id !== id));
-
-    try {
-      await deleteTask(id);
-    } catch (err: any) {
-      console.error("Error deleting task:", err);
-      const msgFromServer =
-        err?.response?.data?.error ||
-        (err?.response?.status
-          ? `Error ${err.response.status}`
-          : null);
-      setError(msgFromServer || "Unable to delete task.");
-    }
+    await onCreate(trimmed);
+    setNewTitle("");
   }
 
   return (
@@ -187,7 +121,7 @@ const TasksPage: React.FC = () => {
               <input
                 type="checkbox"
                 checked={task.status === "done"}
-                onChange={() => handleToggle(task)}
+                onChange={() => onToggle(task)}
               />
               <span
                 style={{
@@ -203,7 +137,7 @@ const TasksPage: React.FC = () => {
             </label>
             <button
               type="button"
-              onClick={() => handleDelete(task.id)}
+              onClick={() => onDelete(task.id)}
               style={{
                 all: "unset",
                 cursor: "pointer",
