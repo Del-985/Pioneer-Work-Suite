@@ -1,5 +1,5 @@
 // apps/web/src/pages/DocumentsPage.tsx
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import {
   fetchDocuments,
   createDocument,
@@ -26,9 +26,28 @@ const DocumentsPage: React.FC = () => {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
 
-  // New doc button loading / delete loading
+  // New doc / delete loading
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // “Loading…” when switching between docs (purely UI)
+  const [switchingDoc, setSwitchingDoc] = useState(false);
+
+  // Autosave timer ref
+  const autosaveTimeoutRef = useRef<number | null>(null);
+
+  // Find the currently selected document object
+  const selectedDoc = selectedId
+    ? documents.find((d) => d.id === selectedId) || null
+    : null;
+
+  // Helper: clear any pending autosave timer
+  function clearAutosaveTimer() {
+    if (autosaveTimeoutRef.current !== null) {
+      window.clearTimeout(autosaveTimeoutRef.current);
+      autosaveTimeoutRef.current = null;
+    }
+  }
 
   // Load all documents on mount
   useEffect(() => {
@@ -57,25 +76,29 @@ const DocumentsPage: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Find the currently selected document object
-  const selectedDoc = selectedId
-    ? documents.find((d) => d.id === selectedId) || null
-    : null;
-
   // When you click a doc in the list
   function handleSelect(id: string) {
+    clearAutosaveTimer(); // don’t autosave while switching
     const doc = documents.find((d) => d.id === id);
     setSelectedId(id);
     if (doc) {
+      setSwitchingDoc(true);
       setEditTitle(doc.title);
       setEditContent(doc.content);
       setLastSavedAt(doc.updatedAt);
       setSaveError(null);
+      setIsSaving(false);
+
+      // Give a tiny visual “loading” delay even though it's local
+      window.setTimeout(() => {
+        setSwitchingDoc(false);
+      }, 200);
     }
   }
 
   // Create a new document and select it
   async function handleCreateNew() {
+    clearAutosaveTimer();
     setCreating(true);
     setSaveError(null);
     try {
@@ -84,9 +107,13 @@ const DocumentsPage: React.FC = () => {
       setDocuments((prev) => [created, ...prev]);
       // Focus editor on it
       setSelectedId(created.id);
+      setSwitchingDoc(true);
       setEditTitle(created.title);
       setEditContent(created.content || "");
       setLastSavedAt(created.updatedAt);
+      window.setTimeout(() => {
+        setSwitchingDoc(false);
+      }, 200);
     } catch (err) {
       console.error("Error creating document:", err);
       setSaveError("Unable to create document.");
@@ -115,6 +142,10 @@ const DocumentsPage: React.FC = () => {
       }
     }
 
+    if (id === selectedId) {
+      clearAutosaveTimer();
+    }
+
     setDeletingId(id);
     setSaveError(null);
 
@@ -128,14 +159,19 @@ const DocumentsPage: React.FC = () => {
         if (remaining.length > 0) {
           const first = remaining[0];
           setSelectedId(first.id);
+          setSwitchingDoc(true);
           setEditTitle(first.title);
           setEditContent(first.content);
           setLastSavedAt(first.updatedAt);
+          window.setTimeout(() => {
+            setSwitchingDoc(false);
+          }, 200);
         } else {
           setSelectedId(null);
           setEditTitle("");
           setEditContent("");
           setLastSavedAt(null);
+          setSwitchingDoc(false);
         }
       }
     } catch (err) {
@@ -146,20 +182,25 @@ const DocumentsPage: React.FC = () => {
     }
   }
 
-  // Autosave implementation
-  const queueAutosave = useCallback(() => {
-    if (!selectedDoc) return;
+  // Schedule autosave whenever title/content changes
+  useEffect(() => {
+    if (!selectedDoc) {
+      clearAutosaveTimer();
+      return;
+    }
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(async () => {
-      // If nothing actually changed, skip
-      if (
-        editTitle === selectedDoc.title &&
-        editContent === selectedDoc.content
-      ) {
-        return;
-      }
+    // Clear any previous timer
+    clearAutosaveTimer();
 
+    // If nothing changed compared to the selected doc in state, skip
+    if (
+      editTitle === selectedDoc.title &&
+      editContent === selectedDoc.content
+    ) {
+      return;
+    }
+
+    const timeoutId = window.setTimeout(async () => {
       try {
         setIsSaving(true);
         setSaveError(null);
@@ -168,7 +209,7 @@ const DocumentsPage: React.FC = () => {
           content: editContent,
         });
 
-        // Update in list
+        // Update list
         setDocuments((prev) =>
           prev.map((doc) =>
             doc.id === updated.id ? updated : doc
@@ -180,28 +221,30 @@ const DocumentsPage: React.FC = () => {
         setSaveError("Autosave failed.");
       } finally {
         setIsSaving(false);
+        autosaveTimeoutRef.current = null;
       }
     }, AUTOSAVE_DELAY_MS);
 
-    return () => {
-      clearTimeout(timeoutId);
-      controller.abort();
-    };
-  }, [selectedDoc, editTitle, editContent]);
+    autosaveTimeoutRef.current = timeoutId;
 
-  // Fire autosave when editTitle/editContent change
-  useEffect(() => {
-    const cleanup = queueAutosave();
     return () => {
-      if (cleanup) cleanup();
+      clearAutosaveTimer();
     };
-  }, [editTitle, editContent, queueAutosave]);
+  }, [editTitle, editContent, selectedDoc]);
 
   // Derived UI bits
   const hasSelection = !!selectedDoc;
 
   function renderSaveStatus() {
     if (!hasSelection) return null;
+
+    if (switchingDoc) {
+      return (
+        <span style={{ fontSize: 12, color: "#9da2c8" }}>
+          Loading document…
+        </span>
+      );
+    }
 
     if (isSaving) {
       return (
