@@ -95,8 +95,26 @@ const DocumentsPage: React.FC = () => {
     }
   }
 
-  // Delete a document
+  // Delete a document (with confirmation if not empty)
   async function handleDelete(id: string) {
+    const doc = documents.find((d) => d.id === id);
+
+    if (doc) {
+      const titleEmpty = !doc.title || doc.title.trim().length === 0;
+      const contentEmpty =
+        !doc.content || doc.content.trim().length === 0;
+
+      // Only ask for confirmation if the doc isn't empty
+      if (!titleEmpty || !contentEmpty) {
+        const confirmed = window.confirm(
+          "This document has content. Are you sure you want to delete it?"
+        );
+        if (!confirmed) {
+          return;
+        }
+      }
+    }
+
     setDeletingId(id);
     setSaveError(null);
 
@@ -220,12 +238,12 @@ const DocumentsPage: React.FC = () => {
     <div
       style={{
         display: "flex",
-        flexDirection: "column", // 👉 stacked for better mobile visibility
+        flexDirection: "column", // stacked for mobile
         gap: 16,
         height: "100%",
       }}
     >
-      {/* Left: document list (full-width card on mobile) */}
+      {/* Document list */}
       <div
         style={{
           display: "flex",
@@ -416,7 +434,7 @@ const DocumentsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Right: editor (full-width, below list on mobile) */}
+      {/* Editor */}
       <div
         style={{
           display: "flex",
