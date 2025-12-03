@@ -4,6 +4,7 @@
   "private": true,
   "main": "dist/server.js",
   "scripts": {
+    "prebuild": "prisma generate && prisma db push",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
