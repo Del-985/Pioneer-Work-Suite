@@ -11,18 +11,18 @@ export interface Document {
 
 /**
  * GET /documents
+ * Backend returns a bare array: Document[]
  */
 export async function fetchDocuments(): Promise<Document[]> {
-  const { data } = await http.get("/documents");
+  const { data } = await http.get<Document[]>("/documents");
 
-  // Backend returns { documents: [...] }
-  if (data && Array.isArray(data.documents)) {
-    return data.documents as Document[];
+  if (Array.isArray(data)) {
+    return data;
   }
 
-  // Fallback if backend ever returns bare array
-  if (Array.isArray(data)) {
-    return data as Document[];
+  // Legacy fallback in case backend ever wraps it again
+  if ((data as any)?.documents && Array.isArray((data as any).documents)) {
+    return (data as any).documents as Document[];
   }
 
   return [];
@@ -30,47 +30,34 @@ export async function fetchDocuments(): Promise<Document[]> {
 
 /**
  * POST /documents
+ * Backend returns a single Document object.
  */
 export async function createDocument(
   title: string,
   content: string = ""
 ): Promise<Document> {
-  const { data } = await http.post("/documents", { title, content });
-
-  // Expecting { document: {...} }
-  if (data && data.document) {
-    return data.document as Document;
-  }
-
+  const { data } = await http.post<Document>("/documents", { title, content });
   return data as Document;
 }
 
 /**
  * GET /documents/:id
+ * Backend returns a single Document object.
  */
 export async function fetchDocument(id: string): Promise<Document> {
-  const { data } = await http.get(`/documents/${id}`);
-
-  if (data && data.document) {
-    return data.document as Document;
-  }
-
+  const { data } = await http.get<Document>(`/documents/${id}`);
   return data as Document;
 }
 
 /**
  * PUT /documents/:id
+ * Backend returns the updated Document object.
  */
 export async function updateDocument(
   id: string,
   updates: Partial<Pick<Document, "title" | "content">>
 ): Promise<Document> {
-  const { data } = await http.put(`/documents/${id}`, updates);
-
-  if (data && data.document) {
-    return data.document as Document;
-  }
-
+  const { data } = await http.put<Document>(`/documents/${id}`, updates);
   return data as Document;
 }
 
