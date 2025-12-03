@@ -49,23 +49,17 @@ const DocumentsPage: React.FC = () => {
     }
   }
 
-  // Load all documents on mount
+  // Load all documents on mount (but don't auto-select here)
   useEffect(() => {
     (async () => {
       try {
         setListLoading(true);
         setListError(null);
         const docs = await fetchDocuments();
-        setDocuments(docs);
 
-        // If nothing selected yet, pick the most recent if any
-        if (!selectedId && docs.length > 0) {
-          const first = docs[0];
-          setSelectedId(first.id);
-          setEditTitle(first.title);
-          setEditContent(first.content);
-          setLastSavedAt(first.updatedAt);
-        }
+        // Important: don't clobber existing docs if something (like "New")
+        // already populated state while the fetch was in flight.
+        setDocuments((prev) => (prev.length > 0 ? prev : docs));
       } catch (err) {
         console.error("Error loading documents:", err);
         setListError("Failed to load documents.");
@@ -73,8 +67,22 @@ const DocumentsPage: React.FC = () => {
         setListLoading(false);
       }
     })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  // Separate effect: auto-select first doc *only* if nothing is selected yet
+  useEffect(() => {
+    if (!selectedId && documents.length > 0) {
+      const first = documents[0];
+      setSelectedId(first.id);
+      setSwitchingDoc(true);
+      setEditTitle(first.title);
+      setEditContent(first.content);
+      setLastSavedAt(first.updatedAt);
+      window.setTimeout(() => {
+        setSwitchingDoc(false);
+      }, 200);
+    }
+  }, [documents, selectedId]);
 
   // When you click a doc in the list
   function handleSelect(id: string) {
@@ -89,7 +97,7 @@ const DocumentsPage: React.FC = () => {
       setSaveError(null);
       setIsSaving(false);
 
-      // Give a tiny visual “loading” delay even though it's local
+      // Tiny visual “loading” delay (pure UX)
       window.setTimeout(() => {
         setSwitchingDoc(false);
       }, 200);
