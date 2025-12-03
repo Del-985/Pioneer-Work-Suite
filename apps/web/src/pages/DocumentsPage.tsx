@@ -4,6 +4,7 @@ import {
   fetchDocuments,
   createDocument,
   updateDocument,
+  deleteDocument,
   Document,
 } from "../api/documents";
 
@@ -25,8 +26,9 @@ const DocumentsPage: React.FC = () => {
   const [saveError, setSaveError] = useState<string | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
 
-  // New doc button loading
+  // New doc button loading / delete loading
   const [creating, setCreating] = useState(false);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   // Load all documents on mount
   useEffect(() => {
@@ -93,9 +95,41 @@ const DocumentsPage: React.FC = () => {
     }
   }
 
+  // Delete a document
+  async function handleDelete(id: string) {
+    setDeletingId(id);
+    setSaveError(null);
+
+    try {
+      await deleteDocument(id);
+      setDocuments((prev) => prev.filter((d) => d.id !== id));
+
+      // If we deleted the one currently open, pick another or clear selection
+      if (selectedId === id) {
+        const remaining = documents.filter((d) => d.id !== id);
+        if (remaining.length > 0) {
+          const first = remaining[0];
+          setSelectedId(first.id);
+          setEditTitle(first.title);
+          setEditContent(first.content);
+          setLastSavedAt(first.updatedAt);
+        } else {
+          setSelectedId(null);
+          setEditTitle("");
+          setEditContent("");
+          setLastSavedAt(null);
+        }
+      }
+    } catch (err) {
+      console.error("Error deleting document:", err);
+      setSaveError("Unable to delete document.");
+    } finally {
+      setDeletingId(null);
+    }
+  }
+
   // Autosave implementation
   const queueAutosave = useCallback(() => {
-    if (!selectedId) return;
     if (!selectedDoc) return;
 
     const controller = new AbortController();
@@ -135,7 +169,7 @@ const DocumentsPage: React.FC = () => {
       clearTimeout(timeoutId);
       controller.abort();
     };
-  }, [selectedId, selectedDoc, editTitle, editContent]);
+  }, [selectedDoc, editTitle, editContent]);
 
   // Fire autosave when editTitle/editContent change
   useEffect(() => {
@@ -185,13 +219,13 @@ const DocumentsPage: React.FC = () => {
   return (
     <div
       style={{
-        display: "grid",
-        gridTemplateColumns: "minmax(220px, 280px) minmax(0, 1fr)",
+        display: "flex",
+        flexDirection: "column", // 👉 stacked for better mobile visibility
         gap: 16,
         height: "100%",
       }}
     >
-      {/* Left: document list */}
+      {/* Left: document list (full-width card on mobile) */}
       <div
         style={{
           display: "flex",
@@ -282,7 +316,7 @@ const DocumentsPage: React.FC = () => {
 
         <div
           style={{
-            flex: 1,
+            maxHeight: 260,
             overflowY: "auto",
             padding: "6px 0",
           }}
@@ -308,55 +342,81 @@ const DocumentsPage: React.FC = () => {
               day: "numeric",
             });
 
+            const isDeleting = deletingId === doc.id;
+
             return (
-              <button
+              <div
                 key={doc.id}
-                type="button"
-                onClick={() => handleSelect(doc.id)}
                 style={{
-                  width: "100%",
-                  textAlign: "left",
-                  padding: "8px 12px",
-                  border: "none",
-                  borderLeft: isActive
-                    ? "3px solid #7f3dff"
-                    : "3px solid transparent",
-                  background: isActive
-                    ? "rgba(127,61,255,0.15)"
-                    : "transparent",
-                  cursor: "pointer",
                   display: "flex",
-                  flexDirection: "column",
-                  gap: 2,
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  paddingRight: 8,
                 }}
               >
-                <span
+                <button
+                  type="button"
+                  onClick={() => handleSelect(doc.id)}
                   style={{
-                    fontSize: 13,
-                    fontWeight: isActive ? 500 : 400,
-                    color: "#f5f5f5",
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
+                    flex: 1,
+                    textAlign: "left",
+                    padding: "8px 12px",
+                    border: "none",
+                    borderLeft: isActive
+                      ? "3px solid #7f3dff"
+                      : "3px solid transparent",
+                    background: isActive
+                      ? "rgba(127,61,255,0.15)"
+                      : "transparent",
+                    cursor: "pointer",
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 2,
                   }}
                 >
-                  {doc.title || "Untitled document"}
-                </span>
-                <span
+                  <span
+                    style={{
+                      fontSize: 13,
+                      fontWeight: isActive ? 500 : 400,
+                      color: "#f5f5f5",
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {doc.title || "Untitled document"}
+                  </span>
+                  <span
+                    style={{
+                      fontSize: 11,
+                      color: "#6f7598",
+                    }}
+                  >
+                    Updated {updatedLabel}
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleDelete(doc.id)}
+                  disabled={isDeleting}
                   style={{
+                    all: "unset",
+                    cursor: isDeleting ? "default" : "pointer",
                     fontSize: 11,
-                    color: "#6f7598",
+                    opacity: 0.75,
+                    padding: "0 4px",
                   }}
+                  aria-label="Delete document"
                 >
-                  Updated {updatedLabel}
-                </span>
-              </button>
+                  {isDeleting ? "…" : "✕"}
+                </button>
+              </div>
             );
           })}
         </div>
       </div>
 
-      {/* Right: editor */}
+      {/* Right: editor (full-width, below list on mobile) */}
       <div
         style={{
           display: "flex",
@@ -365,15 +425,15 @@ const DocumentsPage: React.FC = () => {
           border: "1px solid rgba(255,255,255,0.08)",
           background: "#05070a",
           padding: 12,
-          minHeight: 0,
+          minHeight: 160,
         }}
       >
         {!hasSelection ? (
           <div className="workspace-placeholder">
             <h2>Select or create a document</h2>
             <p>
-              Pick a document from the list on the left, or create a new one to
-              start writing.
+              Pick a document from the list above, or create a new one to start
+              writing.
             </p>
           </div>
         ) : (
@@ -409,8 +469,7 @@ const DocumentsPage: React.FC = () => {
               onChange={(e) => setEditContent(e.target.value)}
               placeholder="Start writing your document here..."
               style={{
-                flex: 1,
-                resize: "none",
+                minHeight: 160,
                 borderRadius: 8,
                 border: "1px solid rgba(255,255,255,0.16)",
                 background: "#050713",
@@ -420,7 +479,7 @@ const DocumentsPage: React.FC = () => {
                 lineHeight: 1.5,
                 fontFamily:
                   '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif',
-                minHeight: 0,
+                resize: "vertical",
               }}
             />
           </>
