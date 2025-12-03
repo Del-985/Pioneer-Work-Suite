@@ -21,9 +21,14 @@ const TasksPage: React.FC = () => {
         setError(null);
         const loaded = await fetchTasks();
         setTasks(loaded);
-      } catch (err) {
+      } catch (err: any) {
         console.error("Error loading tasks:", err);
-        setError("Unable to load tasks.");
+        const msgFromServer =
+          err?.response?.data?.error ||
+          (err?.response?.status
+            ? `Error ${err.response.status}`
+            : null);
+        setError(msgFromServer || "Unable to load tasks.");
       } finally {
         setLoading(false);
       }
@@ -39,9 +44,14 @@ const TasksPage: React.FC = () => {
       const created = await createTask(newTitle.trim());
       setTasks((prev) => [created, ...prev]);
       setNewTitle("");
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error creating task:", err);
-      setError("Unable to create task.");
+      const msgFromServer =
+        err?.response?.data?.error ||
+        (err?.response?.status
+          ? `Error ${err.response.status}`
+          : null);
+      setError(msgFromServer || "Unable to create task.");
     }
   }
 
@@ -58,9 +68,14 @@ const TasksPage: React.FC = () => {
 
     try {
       await updateTask(task.id, { status: nextStatus });
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error updating task:", err);
-      setError("Unable to update task.");
+      const msgFromServer =
+        err?.response?.data?.error ||
+        (err?.response?.status
+          ? `Error ${err.response.status}`
+          : null);
+      setError(msgFromServer || "Unable to update task.");
     }
   }
 
@@ -70,9 +85,14 @@ const TasksPage: React.FC = () => {
 
     try {
       await deleteTask(id);
-    } catch (err) {
+    } catch (err: any) {
       console.error("Error deleting task:", err);
-      setError("Unable to delete task.");
+      const msgFromServer =
+        err?.response?.data?.error ||
+        (err?.response?.status
+          ? `Error ${err.response.status}`
+          : null);
+      setError(msgFromServer || "Unable to delete task.");
     }
   }
 
