@@ -3,9 +3,18 @@ import React, { useState, useEffect } from "react";
 import { Routes, Route, Navigate, Link } from "react-router-dom";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
-import { fetchTasks, createTask, updateTask, deleteTask, Task } from "./api/tasks";
+import TasksPage from "./pages/TasksPage";
+import {
+  fetchTasks,
+  createTask,
+  updateTask,
+  deleteTask,
+  Task,
+} from "./api/tasks";
 
-const RequireAuth: React.FC<{ children: React.ReactElement }> = ({ children }) => {
+const RequireAuth: React.FC<{ children: React.ReactElement }> = ({
+  children,
+}) => {
   const hasToken =
     typeof window !== "undefined" && !!window.localStorage.getItem("token");
 
@@ -26,8 +35,8 @@ const Dashboard: React.FC = () => {
     <div className="workspace-placeholder">
       <h2>Welcome, {userName}</h2>
       <p>
-        This is your student workspace. In v1, you&apos;ll be able to write documents,
-        track tasks, and later expand to email and spreadsheets.
+        This is your student workspace. In v1, you&apos;ll be able to write
+        documents, track tasks, and later expand to email and spreadsheets.
       </p>
     </div>
   );
@@ -39,12 +48,13 @@ const App: React.FC = () => {
   const hasToken =
     typeof window !== "undefined" && !!window.localStorage.getItem("token");
 
-  // ---- Tasks state ----
+  // ---- Tasks state for the right-hand To-Do panel ----
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
   const [tasksError, setTasksError] = useState<string | null>(null);
   const [newTaskTitle, setNewTaskTitle] = useState("");
 
+  // Load tasks when authenticated
   useEffect(() => {
     if (!hasToken) {
       setTasks([]);
@@ -66,25 +76,22 @@ const App: React.FC = () => {
     })();
   }, [hasToken]);
 
-async function handleAddTask(e: React.FormEvent) {
-  e.preventDefault();
-  if (!newTaskTitle.trim()) return;
+  async function handleAddTask(e: React.FormEvent) {
+    e.preventDefault();
+    if (!newTaskTitle.trim()) return;
 
-  // Clear any old error when we try again
-  setTasksError(null);
-
-  try {
-    const created = await createTask(newTaskTitle.trim());
-    setTasks((prev) => [created, ...prev]);
-    setNewTaskTitle("");
-
-    // Successful create → clear "Unable to load tasks" if it was set
+    // Clear any stale error when trying again
     setTasksError(null);
-  } catch (err) {
-    console.error("Error creating task:", err);
-    setTasksError("Unable to create task.");
+
+    try {
+      const created = await createTask(newTaskTitle.trim());
+      setTasks((prev) => [created, ...prev]);
+      setNewTaskTitle("");
+    } catch (err) {
+      console.error("Error creating task:", err);
+      setTasksError("Unable to create task.");
+    }
   }
-}
 
   async function handleToggleTask(task: Task) {
     const nextStatus: Task["status"] =
@@ -108,6 +115,7 @@ async function handleAddTask(e: React.FormEvent) {
   async function handleDeleteTask(id: string) {
     // Optimistic remove
     setTasks((prev) => prev.filter((t) => t.id !== id));
+
     try {
       await deleteTask(id);
     } catch (err) {
@@ -132,9 +140,9 @@ async function handleAddTask(e: React.FormEvent) {
           <button className="nav-item" type="button" disabled>
             Documents (coming soon)
           </button>
-          <button className="nav-item" type="button" disabled>
-            Tasks (coming soon)
-          </button>
+          <Link className="nav-item" to="/tasks">
+            Tasks
+          </Link>
         </nav>
       </aside>
 
@@ -145,7 +153,7 @@ async function handleAddTask(e: React.FormEvent) {
           <header className="workspace-header">
             <h1>Student Workspace</h1>
             <p className="workspace-subtitle">
-              Sign in, register, and access your student dashboard.
+              Sign in, register, and access your student dashboard and tasks.
             </p>
           </header>
 
@@ -162,6 +170,15 @@ async function handleAddTask(e: React.FormEvent) {
                 }
               />
               <Route
+                path="/tasks"
+                element={
+                  <RequireAuth>
+                    <TasksPage />
+                  </RequireAuth>
+                }
+              />
+              {/* Default route: if token, go to dashboard; else go to login */}
+              <Route
                 path="/"
                 element={
                   hasToken ? (
@@ -171,6 +188,7 @@ async function handleAddTask(e: React.FormEvent) {
                   )
                 }
               />
+              {/* Catch-all */}
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </section>
