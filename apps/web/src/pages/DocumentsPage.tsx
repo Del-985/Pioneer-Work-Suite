@@ -205,36 +205,27 @@ const DocumentsPage: React.FC = () => {
     }
   }
 
-  // Schedule autosave whenever title/content changes
+  // 🔧 AUTOSAVE: always schedule on edit, as long as there is a selectedId
   useEffect(() => {
-    // If there is no doc selected at all, skip autosave
     if (!selectedId) {
       clearAutosaveTimer();
       return;
     }
 
-    // We might not have selectedDoc yet (race right after create/select).
-    // Treat the "last saved" version as empty in that case.
-    const baseTitle = selectedDoc?.title ?? "";
-    const baseContent = selectedDoc?.content ?? "";
-
     // Clear any previous timer
     clearAutosaveTimer();
 
-    // If nothing changed compared to the last saved version, skip
-    if (editTitle === baseTitle && editContent === baseContent) {
-      return;
-    }
-
     const targetId = selectedId;
+    const currentTitle = editTitle;
+    const currentContent = editContent;
 
     const timeoutId = window.setTimeout(async () => {
       try {
         setIsSaving(true);
         setSaveError(null);
         const updated = await updateDocument(targetId, {
-          title: editTitle,
-          content: editContent,
+          title: currentTitle,
+          content: currentContent,
         });
 
         // Update list
@@ -258,7 +249,7 @@ const DocumentsPage: React.FC = () => {
     return () => {
       clearAutosaveTimer();
     };
-  }, [editTitle, editContent, selectedId, selectedDoc]);
+  }, [editTitle, editContent, selectedId]);
 
   // Derived UI bits
   const hasSelection = selectedId !== null; // trust the selection id
