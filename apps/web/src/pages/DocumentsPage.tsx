@@ -205,20 +205,70 @@ const DocumentsPage: React.FC = () => {
     }
   }
 
-  // 🔧 AUTOSAVE: always schedule on edit, as long as there is a selectedId
+  // AUTOSAVE:
+  // - If there is a selected doc whose DB content is "" and editor content just changed,
+  //   we do an IMMEDIATE save (no debounce) – this is the “force DB to accept new doc” piece.
+  // - Otherwise, we do a debounced save.
   useEffect(() => {
     if (!selectedId) {
       clearAutosaveTimer();
       return;
     }
 
+    // If we don't even have a doc object yet (very tiny window), just do debounced save.
+    const baseTitle = selectedDoc?.title ?? "";
+    const baseContent = selectedDoc?.content ?? "";
+
     // Clear any previous timer
     clearAutosaveTimer();
+
+    const changed =
+      editTitle !== baseTitle || editContent !== baseContent;
+
+    // Nothing changed vs last known version → no save
+    if (!changed) {
+      return;
+    }
 
     const targetId = selectedId;
     const currentTitle = editTitle;
     const currentContent = editContent;
 
+    // Is this the first change from empty content?
+    const isFirstChangeFromEmpty =
+      selectedDoc &&
+      selectedDoc.content === "" &&
+      currentContent !== selectedDoc.content;
+
+    //Immediate save for first change from empty → non-empty
+    if (isFirstChangeFromEmpty) {
+      (async () => {
+        try {
+          setIsSaving(true);
+          setSaveError(null);
+          const updated = await updateDocument(targetId, {
+            title: currentTitle,
+            content: currentContent,
+          });
+
+          setDocuments((prev) =>
+            prev.map((doc) =>
+              doc.id === updated.id ? updated : doc
+            )
+          );
+          setLastSavedAt(updated.updatedAt || updated.createdAt || null);
+        } catch (err) {
+          console.error("Error autosaving document (immediate):", err);
+          setSaveError("Autosave failed.");
+        } finally {
+          setIsSaving(false);
+        }
+      })();
+
+      return; // skip debounce in this special case
+    }
+
+    // 🕒 Normal debounced autosave for all other changes
     const timeoutId = window.setTimeout(async () => {
       try {
         setIsSaving(true);
@@ -228,7 +278,6 @@ const DocumentsPage: React.FC = () => {
           content: currentContent,
         });
 
-        // Update list
         setDocuments((prev) =>
           prev.map((doc) =>
             doc.id === updated.id ? updated : doc
@@ -249,7 +298,7 @@ const DocumentsPage: React.FC = () => {
     return () => {
       clearAutosaveTimer();
     };
-  }, [editTitle, editContent, selectedId]);
+  }, [editTitle, editContent, selectedId, selectedDoc]);
 
   // Derived UI bits
   const hasSelection = selectedId !== null; // trust the selection id
