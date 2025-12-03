@@ -8,7 +8,12 @@ import {
   Task,
 } from "../api/tasks";
 
-const TasksPage: React.FC = () => {
+interface TasksPageProps {
+  // Optional callback for when tasks change, so App (sidebar) can refresh
+  onTasksChanged?: () => void;
+}
+
+const TasksPage: React.FC<TasksPageProps> = ({ onTasksChanged }) => {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,6 +44,7 @@ const TasksPage: React.FC = () => {
       const created = await createTask(newTitle.trim());
       setTasks((prev) => [created, ...prev]);
       setNewTitle("");
+      onTasksChanged?.(); // notify parent (App) that tasks changed
     } catch (err) {
       console.error("Error creating task:", err);
       setError("Unable to create task.");
@@ -58,6 +64,7 @@ const TasksPage: React.FC = () => {
 
     try {
       await updateTask(task.id, { status: nextStatus });
+      onTasksChanged?.();
     } catch (err) {
       console.error("Error updating task:", err);
       setError("Unable to update task.");
@@ -70,6 +77,7 @@ const TasksPage: React.FC = () => {
 
     try {
       await deleteTask(id);
+      onTasksChanged?.();
     } catch (err) {
       console.error("Error deleting task:", err);
       setError("Unable to delete task.");
@@ -81,8 +89,8 @@ const TasksPage: React.FC = () => {
       <div className="workspace-placeholder" style={{ marginBottom: 8 }}>
         <h2>Tasks</h2>
         <p>
-          Track your work here. This view is powered by the same backend as
-          your To-Do sidebar.
+          Track your work here. These tasks are stored in your account and also
+          feed into the right-hand Tasks panel (when selected).
         </p>
       </div>
 
