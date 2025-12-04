@@ -33,10 +33,10 @@ const DocumentsPage: React.FC = () => {
   // Simple loading flag when switching docs
   const [switchingDoc, setSwitchingDoc] = useState(false);
 
-  // Word count (plain text from HTML)
+  // Word count
   const [wordCount, setWordCount] = useState(0);
 
-  // Quill ref so handlers can call history.undo/redo
+  // Quill ref for undo/redo
   const quillRef = React.useRef<any>(null);
 
   // Resolve selected doc from list
@@ -45,7 +45,7 @@ const DocumentsPage: React.FC = () => {
     : null;
   const hasSelection = !!selectedDoc;
 
-  // Quill modules: toolbar + history + undo/redo buttons
+  // Quill modules: toolbar + history + undo/redo
   const quillModules = {
     toolbar: {
       container: [
@@ -77,18 +77,20 @@ const DocumentsPage: React.FC = () => {
     },
   };
 
-  // Helper: count words from HTML
+  // Helper: count words from HTML safely
   function countWordsFromHtml(html: string): number {
     if (!html) return 0;
+    if (typeof document === "undefined") return 0;
+
     const tmp = document.createElement("div");
     tmp.innerHTML = html;
     const text = (tmp.textContent || tmp.innerText || "").trim();
     if (!text) return 0;
-    // Split on whitespace, filter out empty chunks
+
     return text.split(/\s+/).filter(Boolean).length;
   }
 
-  // Update word count whenever content changes
+  // Update word count when content changes
   useEffect(() => {
     if (!hasSelection) {
       setWordCount(0);
@@ -127,7 +129,7 @@ const DocumentsPage: React.FC = () => {
     }
   }, [documents, selectedId]);
 
-  // Save the currently selected doc (used by manual and autosave)
+  // Save the currently selected doc
   async function saveCurrentDocument() {
     if (!selectedDoc || !selectedDoc.id) {
       setSaveError("No document selected to save.");
@@ -191,6 +193,7 @@ const DocumentsPage: React.FC = () => {
       setEditContent("");
       setLastSavedAt(null);
       setHasLocalChanges(false);
+      setWordCount(0);
     }
   }
 
@@ -218,6 +221,7 @@ const DocumentsPage: React.FC = () => {
       setSaveError(null);
       setIsSaving(false);
       setHasLocalChanges(false);
+      setWordCount(0);
       window.setTimeout(() => setSwitchingDoc(false), 200);
     } catch (err) {
       console.error("Error creating document:", err);
@@ -237,20 +241,23 @@ const DocumentsPage: React.FC = () => {
     let titleEmpty = true;
     let contentEmpty = true;
 
+    // Check content by stripping HTML
+    const extractPlain = (html: string | undefined | null) => {
+      if (!html) return "";
+      if (typeof document === "undefined") return html;
+      const tempDiv = document.createElement("div");
+      tempDiv.innerHTML = html;
+      return (tempDiv.textContent || tempDiv.innerText || "").trim();
+    };
+
     if (selectedDoc && selectedDoc.id === id) {
       titleEmpty = !editTitle || editTitle.trim().length === 0;
-
-      const tempDiv = document.createElement("div");
-      tempDiv.innerHTML = editContent || "";
-      const plain = tempDiv.textContent || tempDiv.innerText || "";
-      contentEmpty = plain.trim().length === 0;
+      const plain = extractPlain(editContent);
+      contentEmpty = plain.length === 0;
     } else if (doc) {
       titleEmpty = !doc.title || doc.title.trim().length === 0;
-
-      const tempDiv = document.createElement("div");
-      tempDiv.innerHTML = doc.content || "";
-      const plain = tempDiv.textContent || tempDiv.innerText || "";
-      contentEmpty = plain.trim().length === 0;
+      const plain = extractPlain(doc.content);
+      contentEmpty = plain.length === 0;
     }
 
     if (!titleEmpty || !contentEmpty) {
@@ -278,6 +285,8 @@ const DocumentsPage: React.FC = () => {
         setSaveError(null);
         setIsSaving(false);
         setHasLocalChanges(false);
+        const count = countWordsFromHtml(first.content || "");
+        setWordCount(count);
         window.setTimeout(() => setSwitchingDoc(false), 200);
       } else {
         setSelectedId(null);
