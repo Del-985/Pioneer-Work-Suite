@@ -3,10 +3,10 @@ import React, { useEffect, useState } from "react";
 import {
   fetchDocuments,
   createDocument,
-  updateDocument,
   deleteDocument,
   Document,
 } from "../api/documents";
+import { http } from "../api/http";
 
 const DocumentsPage: React.FC = () => {
   // List state
@@ -31,12 +31,11 @@ const DocumentsPage: React.FC = () => {
   // “Loading…” when switching between docs
   const [switchingDoc, setSwitchingDoc] = useState(false);
 
-  // Find the currently selected document (for labels / updatedAt)
   const selectedDoc = selectedId
     ? documents.find((d) => d.id === selectedId) || null
     : null;
 
-  // Load all documents on mount
+  // Load docs on mount
   useEffect(() => {
     (async () => {
       try {
@@ -53,7 +52,7 @@ const DocumentsPage: React.FC = () => {
     })();
   }, []);
 
-  // Auto-select first doc if nothing is selected yet
+  // Auto-select first doc
   useEffect(() => {
     if (!selectedId && documents.length > 0) {
       const first = documents[0];
@@ -68,7 +67,7 @@ const DocumentsPage: React.FC = () => {
     }
   }, [documents, selectedId]);
 
-  // Helper: save the currently selected document to the backend
+  // Core: force a PUT to the backend for the current doc
   async function saveCurrentDocument() {
     if (!selectedId) return;
 
@@ -80,10 +79,16 @@ const DocumentsPage: React.FC = () => {
     const currentContent = editContent;
 
     try {
-      const updated = await updateDocument(targetId, {
-        title: currentTitle,
-        content: currentContent,
-      });
+      // Direct axios PUT, bypassing api/documents.ts
+      const response = await http.put<Document>(
+        `/documents/${targetId}`,
+        {
+          title: currentTitle,
+          content: currentContent,
+        }
+      );
+
+      const updated = response.data;
 
       setDocuments((prev) =>
         prev.map((doc) =>
@@ -99,8 +104,6 @@ const DocumentsPage: React.FC = () => {
     }
   }
 
-  // When you click a doc in the list, just switch to it.
-  // No autosave or cross-doc saving.
   function handleSelect(id: string) {
     const doc = documents.find((d) => d.id === id);
     setSelectedId(id);
@@ -118,7 +121,6 @@ const DocumentsPage: React.FC = () => {
     }
   }
 
-  // Create a new document and select it (content starts empty).
   async function handleCreateNew() {
     setCreating(true);
     setSaveError(null);
@@ -141,12 +143,10 @@ const DocumentsPage: React.FC = () => {
     }
   }
 
-  // Manual save button – always fires a PUT
   async function handleManualSave() {
     await saveCurrentDocument();
   }
 
-  // Delete a document (with confirmation if not empty), using live editor content
   async function handleDelete(id: string) {
     const doc = documents.find((d) => d.id === id);
 
