@@ -11,27 +11,25 @@ import {
 } from "../api/documents";
 
 const DocumentsPage: React.FC = () => {
-  // List state
+  // List
   const [documents, setDocuments] = useState<Document[]>([]);
   const [listLoading, setListLoading] = useState(false);
+  const [listError, setListError] = useState<string | null>(null);
 
-  // Selected document
+  // Selected doc
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editContent, setEditContent] = useState("");
 
-  // Save / autosave status
+  // Save state
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const [hasLocalChanges, setHasLocalChanges] = useState(false);
 
-  // New doc / delete loading
+  // Create / delete
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
-
-  // Simple loading flag when switching docs
-  const [switchingDoc, setSwitchingDoc] = useState(false);
 
   // Word count
   const [wordCount, setWordCount] = useState(0);
@@ -39,13 +37,13 @@ const DocumentsPage: React.FC = () => {
   // Quill ref for undo/redo
   const quillRef = React.useRef<any>(null);
 
-  // Resolve selected doc from list
-  const selectedDoc = selectedId
-    ? documents.find((d) => d.id === selectedId) || null
-    : null;
+  const selectedDoc =
+    selectedId != null
+      ? documents.find((d) => d.id === selectedId) || null
+      : null;
   const hasSelection = !!selectedDoc;
 
-  // Quill modules: toolbar + history + undo/redo
+  // ----- Quill config -----
   const quillModules = {
     toolbar: {
       container: [
@@ -58,15 +56,11 @@ const DocumentsPage: React.FC = () => {
       handlers: {
         undo: () => {
           const editor = quillRef.current?.getEditor?.();
-          if (editor && editor.history) {
-            editor.history.undo();
-          }
+          if (editor && editor.history) editor.history.undo();
         },
         redo: () => {
           const editor = quillRef.current?.getEditor?.();
-          if (editor && editor.history) {
-            editor.history.redo();
-          }
+          if (editor && editor.history) editor.history.redo();
         },
       },
     },
@@ -77,65 +71,78 @@ const DocumentsPage: React.FC = () => {
     },
   };
 
-  // Helper: count words from HTML safely
+  // ----- Helpers -----
   function countWordsFromHtml(html: string): number {
     if (!html) return 0;
     if (typeof document === "undefined") return 0;
 
-    const tmp = document.createElement("div");
-    tmp.innerHTML = html;
-    const text = (tmp.textContent || tmp.innerText || "").trim();
+    const div = document.createElement("div");
+    div.innerHTML = html;
+    const text = (div.textContent || div.innerText || "").trim();
     if (!text) return 0;
-
     return text.split(/\s+/).filter(Boolean).length;
   }
 
-  // Update word count when content changes
+  function getUpdatedLabel(doc: Document): string {
+    const raw = doc.updatedAt || doc.createdAt;
+    if (!raw) return "Just now";
+    const d = new Date(raw);
+    if (isNaN(d.getTime())) return "Just now";
+    return d.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+    });
+  }
+
+  function extractPlain(html: string | undefined | null): string {
+    if (!html) return "";
+    if (typeof document === "undefined") return html;
+    const tempDiv = document.createElement("div");
+    tempDiv.innerHTML = html;
+    return (tempDiv.textContent || tempDiv.innerText || "").trim();
+  }
+
+  // ----- Load documents once, and select first if present -----
+  useEffect(() => {
+    (async () => {
+      setListLoading(true);
+      setListError(null);
+      try {
+        const docs = await fetchDocuments();
+        setDocuments(docs);
+        if (docs.length > 0) {
+          const first = docs[0];
+          setSelectedId(first.id);
+          setEditTitle(first.title);
+          setEditContent(first.content || "");
+          setLastSavedAt(first.updatedAt || first.createdAt || null);
+          setHasLocalChanges(false);
+          setWordCount(countWordsFromHtml(first.content || ""));
+        }
+      } catch (err) {
+        console.error("Error loading documents:", err);
+        setListError("Failed to load documents.");
+      } finally {
+        setListLoading(false);
+      }
+    })();
+  }, []);
+
+  // ----- Update word count when editor changes -----
   useEffect(() => {
     if (!hasSelection) {
       setWordCount(0);
       return;
     }
-    const count = countWordsFromHtml(editContent);
-    setWordCount(count);
+    setWordCount(countWordsFromHtml(editContent));
   }, [editContent, hasSelection]);
 
-  // Load docs once
-  useEffect(() => {
-    (async () => {
-      setListLoading(true);
-      const docs = await fetchDocuments();
-      setDocuments(docs);
-      setListLoading(false);
-    })();
-  }, []);
-
-  // Auto-select first doc if none selected
-  useEffect(() => {
-    if (!selectedId && documents.length > 0) {
-      const first = documents[0];
-      if (!first?.id) return;
-
-      setSelectedId(first.id);
-      setSwitchingDoc(true);
-      setEditTitle(first.title);
-      setEditContent(first.content || "");
-      setLastSavedAt(first.updatedAt || first.createdAt || null);
-      setSaveError(null);
-      setIsSaving(false);
-      setHasLocalChanges(false);
-
-      window.setTimeout(() => setSwitchingDoc(false), 200);
-    }
-  }, [documents, selectedId]);
-
-  // Save the currently selected doc
+  // ----- Save helpers -----
   async function saveCurrentDocument() {
     if (!selectedDoc || !selectedDoc.id) {
       setSaveError("No document selected to save.");
       return;
     }
-
     setIsSaving(true);
     setSaveError(null);
 
@@ -150,7 +157,7 @@ const DocumentsPage: React.FC = () => {
       });
 
       setDocuments((prev) =>
-        prev.map((doc) => (doc.id === updated.id ? updated : doc))
+        prev.map((d) => (d.id === updated.id ? updated : d))
       );
       setLastSavedAt(updated.updatedAt || updated.createdAt || null);
       setHasLocalChanges(false);
@@ -162,7 +169,7 @@ const DocumentsPage: React.FC = () => {
     }
   }
 
-  // Debounced autosave: 3s after last change
+  // Debounced autosave
   useEffect(() => {
     if (!hasSelection) return;
     if (!hasLocalChanges) return;
@@ -175,21 +182,18 @@ const DocumentsPage: React.FC = () => {
     return () => window.clearTimeout(timeout);
   }, [editTitle, editContent, hasLocalChanges, hasSelection, selectedDoc?.id]);
 
-  function handleSelect(id: string) {
+  // ----- UI handlers -----
+  async function handleSelect(id: string) {
     const doc = documents.find((d) => d.id === id);
     setSelectedId(id);
 
     if (doc) {
-      setSwitchingDoc(true);
       setEditTitle(doc.title);
       setEditContent(doc.content || "");
       setLastSavedAt(doc.updatedAt || doc.createdAt || null);
-      setSaveError(null);
-      setIsSaving(false);
       setHasLocalChanges(false);
-      const count = countWordsFromHtml(doc.content || "");
-      setWordCount(count);
-      window.setTimeout(() => setSwitchingDoc(false), 200);
+      setSaveError(null);
+      setWordCount(countWordsFromHtml(doc.content || ""));
     } else {
       setEditTitle("");
       setEditContent("");
@@ -202,29 +206,20 @@ const DocumentsPage: React.FC = () => {
   async function handleCreateNew() {
     setCreating(true);
     setSaveError(null);
-
     try {
       const created = await createDocument("Untitled document", "");
-
       if (!created || !created.id) {
-        console.error("createDocument returned item without id:", created);
         setSaveError("Unable to create document.");
-        setCreating(false);
         return;
       }
 
       setDocuments((prev) => [created, ...prev]);
-
       setSelectedId(created.id);
-      setSwitchingDoc(true);
       setEditTitle(created.title);
       setEditContent(created.content || "");
       setLastSavedAt(created.updatedAt || created.createdAt || null);
-      setSaveError(null);
-      setIsSaving(false);
       setHasLocalChanges(false);
       setWordCount(0);
-      window.setTimeout(() => setSwitchingDoc(false), 200);
     } catch (err) {
       console.error("Error creating document:", err);
       setSaveError("Unable to create document.");
@@ -243,23 +238,12 @@ const DocumentsPage: React.FC = () => {
     let titleEmpty = true;
     let contentEmpty = true;
 
-    // Check content by stripping HTML
-    const extractPlain = (html: string | undefined | null) => {
-      if (!html) return "";
-      if (typeof document === "undefined") return html;
-      const tempDiv = document.createElement("div");
-      tempDiv.innerHTML = html;
-      return (tempDiv.textContent || tempDiv.innerText || "").trim();
-    };
-
     if (selectedDoc && selectedDoc.id === id) {
       titleEmpty = !editTitle || editTitle.trim().length === 0;
-      const plain = extractPlain(editContent);
-      contentEmpty = plain.length === 0;
+      contentEmpty = extractPlain(editContent).length === 0;
     } else if (doc) {
       titleEmpty = !doc.title || doc.title.trim().length === 0;
-      const plain = extractPlain(doc.content);
-      contentEmpty = plain.length === 0;
+      contentEmpty = extractPlain(doc.content).length === 0;
     }
 
     if (!titleEmpty || !contentEmpty) {
@@ -272,7 +256,7 @@ const DocumentsPage: React.FC = () => {
     setDeletingId(id);
     setSaveError(null);
 
-    const previousDocs = documents;
+    const previous = documents;
     const remaining = documents.filter((d) => d.id !== id);
     setDocuments(remaining);
 
@@ -280,22 +264,16 @@ const DocumentsPage: React.FC = () => {
       if (remaining.length > 0) {
         const first = remaining[0];
         setSelectedId(first.id);
-        setSwitchingDoc(true);
         setEditTitle(first.title);
         setEditContent(first.content || "");
         setLastSavedAt(first.updatedAt || first.createdAt || null);
-        setSaveError(null);
-        setIsSaving(false);
         setHasLocalChanges(false);
-        const count = countWordsFromHtml(first.content || "");
-        setWordCount(count);
-        window.setTimeout(() => setSwitchingDoc(false), 200);
+        setWordCount(countWordsFromHtml(first.content || ""));
       } else {
         setSelectedId(null);
         setEditTitle("");
         setEditContent("");
         setLastSavedAt(null);
-        setSwitchingDoc(false);
         setHasLocalChanges(false);
         setWordCount(0);
       }
@@ -307,7 +285,7 @@ const DocumentsPage: React.FC = () => {
       console.error("Error deleting document:", err);
       const status = err?.response?.status;
       if (!status || status !== 404) {
-        setDocuments(previousDocs);
+        setDocuments(previous);
         setSaveError("Unable to delete document.");
       }
     } finally {
@@ -318,19 +296,9 @@ const DocumentsPage: React.FC = () => {
   function renderSaveStatus() {
     if (!hasSelection) return null;
 
-    if (switchingDoc) {
-      return (
-        <span style={{ fontSize: 12, color: "#9da2c8" }}>
-          Loading document…
-        </span>
-      );
-    }
-
     if (isSaving) {
       return (
-        <span style={{ fontSize: 12, color: "#9da2c8" }}>
-          Saving…
-        </span>
+        <span style={{ fontSize: 12, color: "#9da2c8" }}>Saving…</span>
       );
     }
 
@@ -366,19 +334,7 @@ const DocumentsPage: React.FC = () => {
     return null;
   }
 
-  function getUpdatedLabel(doc: Document): string {
-    const raw = doc.updatedAt || doc.createdAt;
-    if (!raw) return "Just now";
-
-    const d = new Date(raw);
-    if (isNaN(d.getTime())) return "Just now";
-
-    return d.toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-    });
-  }
-
+  // ----- Render -----
   return (
     <div
       style={{
@@ -388,7 +344,7 @@ const DocumentsPage: React.FC = () => {
         height: "100%",
       }}
     >
-      {/* Document list */}
+      {/* Documents list card */}
       <div
         style={{
           display: "flex",
@@ -429,6 +385,17 @@ const DocumentsPage: React.FC = () => {
                 }}
               >
                 Loading…
+              </p>
+            ) : listError ? (
+              <p
+                style={{
+                  margin: 0,
+                  marginTop: 2,
+                  fontSize: 11,
+                  color: "#ff7b88",
+                }}
+              >
+                {listError}
               </p>
             ) : (
               <p
@@ -472,7 +439,7 @@ const DocumentsPage: React.FC = () => {
             padding: "6px 0",
           }}
         >
-          {documents.length === 0 && !listLoading && (
+          {documents.length === 0 && !listLoading && !listError && (
             <p
               style={{
                 padding: "8px 12px",
@@ -486,9 +453,7 @@ const DocumentsPage: React.FC = () => {
 
           {documents.map((doc) => {
             const isActive = selectedDoc && doc.id === selectedDoc.id;
-            const updatedLabel = getUpdatedLabel(doc);
             const isDeleting = deletingId === doc.id;
-
             return (
               <div
                 key={doc.id}
@@ -537,7 +502,7 @@ const DocumentsPage: React.FC = () => {
                       color: "#6f7598",
                     }}
                   >
-                    Updated {updatedLabel}
+                    Updated {getUpdatedLabel(doc)}
                   </span>
                 </button>
                 <button
@@ -561,7 +526,7 @@ const DocumentsPage: React.FC = () => {
         </div>
       </div>
 
-      {/* Editor */}
+      {/* Editor card */}
       <div
         style={{
           display: "flex",
@@ -570,7 +535,7 @@ const DocumentsPage: React.FC = () => {
           border: "1px solid rgba(255,255,255,0.08)",
           background: "#05070a",
           padding: 12,
-          minHeight: 220,
+          minHeight: 260,
         }}
       >
         {!hasSelection ? (
