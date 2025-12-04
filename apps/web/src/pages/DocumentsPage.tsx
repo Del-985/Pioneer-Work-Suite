@@ -71,23 +71,29 @@ const DocumentsPage: React.FC = () => {
 
   // Core: force a PUT to the backend for the current doc using fetch
   async function saveCurrentDocument() {
-    if (!selectedId) {
-      setSaveError("No document selected to save.");
-      return;
-    }
+  // DEBUG: prove the handler actually runs
+  setSaveError("Save button CLICKED");
+  console.log("saveCurrentDocument fired");
 
-    const token =
-      typeof window !== "undefined"
-        ? window.localStorage.getItem("token")
-        : null;
+  if (!selectedId) {
+    setSaveError("No document selected to save.");
+    return;
+  }
 
-    if (!token) {
-      setSaveError("You are not authenticated.");
-      return;
-    }
+  const token =
+    typeof window !== "undefined"
+      ? window.localStorage.getItem("token")
+      : null;
 
-    setIsSaving(true);
-    setSaveError(null);
+  if (!token) {
+    setSaveError("You are not authenticated.");
+    return;
+  }
+
+  setIsSaving(true);
+  setSaveError(null);
+
+
 
     const targetId = selectedId;
     const currentTitle = editTitle;
