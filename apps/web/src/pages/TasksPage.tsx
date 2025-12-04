@@ -15,6 +15,7 @@ const TasksPage: React.FC = () => {
   const [loadError, setLoadError] = useState<string | null>(null);
 
   const [newTitle, setNewTitle] = useState("");
+  const [newDueDate, setNewDueDate] = useState<string>(""); // yyyy-mm-dd from input
   const [creating, setCreating] = useState(false);
 
   const [updatingId, setUpdatingId] = useState<string | null>(null);
@@ -25,6 +26,10 @@ const TasksPage: React.FC = () => {
   // Inline editing
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
+
+  // Which task is having its due date edited
+  const [editingDueId, setEditingDueId] = useState<string | null>(null);
+  const [editingDueValue, setEditingDueValue] = useState<string>("");
 
   // Load tasks once
   useEffect(() => {
@@ -57,6 +62,37 @@ const TasksPage: React.FC = () => {
     [tasks]
   );
 
+  // Utility: convert yyyy-mm-dd to ISO string for backend
+  function dateInputToIso(value: string): string | null {
+    if (!value) return null;
+    const d = new Date(value);
+    if (isNaN(d.getTime())) return null;
+    return d.toISOString();
+  }
+
+  // Utility: format ISO date for display
+  function formatDueLabel(dueDate?: string | null): { label: string; tone: "neutral" | "overdue" | "today" } {
+    if (!dueDate) return { label: "No due date", tone: "neutral" };
+
+    const d = new Date(dueDate);
+    if (isNaN(d.getTime())) return { label: "No due date", tone: "neutral" };
+
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+    const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+
+    const diffMs = target.getTime() - today.getTime();
+    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+    if (diffDays < 0) {
+      return { label: `Overdue (${d.toLocaleDateString()})`, tone: "overdue" };
+    }
+    if (diffDays === 0) {
+      return { label: "Due today", tone: "today" };
+    }
+    return { label: `Due ${d.toLocaleDateString()}`, tone: "neutral" };
+  }
+
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
     const title = newTitle.trim();
@@ -66,9 +102,11 @@ const TasksPage: React.FC = () => {
     setActionError(null);
 
     try {
-      const created = await createTask(title);
+      const iso = dateInputToIso(newDueDate);
+      const created = await createTask(title, iso ?? undefined);
       setTasks((prev) => [created, ...prev]);
       setNewTitle("");
+      setNewDueDate("");
     } catch (err) {
       console.error("Error creating task:", err);
       setActionError("Unable to create task.");
@@ -132,6 +170,7 @@ const TasksPage: React.FC = () => {
     }
   }
 
+  // Inline title editing
   function startEditing(task: Task) {
     setEditingId(task.id);
     setEditingTitle(task.title);
@@ -145,11 +184,9 @@ const TasksPage: React.FC = () => {
   async function commitEditing(task: Task) {
     const trimmed = editingTitle.trim();
     if (!trimmed) {
-      // Don't allow empty titles; just cancel
       cancelEditing();
       return;
     }
-
     if (trimmed === task.title) {
       cancelEditing();
       return;
@@ -182,6 +219,61 @@ const TasksPage: React.FC = () => {
     } finally {
       setUpdatingId(null);
       cancelEditing();
+    }
+  }
+
+  // Inline due date editing
+  function startEditingDue(task: Task) {
+    setEditingDueId(task.id);
+
+    if (task.dueDate) {
+      const d = new Date(task.dueDate);
+      if (!isNaN(d.getTime())) {
+        const yyyy = d.getFullYear();
+        const mm = String(d.getMonth() + 1).padStart(2, "0");
+        const dd = String(d.getDate()).padStart(2, "0");
+        setEditingDueValue(`${yyyy}-${mm}-${dd}`);
+        return;
+      }
+    }
+    setEditingDueValue("");
+  }
+
+  function cancelEditingDue() {
+    setEditingDueId(null);
+    setEditingDueValue("");
+  }
+
+  async function commitEditingDue(task: Task) {
+    const iso = dateInputToIso(editingDueValue || "");
+
+    setUpdatingId(task.id);
+    setActionError(null);
+
+    const previous = tasks;
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === task.id
+          ? {
+              ...t,
+              dueDate: iso,
+            }
+          : t
+      )
+    );
+
+    try {
+      const updated = await updateTask(task.id, { dueDate: iso });
+      setTasks((prev) =>
+        prev.map((t) => (t.id === updated.id ? updated : t))
+      );
+    } catch (err) {
+      console.error("Error updating task due date:", err);
+      setTasks(previous);
+      setActionError("Unable to update due date.");
+    } finally {
+      setUpdatingId(null);
+      cancelEditingDue();
     }
   }
 
@@ -218,6 +310,7 @@ const TasksPage: React.FC = () => {
     const isUpdating = updatingId === task.id;
     const isDeleting = deletingId === task.id;
     const isEditing = editingId === task.id;
+    const isEditingDue = editingDueId === task.id;
 
     const statusLabel =
       task.status === "todo"
@@ -225,6 +318,15 @@ const TasksPage: React.FC = () => {
         : task.status === "in_progress"
         ? "In Progress"
         : "Done";
+
+    const { label: dueLabel, tone } = formatDueLabel(task.dueDate);
+
+    const dueColor =
+      tone === "overdue"
+        ? "#ff7b88"
+        : tone === "today"
+        ? "#f0c36a"
+        : "#6f7598";
 
     return (
       <div
@@ -254,7 +356,7 @@ const TasksPage: React.FC = () => {
               autoFocus
               value={editingTitle}
               onChange={(e) => setEditingTitle(e.target.value)}
-              onBlur={() => commitEditing(task)}
+              onBlur={() => void commitEditing(task)}
               onKeyDown={(e) => {
                 if (e.key === "Enter") {
                   e.preventDefault();
@@ -298,7 +400,7 @@ const TasksPage: React.FC = () => {
           {/* Delete */}
           <button
             type="button"
-            onClick={() => handleDelete(task)}
+            onClick={() => void handleDelete(task)}
             disabled={isDeleting}
             style={{
               all: "unset",
@@ -312,18 +414,81 @@ const TasksPage: React.FC = () => {
           </button>
         </div>
 
+        {/* Due date + status button row */}
         <div
           style={{
             display: "flex",
+            flexDirection: "row",
             gap: 6,
+            alignItems: "center",
           }}
         >
+          {/* Due date inline editor / label */}
+          {isEditingDue ? (
+            <div
+              style={{
+                display: "flex",
+                flexDirection: "row",
+                gap: 4,
+                alignItems: "center",
+                flex: 1,
+              }}
+            >
+              <input
+                type="date"
+                value={editingDueValue}
+                onChange={(e) => setEditingDueValue(e.target.value)}
+                onBlur={() => void commitEditingDue(task)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void commitEditingDue(task);
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    cancelEditingDue();
+                  }
+                }}
+                style={{
+                  flex: 1,
+                  padding: "4px 6px",
+                  borderRadius: 6,
+                  border: "1px solid rgba(255,255,255,0.18)",
+                  background: "#050713",
+                  color: "#f5f5f5",
+                  fontSize: 11,
+                }}
+              />
+            </div>
+          ) : (
+            <button
+              type="button"
+              onClick={() => startEditingDue(task)}
+              style={{
+                flex: 1,
+                textAlign: "left",
+                border: "none",
+                background: "transparent",
+                padding: 0,
+                margin: 0,
+                fontSize: 11,
+                color: dueColor,
+                cursor: "pointer",
+                whiteSpace: "nowrap",
+                overflow: "hidden",
+                textOverflow: "ellipsis",
+              }}
+            >
+              {dueLabel}
+            </button>
+          )}
+
+          {/* Status advance button */}
           <button
             type="button"
-            onClick={() => handleAdvanceStatus(task)}
+            onClick={() => void handleAdvanceStatus(task)}
             disabled={isUpdating}
             style={{
-              flex: 1,
+              flexBasis: "40%",
               padding: "4px 6px",
               borderRadius: 999,
               border: "none",
@@ -390,46 +555,83 @@ const TasksPage: React.FC = () => {
           <div
             style={{
               display: "flex",
-              gap: 8,
-              alignItems: "center",
+              flexDirection: "column",
+              gap: 6,
             }}
           >
-            <input
-              id="new-task"
-              type="text"
-              value={newTitle}
-              onChange={(e) => setNewTitle(e.target.value)}
-              placeholder="e.g., Finish math homework"
+            <div
               style={{
-                flex: 1,
-                padding: "8px 10px",
-                borderRadius: 999,
-                border: "1px solid rgba(255,255,255,0.16)",
-                background: "#050713",
-                color: "#f5f5f5",
-                fontSize: 13,
-              }}
-            />
-            <button
-              type="submit"
-              disabled={creating || !newTitle.trim()}
-              style={{
-                padding: "8px 12px",
-                borderRadius: 999,
-                border: "none",
-                fontSize: 12,
-                cursor:
-                  creating || !newTitle.trim() ? "default" : "pointer",
-                background:
-                  creating || !newTitle.trim()
-                    ? "rgba(127,61,255,0.5)"
-                    : "linear-gradient(135deg, #3f64ff, #7f3dff)",
-                color: "#ffffff",
-                whiteSpace: "nowrap",
+                display: "flex",
+                gap: 8,
+                alignItems: "center",
               }}
             >
-              {creating ? "Adding…" : "Add"}
-            </button>
+              <input
+                id="new-task"
+                type="text"
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+                placeholder="e.g., Finish math homework"
+                style={{
+                  flex: 1,
+                  padding: "8px 10px",
+                  borderRadius: 999,
+                  border: "1px solid rgba(255,255,255,0.16)",
+                  background: "#050713",
+                  color: "#f5f5f5",
+                  fontSize: 13,
+                }}
+              />
+              <button
+                type="submit"
+                disabled={creating || !newTitle.trim()}
+                style={{
+                  padding: "8px 12px",
+                  borderRadius: 999,
+                  border: "none",
+                  fontSize: 12,
+                  cursor:
+                    creating || !newTitle.trim() ? "default" : "pointer",
+                  background:
+                    creating || !newTitle.trim()
+                      ? "rgba(127,61,255,0.5)"
+                      : "linear-gradient(135deg, #3f64ff, #7f3dff)",
+                  color: "#ffffff",
+                  whiteSpace: "nowrap",
+                }}
+              >
+                {creating ? "Adding…" : "Add"}
+              </button>
+            </div>
+            <div
+              style={{
+                display: "flex",
+                gap: 8,
+                alignItems: "center",
+              }}
+            >
+              <label
+                htmlFor="new-task-due"
+                style={{ fontSize: 11, color: "#9da2c8", minWidth: 64 }}
+              >
+                Due
+              </label>
+              <input
+                id="new-task-due"
+                type="date"
+                value={newDueDate}
+                onChange={(e) => setNewDueDate(e.target.value)}
+                style={{
+                  flex: 1,
+                  padding: "6px 8px",
+                  borderRadius: 999,
+                  border: "1px solid rgba(255,255,255,0.16)",
+                  background: "#050713",
+                  color: "#f5f5f5",
+                  fontSize: 12,
+                }}
+              />
+            </div>
           </div>
         </form>
 
