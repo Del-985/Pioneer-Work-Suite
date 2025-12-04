@@ -1,7 +1,8 @@
 // apps/web/src/pages/DocumentsPage.tsx
-import React, { useEffect, useState } from "react";
-import ReactQuill from "react-quill";
+import React, { useEffect, useRef, useState } from "react";
+import ReactQuill, { Quill } from "react-quill";
 import "react-quill/dist/quill.snow.css";
+
 import {
   fetchDocuments,
   createDocument,
@@ -9,6 +10,10 @@ import {
   deleteDocument,
   Document,
 } from "../api/documents";
+
+// Optional: ensure history module is enabled (usually it is by default)
+const History = Quill.import("modules/history");
+Quill.register("modules/history", History);
 
 const DocumentsPage: React.FC = () => {
   // List state
@@ -33,11 +38,33 @@ const DocumentsPage: React.FC = () => {
   // Simple loading flag when switching docs
   const [switchingDoc, setSwitchingDoc] = useState(false);
 
+  // Quill instance ref (for undo / redo)
+  const quillRef = useRef<ReactQuill | null>(null);
+
   // Resolve selected doc from list
   const selectedDoc = selectedId
     ? documents.find((d) => d.id === selectedId) || null
     : null;
   const hasSelection = !!selectedDoc;
+
+  // Quill modules (toolbar + history)
+  const quillModules = {
+    toolbar: [
+      [{ header: [1, 2, 3, false] }],
+      ["bold", "italic", "underline", "strike"],
+      [{ list: "ordered" }, { list: "bullet" }],
+      [{ script: "sub" }, { script: "super" }],
+      [{ indent: "-1" }, { indent: "+1" }],
+      [{ align: [] }],
+      ["link"],
+      ["clean"],
+    ],
+    history: {
+      delay: 1000,
+      maxStack: 100,
+      userOnly: true,
+    },
+  };
 
   // Load docs once
   useEffect(() => {
@@ -172,6 +199,23 @@ const DocumentsPage: React.FC = () => {
     await saveCurrentDocument();
   }
 
+  // Undo / redo handlers using Quill's history
+  function handleUndo() {
+    const editor = quillRef.current?.getEditor();
+    if (!editor) return;
+    editor.history.undo();
+    setHasLocalChanges(true);
+    setSaveError(null);
+  }
+
+  function handleRedo() {
+    const editor = quillRef.current?.getEditor();
+    if (!editor) return;
+    editor.history.redo();
+    setHasLocalChanges(true);
+    setSaveError(null);
+  }
+
   async function handleDelete(id: string) {
     const doc = documents.find((d) => d.id === id);
 
@@ -181,7 +225,6 @@ const DocumentsPage: React.FC = () => {
     if (selectedDoc && selectedDoc.id === id) {
       titleEmpty = !editTitle || editTitle.trim().length === 0;
 
-      // Strip HTML tags to check if there is actual content
       const tempDiv = document.createElement("div");
       tempDiv.innerHTML = editContent || "";
       const plain = tempDiv.textContent || tempDiv.innerText || "";
@@ -549,28 +592,67 @@ const DocumentsPage: React.FC = () => {
                 }}
               >
                 <div>{renderSaveStatus()}</div>
-                <button
-                  type="button"
-                  onClick={handleManualSave}
-                  disabled={isSaving}
+                <div
                   style={{
-                    padding: "4px 8px",
-                    borderRadius: 999,
-                    border: "none",
-                    fontSize: 11,
-                    cursor: isSaving ? "default" : "pointer",
-                    background: "rgba(127,61,255,0.2)",
-                    color: "#c6b3ff",
-                    whiteSpace: "nowrap",
+                    display: "flex",
+                    alignItems: "center",
+                    gap: 6,
                   }}
                 >
-                  {isSaving ? "Saving…" : "Save now"}
-                </button>
+                  <button
+                    type="button"
+                    onClick={handleUndo}
+                    style={{
+                      padding: "4px 6px",
+                      borderRadius: 999,
+                      border: "none",
+                      fontSize: 10,
+                      cursor: "pointer",
+                      background: "rgba(255,255,255,0.05)",
+                      color: "#d0d2ff",
+                    }}
+                  >
+                    Undo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleRedo}
+                    style={{
+                      padding: "4px 6px",
+                      borderRadius: 999,
+                      border: "none",
+                      fontSize: 10,
+                      cursor: "pointer",
+                      background: "rgba(255,255,255,0.05)",
+                      color: "#d0d2ff",
+                    }}
+                  >
+                    Redo
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleManualSave}
+                    disabled={isSaving}
+                    style={{
+                      padding: "4px 8px",
+                      borderRadius: 999,
+                      border: "none",
+                      fontSize: 11,
+                      cursor: isSaving ? "default" : "pointer",
+                      background: "rgba(127,61,255,0.2)",
+                      color: "#c6b3ff",
+                      whiteSpace: "nowrap",
+                    }}
+                  >
+                    {isSaving ? "Saving…" : "Save now"}
+                  </button>
+                </div>
               </div>
             </div>
 
             <div className="doc-editor">
               <ReactQuill
+                ref={quillRef}
                 value={editContent}
                 onChange={(html) => {
                   setEditContent(html);
@@ -579,6 +661,7 @@ const DocumentsPage: React.FC = () => {
                 }}
                 placeholder="Start writing your document here..."
                 theme="snow"
+                modules={quillModules}
               />
             </div>
           </>
