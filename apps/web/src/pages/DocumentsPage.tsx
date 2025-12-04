@@ -1,8 +1,7 @@
 // apps/web/src/pages/DocumentsPage.tsx
-import React, { useEffect, useRef, useState } from "react";
-import ReactQuill, { Quill } from "react-quill";
+import React, { useEffect, useState } from "react";
+import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
-
 import {
   fetchDocuments,
   createDocument,
@@ -10,10 +9,6 @@ import {
   deleteDocument,
   Document,
 } from "../api/documents";
-
-// Optional: ensure history module is enabled (usually it is by default)
-const History = Quill.import("modules/history");
-Quill.register("modules/history", History);
 
 const DocumentsPage: React.FC = () => {
   // List state
@@ -38,8 +33,11 @@ const DocumentsPage: React.FC = () => {
   // Simple loading flag when switching docs
   const [switchingDoc, setSwitchingDoc] = useState(false);
 
-  // Quill instance ref (for undo / redo)
-  const quillRef = useRef<ReactQuill | null>(null);
+  // Word count (plain text from HTML)
+  const [wordCount, setWordCount] = useState(0);
+
+  // Quill ref so handlers can call history.undo/redo
+  const quillRef = React.useRef<any>(null);
 
   // Resolve selected doc from list
   const selectedDoc = selectedId
@@ -47,24 +45,58 @@ const DocumentsPage: React.FC = () => {
     : null;
   const hasSelection = !!selectedDoc;
 
-  // Quill modules (toolbar + history)
+  // Quill modules: toolbar + history + undo/redo buttons
   const quillModules = {
-    toolbar: [
-      [{ header: [1, 2, 3, false] }],
-      ["bold", "italic", "underline", "strike"],
-      [{ list: "ordered" }, { list: "bullet" }],
-      [{ script: "sub" }, { script: "super" }],
-      [{ indent: "-1" }, { indent: "+1" }],
-      [{ align: [] }],
-      ["link"],
-      ["clean"],
-    ],
+    toolbar: {
+      container: [
+        [{ header: [1, 2, false] }],
+        ["bold", "italic", "underline", "strike"],
+        [{ list: "ordered" }, { list: "bullet" }],
+        ["link"],
+        ["undo", "redo"],
+      ],
+      handlers: {
+        undo: () => {
+          const editor = quillRef.current?.getEditor?.();
+          if (editor && editor.history) {
+            editor.history.undo();
+          }
+        },
+        redo: () => {
+          const editor = quillRef.current?.getEditor?.();
+          if (editor && editor.history) {
+            editor.history.redo();
+          }
+        },
+      },
+    },
     history: {
-      delay: 1000,
+      delay: 500,
       maxStack: 100,
       userOnly: true,
     },
   };
+
+  // Helper: count words from HTML
+  function countWordsFromHtml(html: string): number {
+    if (!html) return 0;
+    const tmp = document.createElement("div");
+    tmp.innerHTML = html;
+    const text = (tmp.textContent || tmp.innerText || "").trim();
+    if (!text) return 0;
+    // Split on whitespace, filter out empty chunks
+    return text.split(/\s+/).filter(Boolean).length;
+  }
+
+  // Update word count whenever content changes
+  useEffect(() => {
+    if (!hasSelection) {
+      setWordCount(0);
+      return;
+    }
+    const count = countWordsFromHtml(editContent);
+    setWordCount(count);
+  }, [editContent, hasSelection]);
 
   // Load docs once
   useEffect(() => {
@@ -199,23 +231,6 @@ const DocumentsPage: React.FC = () => {
     await saveCurrentDocument();
   }
 
-  // Undo / redo handlers using Quill's history
-  function handleUndo() {
-    const editor = quillRef.current?.getEditor();
-    if (!editor) return;
-    editor.history.undo();
-    setHasLocalChanges(true);
-    setSaveError(null);
-  }
-
-  function handleRedo() {
-    const editor = quillRef.current?.getEditor();
-    if (!editor) return;
-    editor.history.redo();
-    setHasLocalChanges(true);
-    setSaveError(null);
-  }
-
   async function handleDelete(id: string) {
     const doc = documents.find((d) => d.id === id);
 
@@ -271,6 +286,7 @@ const DocumentsPage: React.FC = () => {
         setLastSavedAt(null);
         setSwitchingDoc(false);
         setHasLocalChanges(false);
+        setWordCount(0);
       }
     }
 
@@ -591,62 +607,40 @@ const DocumentsPage: React.FC = () => {
                   gap: 8,
                 }}
               >
-                <div>{renderSaveStatus()}</div>
                 <div
                   style={{
                     display: "flex",
-                    alignItems: "center",
-                    gap: 6,
+                    flexDirection: "column",
+                    gap: 2,
                   }}
                 >
-                  <button
-                    type="button"
-                    onClick={handleUndo}
+                  <div>{renderSaveStatus()}</div>
+                  <span
                     style={{
-                      padding: "4px 6px",
-                      borderRadius: 999,
-                      border: "none",
-                      fontSize: 10,
-                      cursor: "pointer",
-                      background: "rgba(255,255,255,0.05)",
-                      color: "#d0d2ff",
-                    }}
-                  >
-                    Undo
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleRedo}
-                    style={{
-                      padding: "4px 6px",
-                      borderRadius: 999,
-                      border: "none",
-                      fontSize: 10,
-                      cursor: "pointer",
-                      background: "rgba(255,255,255,0.05)",
-                      color: "#d0d2ff",
-                    }}
-                  >
-                    Redo
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleManualSave}
-                    disabled={isSaving}
-                    style={{
-                      padding: "4px 8px",
-                      borderRadius: 999,
-                      border: "none",
                       fontSize: 11,
-                      cursor: isSaving ? "default" : "pointer",
-                      background: "rgba(127,61,255,0.2)",
-                      color: "#c6b3ff",
-                      whiteSpace: "nowrap",
+                      color: "#6f7598",
                     }}
                   >
-                    {isSaving ? "Saving…" : "Save now"}
-                  </button>
+                    {wordCount} word{wordCount === 1 ? "" : "s"}
+                  </span>
                 </div>
+                <button
+                  type="button"
+                  onClick={handleManualSave}
+                  disabled={isSaving}
+                  style={{
+                    padding: "4px 8px",
+                    borderRadius: 999,
+                    border: "none",
+                    fontSize: 11,
+                    cursor: isSaving ? "default" : "pointer",
+                    background: "rgba(127,61,255,0.2)",
+                    color: "#c6b3ff",
+                    whiteSpace: "nowrap",
+                  }}
+                >
+                  {isSaving ? "Saving…" : "Save now"}
+                </button>
               </div>
             </div>
 
