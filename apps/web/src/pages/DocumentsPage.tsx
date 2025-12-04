@@ -3,12 +3,10 @@ import React, { useEffect, useState } from "react";
 import {
   fetchDocuments,
   createDocument,
+  updateDocument,
   deleteDocument,
   Document,
 } from "../api/documents";
-
-// Hardcode the same backend URL used in http.ts
-const API_BASE_URL = "https://pioneer-work-suite.onrender.com";
 
 const DocumentsPage: React.FC = () => {
   // List state
@@ -30,14 +28,15 @@ const DocumentsPage: React.FC = () => {
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  // “Loading…” when switching between docs
+  // Simple loading flag when switching docs
   const [switchingDoc, setSwitchingDoc] = useState(false);
 
+  // Find the currently selected document in the list (for labels)
   const selectedDoc = selectedId
     ? documents.find((d) => d.id === selectedId) || null
     : null;
 
-  // Load docs on mount
+  // Load all documents on mount
   useEffect(() => {
     (async () => {
       try {
@@ -54,7 +53,7 @@ const DocumentsPage: React.FC = () => {
     })();
   }, []);
 
-  // Auto-select first doc
+  // Auto-select first doc if none selected yet
   useEffect(() => {
     if (!selectedId && documents.length > 0) {
       const first = documents[0];
@@ -63,64 +62,34 @@ const DocumentsPage: React.FC = () => {
       setEditTitle(first.title);
       setEditContent(first.content);
       setLastSavedAt(first.updatedAt || first.createdAt || null);
+      setSaveError(null);
+      setIsSaving(false);
+
       window.setTimeout(() => {
         setSwitchingDoc(false);
       }, 200);
     }
   }, [documents, selectedId]);
 
-  // Core: force a PUT to the backend for the current doc using fetch
+  // Save the currently selected document
   async function saveCurrentDocument() {
-  // DEBUG: prove the handler actually runs
-  setSaveError("Save button CLICKED");
-  console.log("saveCurrentDocument fired");
+    if (!selectedId) {
+      setSaveError("No document selected to save.");
+      return;
+    }
 
-  if (!selectedId) {
-    setSaveError("No document selected to save.");
-    return;
-  }
-
-  const token =
-    typeof window !== "undefined"
-      ? window.localStorage.getItem("token")
-      : null;
-
-  if (!token) {
-    setSaveError("You are not authenticated.");
-    return;
-  }
-
-  setIsSaving(true);
-  setSaveError(null);
-
-
+    setIsSaving(true);
+    setSaveError(null);
 
     const targetId = selectedId;
     const currentTitle = editTitle;
     const currentContent = editContent;
 
     try {
-      const res = await fetch(`${API_BASE_URL}/documents/${targetId}`, {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          title: currentTitle,
-          content: currentContent,
-        }),
+      const updated = await updateDocument(targetId, {
+        title: currentTitle,
+        content: currentContent,
       });
-
-      if (!res.ok) {
-        const text = await res.text().catch(() => "");
-        console.error("Save failed response:", res.status, text);
-        setSaveError(`Save failed (${res.status}).`);
-        setIsSaving(false);
-        return;
-      }
-
-      const updated = (await res.json()) as Document;
 
       setDocuments((prev) =>
         prev.map((doc) =>
@@ -129,13 +98,14 @@ const DocumentsPage: React.FC = () => {
       );
       setLastSavedAt(updated.updatedAt || updated.createdAt || null);
     } catch (err) {
-      console.error("Error saving document via fetch:", err);
-      setSaveError("Save failed (network error).");
+      console.error("Error saving document:", err);
+      setSaveError("Save failed.");
     } finally {
       setIsSaving(false);
     }
   }
 
+  // When clicking a doc in the list, just switch editor state to that doc
   function handleSelect(id: string) {
     const doc = documents.find((d) => d.id === id);
     setSelectedId(id);
@@ -153,17 +123,24 @@ const DocumentsPage: React.FC = () => {
     }
   }
 
+  // Create a new document and select it
   async function handleCreateNew() {
     setCreating(true);
     setSaveError(null);
     try {
       const created = await createDocument("Untitled document", "");
+      // Prepend new doc to list
       setDocuments((prev) => [created, ...prev]);
+
+      // Select and bind editor to it
       setSelectedId(created.id);
       setSwitchingDoc(true);
       setEditTitle(created.title);
       setEditContent(created.content || "");
       setLastSavedAt(created.updatedAt || created.createdAt || null);
+      setSaveError(null);
+      setIsSaving(false);
+
       window.setTimeout(() => {
         setSwitchingDoc(false);
       }, 200);
@@ -179,6 +156,7 @@ const DocumentsPage: React.FC = () => {
     await saveCurrentDocument();
   }
 
+  // Delete a document (with confirmation if not empty), using live editor content
   async function handleDelete(id: string) {
     const doc = documents.find((d) => d.id === id);
 
@@ -217,6 +195,9 @@ const DocumentsPage: React.FC = () => {
         setEditTitle(first.title);
         setEditContent(first.content);
         setLastSavedAt(first.updatedAt || first.createdAt || null);
+        setSaveError(null);
+        setIsSaving(false);
+
         window.setTimeout(() => {
           setSwitchingDoc(false);
         }, 200);
@@ -554,13 +535,13 @@ const DocumentsPage: React.FC = () => {
                 <button
                   type="button"
                   onClick={handleManualSave}
-                  disabled={!selectedId || isSaving}
+                  disabled={isSaving}
                   style={{
                     padding: "4px 8px",
                     borderRadius: 999,
                     border: "none",
                     fontSize: 11,
-                    cursor: !selectedId || isSaving ? "default" : "pointer",
+                    cursor: isSaving ? "default" : "pointer",
                     background: "rgba(127,61,255,0.2)",
                     color: "#c6b3ff",
                     whiteSpace: "nowrap",
