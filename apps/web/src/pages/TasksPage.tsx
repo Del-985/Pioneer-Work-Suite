@@ -27,7 +27,7 @@ const TasksPage: React.FC = () => {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
 
-  // Which task is having its due date edited
+  // Inline due date editing
   const [editingDueId, setEditingDueId] = useState<string | null>(null);
   const [editingDueValue, setEditingDueValue] = useState<string>("");
 
@@ -62,7 +62,13 @@ const TasksPage: React.FC = () => {
     [tasks]
   );
 
-  // Utility: convert yyyy-mm-dd to ISO string for backend
+  // --- Date helpers: avoid timezone shifts ---
+
+  /**
+   * Turn a yyyy-mm-dd string (from <input type="date">) into an ISO string.
+   * We still use Date + toISOString for the backend, but all *display*
+   * logic below ignores the timezone and only uses the yyyy-mm-dd part.
+   */
   function dateInputToIso(value: string): string | null {
     if (!value) return null;
     const d = new Date(value);
@@ -70,28 +76,68 @@ const TasksPage: React.FC = () => {
     return d.toISOString();
   }
 
-  // Utility: format ISO date for display
-  function formatDueLabel(dueDate?: string | null): { label: string; tone: "neutral" | "overdue" | "today" } {
-    if (!dueDate) return { label: "No due date", tone: "neutral" };
+  /**
+   * Given an ISO-ish string, pull out yyyy-mm-dd.
+   * If it doesn't look valid, return null.
+   */
+  function isoToInputValue(iso: string | null | undefined): string | null {
+    if (!iso) return null;
+    const parts = iso.split("T")[0];
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(parts)) return null;
+    return parts;
+  }
 
-    const d = new Date(dueDate);
-    if (isNaN(d.getTime())) return { label: "No due date", tone: "neutral" };
+  /**
+   * Convert an ISO date string into a Date object *using only the date part*
+   * as a local date (ignores timezone, fixes off-by-one issues).
+   */
+  function isoToLocalDate(iso: string | null | undefined): Date | null {
+    const ymd = isoToInputValue(iso);
+    if (!ymd) return null;
+    const [y, m, d] = ymd.split("-");
+    const year = Number(y);
+    const month = Number(m);
+    const day = Number(d);
+    if (!year || !month || !day) return null;
+    return new Date(year, month - 1, day); // local date
+  }
+
+  /**
+   * Format a due date as label + tone, using local date only.
+   */
+  function formatDueLabel(
+    dueDate?: string | null
+  ): { label: string; tone: "neutral" | "overdue" | "today" } {
+    const local = isoToLocalDate(dueDate || null);
+    if (!local) return { label: "No due date", tone: "neutral" };
 
     const now = new Date();
     const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const target = new Date(d.getFullYear(), d.getMonth(), d.getDate());
+    const target = new Date(
+      local.getFullYear(),
+      local.getMonth(),
+      local.getDate()
+    );
 
     const diffMs = target.getTime() - today.getTime();
     const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
 
     if (diffDays < 0) {
-      return { label: `Overdue (${d.toLocaleDateString()})`, tone: "overdue" };
+      return {
+        label: `Overdue (${local.toLocaleDateString()})`,
+        tone: "overdue",
+      };
     }
     if (diffDays === 0) {
       return { label: "Due today", tone: "today" };
     }
-    return { label: `Due ${d.toLocaleDateString()}`, tone: "neutral" };
+    return {
+      label: `Due ${local.toLocaleDateString()}`,
+      tone: "neutral",
+    };
   }
+
+  // --- Create task ---
 
   async function handleCreate(e: React.FormEvent) {
     e.preventDefault();
@@ -114,6 +160,8 @@ const TasksPage: React.FC = () => {
       setCreating(false);
     }
   }
+
+  // --- Status changes ---
 
   function nextStatus(status: TaskStatus): TaskStatus {
     if (status === "todo") return "in_progress";
@@ -152,6 +200,8 @@ const TasksPage: React.FC = () => {
     }
   }
 
+  // --- Delete ---
+
   async function handleDelete(task: Task) {
     setDeletingId(task.id);
     setActionError(null);
@@ -170,7 +220,8 @@ const TasksPage: React.FC = () => {
     }
   }
 
-  // Inline title editing
+  // --- Inline title editing ---
+
   function startEditing(task: Task) {
     setEditingId(task.id);
     setEditingTitle(task.title);
@@ -222,21 +273,12 @@ const TasksPage: React.FC = () => {
     }
   }
 
-  // Inline due date editing
+  // --- Inline due date editing ---
+
   function startEditingDue(task: Task) {
     setEditingDueId(task.id);
-
-    if (task.dueDate) {
-      const d = new Date(task.dueDate);
-      if (!isNaN(d.getTime())) {
-        const yyyy = d.getFullYear();
-        const mm = String(d.getMonth() + 1).padStart(2, "0");
-        const dd = String(d.getDate()).padStart(2, "0");
-        setEditingDueValue(`${yyyy}-${mm}-${dd}`);
-        return;
-      }
-    }
-    setEditingDueValue("");
+    const inputVal = isoToInputValue(task.dueDate || null);
+    setEditingDueValue(inputVal ?? "");
   }
 
   function cancelEditingDue() {
@@ -276,6 +318,8 @@ const TasksPage: React.FC = () => {
       cancelEditingDue();
     }
   }
+
+  // --- UI helpers ---
 
   function renderColumnHeader(label: string, count: number) {
     return (
@@ -320,7 +364,6 @@ const TasksPage: React.FC = () => {
         : "Done";
 
     const { label: dueLabel, tone } = formatDueLabel(task.dueDate);
-
     const dueColor =
       tone === "overdue"
         ? "#ff7b88"
@@ -342,6 +385,7 @@ const TasksPage: React.FC = () => {
           gap: 6,
         }}
       >
+        {/* Title row */}
         <div
           style={{
             display: "flex",
@@ -350,7 +394,6 @@ const TasksPage: React.FC = () => {
             gap: 8,
           }}
         >
-          {/* Title / editor */}
           {isEditing ? (
             <input
               autoFocus
@@ -414,7 +457,7 @@ const TasksPage: React.FC = () => {
           </button>
         </div>
 
-        {/* Due date + status button row */}
+        {/* Due + status row */}
         <div
           style={{
             display: "flex",
@@ -423,7 +466,7 @@ const TasksPage: React.FC = () => {
             alignItems: "center",
           }}
         >
-          {/* Due date inline editor / label */}
+          {/* Due date */}
           {isEditingDue ? (
             <div
               style={{
@@ -482,7 +525,7 @@ const TasksPage: React.FC = () => {
             </button>
           )}
 
-          {/* Status advance button */}
+          {/* Status */}
           <button
             type="button"
             onClick={() => void handleAdvanceStatus(task)}
