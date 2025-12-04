@@ -1,5 +1,6 @@
 // apps/web/src/pages/DocumentsPage.tsx
 import React, { useEffect, useState } from "react";
+import ReactQuill from "react-quill";
 import {
   fetchDocuments,
   createDocument,
@@ -56,7 +57,7 @@ const DocumentsPage: React.FC = () => {
       setSelectedId(first.id);
       setSwitchingDoc(true);
       setEditTitle(first.title);
-      setEditContent(first.content);
+      setEditContent(first.content || "");
       setLastSavedAt(first.updatedAt || first.createdAt || null);
       setSaveError(null);
       setIsSaving(false);
@@ -107,7 +108,7 @@ const DocumentsPage: React.FC = () => {
 
     const timeout = window.setTimeout(() => {
       void saveCurrentDocument();
-    }, 3000); // 3 seconds after last edit
+    }, 3000);
 
     return () => window.clearTimeout(timeout);
   }, [editTitle, editContent, hasLocalChanges, hasSelection, selectedDoc?.id]);
@@ -119,7 +120,7 @@ const DocumentsPage: React.FC = () => {
     if (doc) {
       setSwitchingDoc(true);
       setEditTitle(doc.title);
-      setEditContent(doc.content);
+      setEditContent(doc.content || "");
       setLastSavedAt(doc.updatedAt || doc.createdAt || null);
       setSaveError(null);
       setIsSaving(false);
@@ -178,10 +179,19 @@ const DocumentsPage: React.FC = () => {
 
     if (selectedDoc && selectedDoc.id === id) {
       titleEmpty = !editTitle || editTitle.trim().length === 0;
-      contentEmpty = !editContent || editContent.trim().length === 0;
+
+      // Strip HTML tags to check if there is actual content
+      const tempDiv = document.createElement("div");
+      tempDiv.innerHTML = editContent || "";
+      const plain = tempDiv.textContent || tempDiv.innerText || "";
+      contentEmpty = plain.trim().length === 0;
     } else if (doc) {
       titleEmpty = !doc.title || doc.title.trim().length === 0;
-      contentEmpty = !doc.content || doc.content.trim().length === 0;
+
+      const tempDiv = document.createElement("div");
+      tempDiv.innerHTML = doc.content || "";
+      const plain = tempDiv.textContent || tempDiv.innerText || "";
+      contentEmpty = plain.trim().length === 0;
     }
 
     if (!titleEmpty || !contentEmpty) {
@@ -204,7 +214,7 @@ const DocumentsPage: React.FC = () => {
         setSelectedId(first.id);
         setSwitchingDoc(true);
         setEditTitle(first.title);
-        setEditContent(first.content);
+        setEditContent(first.content || "");
         setLastSavedAt(first.updatedAt || first.createdAt || null);
         setSaveError(null);
         setIsSaving(false);
@@ -558,28 +568,18 @@ const DocumentsPage: React.FC = () => {
               </div>
             </div>
 
-            <textarea
-              value={editContent}
-              onChange={(e) => {
-                setEditContent(e.target.value);
-                setHasLocalChanges(true);
-                setSaveError(null);
-              }}
-              placeholder="Start writing your document here..."
-              style={{
-                minHeight: 160,
-                borderRadius: 8,
-                border: "1px solid rgba(255,255,255,0.16)",
-                background: "#050713",
-                color: "#f5f5f5",
-                padding: 10,
-                fontSize: 13,
-                lineHeight: 1.5,
-                fontFamily:
-                  '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif',
-                resize: "vertical",
-              }}
-            />
+            <div className="doc-editor">
+              <ReactQuill
+                value={editContent}
+                onChange={(html) => {
+                  setEditContent(html);
+                  setHasLocalChanges(true);
+                  setSaveError(null);
+                }}
+                placeholder="Start writing your document here..."
+                theme="snow"
+              />
+            </div>
           </>
         )}
       </div>
