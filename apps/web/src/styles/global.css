@@ -239,3 +239,61 @@ body {
     border-top: 1px solid var(--border-subtle);
   }
 }
+
+/* React Quill base styles */
+@import "react-quill/dist/quill.snow.css";
+
+/* Dark mode editor wrapper */
+.doc-editor {
+  border-radius: 8px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: #050713;
+  color: #f5f5f5;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Toolbar */
+.doc-editor .ql-toolbar {
+  border-radius: 8px 8px 0 0;
+  border: 0;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+  background: #06081a;
+  color: #f5f5f5;
+}
+
+/* Editor area */
+.doc-editor .ql-container {
+  border-radius: 0 0 8px 8px;
+  border: 0;
+  background: #050713;
+  color: #f5f5f5;
+  font-size: 13px;
+  line-height: 1.5;
+  min-height: 180px;
+}
+
+/* Editor text color */
+.doc-editor .ql-editor {
+  color: #f5f5f5;
+}
+
+/* Placeholder */
+.doc-editor .ql-editor.ql-blank::before {
+  color: #6f7598;
+}
+
+/* Toolbar buttons */
+.doc-editor .ql-toolbar button {
+  color: #d0d2ff;
+}
+.doc-editor .ql-toolbar button:hover,
+.doc-editor .ql-toolbar button.ql-active {
+  color: #ffffff;
+}
+
+/* Links */
+.doc-editor .ql-editor a {
+  color: #7f3dff;
+  text-decoration: underline;
+}
