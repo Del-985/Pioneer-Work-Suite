@@ -22,6 +22,10 @@ const TasksPage: React.FC = () => {
 
   const [actionError, setActionError] = useState<string | null>(null);
 
+  // Inline editing
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState("");
+
   // Load tasks once
   useEffect(() => {
     (async () => {
@@ -102,7 +106,7 @@ const TasksPage: React.FC = () => {
         prev.map((t) => (t.id === updated.id ? updated : t))
       );
     } catch (err) {
-      console.error("Error updating task:", err);
+      console.error("Error updating task status:", err);
       setTasks(previous);
       setActionError("Unable to update task.");
     } finally {
@@ -125,6 +129,59 @@ const TasksPage: React.FC = () => {
       setActionError("Unable to delete task.");
     } finally {
       setDeletingId(null);
+    }
+  }
+
+  function startEditing(task: Task) {
+    setEditingId(task.id);
+    setEditingTitle(task.title);
+  }
+
+  function cancelEditing() {
+    setEditingId(null);
+    setEditingTitle("");
+  }
+
+  async function commitEditing(task: Task) {
+    const trimmed = editingTitle.trim();
+    if (!trimmed) {
+      // Don't allow empty titles; just cancel
+      cancelEditing();
+      return;
+    }
+
+    if (trimmed === task.title) {
+      cancelEditing();
+      return;
+    }
+
+    setUpdatingId(task.id);
+    setActionError(null);
+
+    const previous = tasks;
+    setTasks((prev) =>
+      prev.map((t) =>
+        t.id === task.id
+          ? {
+              ...t,
+              title: trimmed,
+            }
+          : t
+      )
+    );
+
+    try {
+      const updated = await updateTask(task.id, { title: trimmed });
+      setTasks((prev) =>
+        prev.map((t) => (t.id === updated.id ? updated : t))
+      );
+    } catch (err) {
+      console.error("Error updating task title:", err);
+      setTasks(previous);
+      setActionError("Unable to rename task.");
+    } finally {
+      setUpdatingId(null);
+      cancelEditing();
     }
   }
 
@@ -160,6 +217,7 @@ const TasksPage: React.FC = () => {
   function renderTaskCard(task: Task) {
     const isUpdating = updatingId === task.id;
     const isDeleting = deletingId === task.id;
+    const isEditing = editingId === task.id;
 
     const statusLabel =
       task.status === "todo"
@@ -190,15 +248,54 @@ const TasksPage: React.FC = () => {
             gap: 8,
           }}
         >
-          <div
-            style={{
-              fontSize: 13,
-              color: "#f5f5f5",
-              wordBreak: "break-word",
-            }}
-          >
-            {task.title}
-          </div>
+          {/* Title / editor */}
+          {isEditing ? (
+            <input
+              autoFocus
+              value={editingTitle}
+              onChange={(e) => setEditingTitle(e.target.value)}
+              onBlur={() => commitEditing(task)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void commitEditing(task);
+                } else if (e.key === "Escape") {
+                  e.preventDefault();
+                  cancelEditing();
+                }
+              }}
+              style={{
+                flex: 1,
+                padding: "4px 6px",
+                borderRadius: 6,
+                border: "1px solid rgba(255,255,255,0.18)",
+                background: "#050713",
+                color: "#f5f5f5",
+                fontSize: 13,
+              }}
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => startEditing(task)}
+              style={{
+                flex: 1,
+                textAlign: "left",
+                border: "none",
+                background: "transparent",
+                padding: 0,
+                margin: 0,
+                fontSize: 13,
+                color: "#f5f5f5",
+                cursor: "pointer",
+                wordBreak: "break-word",
+              }}
+            >
+              {task.title}
+            </button>
+          )}
+
+          {/* Delete */}
           <button
             type="button"
             onClick={() => handleDelete(task)}
