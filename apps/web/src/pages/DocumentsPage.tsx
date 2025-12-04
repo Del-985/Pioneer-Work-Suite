@@ -6,7 +6,9 @@ import {
   deleteDocument,
   Document,
 } from "../api/documents";
-import { http } from "../api/http";
+
+// Hardcode the same backend URL used in http.ts
+const API_BASE_URL = "https://pioneer-work-suite.onrender.com";
 
 const DocumentsPage: React.FC = () => {
   // List state
@@ -67,9 +69,22 @@ const DocumentsPage: React.FC = () => {
     }
   }, [documents, selectedId]);
 
-  // Core: force a PUT to the backend for the current doc
+  // Core: force a PUT to the backend for the current doc using fetch
   async function saveCurrentDocument() {
-    if (!selectedId) return;
+    if (!selectedId) {
+      setSaveError("No document selected to save.");
+      return;
+    }
+
+    const token =
+      typeof window !== "undefined"
+        ? window.localStorage.getItem("token")
+        : null;
+
+    if (!token) {
+      setSaveError("You are not authenticated.");
+      return;
+    }
 
     setIsSaving(true);
     setSaveError(null);
@@ -79,16 +94,27 @@ const DocumentsPage: React.FC = () => {
     const currentContent = editContent;
 
     try {
-      // Direct axios PUT, bypassing api/documents.ts
-      const response = await http.put<Document>(
-        `/documents/${targetId}`,
-        {
+      const res = await fetch(`${API_BASE_URL}/documents/${targetId}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({
           title: currentTitle,
           content: currentContent,
-        }
-      );
+        }),
+      });
 
-      const updated = response.data;
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        console.error("Save failed response:", res.status, text);
+        setSaveError(`Save failed (${res.status}).`);
+        setIsSaving(false);
+        return;
+      }
+
+      const updated = (await res.json()) as Document;
 
       setDocuments((prev) =>
         prev.map((doc) =>
@@ -97,8 +123,8 @@ const DocumentsPage: React.FC = () => {
       );
       setLastSavedAt(updated.updatedAt || updated.createdAt || null);
     } catch (err) {
-      console.error("Error saving document:", err);
-      setSaveError("Save failed.");
+      console.error("Error saving document via fetch:", err);
+      setSaveError("Save failed (network error).");
     } finally {
       setIsSaving(false);
     }
