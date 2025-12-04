@@ -28,10 +28,10 @@ const DocumentsPage: React.FC = () => {
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
-  // “Loading…” when switching between docs (purely UI)
+  // “Loading…” when switching between docs
   const [switchingDoc, setSwitchingDoc] = useState(false);
 
-  // Find the currently selected document object (for labels / updatedAt)
+  // Find the currently selected document (for labels / updatedAt)
   const selectedDoc = selectedId
     ? documents.find((d) => d.id === selectedId) || null
     : null;
@@ -99,14 +99,9 @@ const DocumentsPage: React.FC = () => {
     }
   }
 
-  // When you click a doc in the list:
-  // 1) Save the current doc (if any),
-  // 2) Switch to the new one.
-  async function handleSelect(id: string) {
-    if (selectedId && selectedId !== id) {
-      await saveCurrentDocument();
-    }
-
+  // When you click a doc in the list, just switch to it.
+  // No autosave or cross-doc saving.
+  function handleSelect(id: string) {
     const doc = documents.find((d) => d.id === id);
     setSelectedId(id);
     if (doc) {
@@ -123,20 +118,8 @@ const DocumentsPage: React.FC = () => {
     }
   }
 
-  // Create a new document:
-  // 1) Save current doc (if any),
-  // 2) Create new,
-  // 3) Select it.
+  // Create a new document and select it (content starts empty).
   async function handleCreateNew() {
-    try {
-      if (selectedId) {
-        await saveCurrentDocument();
-      }
-    } catch {
-      // If saving current doc fails, we still allow creating a new one,
-      // but keep the error message.
-    }
-
     setCreating(true);
     setSaveError(null);
     try {
