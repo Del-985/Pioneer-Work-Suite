@@ -240,9 +240,6 @@ body {
   }
 }
 
-/* React Quill base styles */
-@import "react-quill/dist/quill.snow.css";
-
 /* Dark mode editor wrapper */
 .doc-editor {
   border-radius: 8px;
