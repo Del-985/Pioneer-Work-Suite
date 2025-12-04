@@ -18,13 +18,17 @@ const DocumentsPage: React.FC = () => {
   const [editTitle, setEditTitle] = useState("");
   const [editContent, setEditContent] = useState("");
 
-  // Status
+  // Save / autosave status
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
+  const [hasLocalChanges, setHasLocalChanges] = useState(false);
 
+  // New doc / delete loading
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  // Simple loading flag when switching docs
   const [switchingDoc, setSwitchingDoc] = useState(false);
 
   // Resolve selected doc from list
@@ -56,11 +60,13 @@ const DocumentsPage: React.FC = () => {
       setLastSavedAt(first.updatedAt || first.createdAt || null);
       setSaveError(null);
       setIsSaving(false);
+      setHasLocalChanges(false);
+
       window.setTimeout(() => setSwitchingDoc(false), 200);
     }
   }, [documents, selectedId]);
 
-  // Save the currently selected doc
+  // Save the currently selected doc (used by manual and autosave)
   async function saveCurrentDocument() {
     if (!selectedDoc || !selectedDoc.id) {
       setSaveError("No document selected to save.");
@@ -84,6 +90,7 @@ const DocumentsPage: React.FC = () => {
         prev.map((doc) => (doc.id === updated.id ? updated : doc))
       );
       setLastSavedAt(updated.updatedAt || updated.createdAt || null);
+      setHasLocalChanges(false);
     } catch (err) {
       console.error("Error saving document:", err);
       setSaveError("Save failed.");
@@ -91,6 +98,19 @@ const DocumentsPage: React.FC = () => {
       setIsSaving(false);
     }
   }
+
+  // Debounced autosave: 3s after last change
+  useEffect(() => {
+    if (!hasSelection) return;
+    if (!hasLocalChanges) return;
+    if (!selectedDoc || !selectedDoc.id) return;
+
+    const timeout = window.setTimeout(() => {
+      void saveCurrentDocument();
+    }, 3000); // 3 seconds after last edit
+
+    return () => window.clearTimeout(timeout);
+  }, [editTitle, editContent, hasLocalChanges, hasSelection, selectedDoc?.id]);
 
   function handleSelect(id: string) {
     const doc = documents.find((d) => d.id === id);
@@ -103,12 +123,13 @@ const DocumentsPage: React.FC = () => {
       setLastSavedAt(doc.updatedAt || doc.createdAt || null);
       setSaveError(null);
       setIsSaving(false);
+      setHasLocalChanges(false);
       window.setTimeout(() => setSwitchingDoc(false), 200);
     } else {
-      // Fallback if something is weird
       setEditTitle("");
       setEditContent("");
       setLastSavedAt(null);
+      setHasLocalChanges(false);
     }
   }
 
@@ -135,6 +156,7 @@ const DocumentsPage: React.FC = () => {
       setLastSavedAt(created.updatedAt || created.createdAt || null);
       setSaveError(null);
       setIsSaving(false);
+      setHasLocalChanges(false);
       window.setTimeout(() => setSwitchingDoc(false), 200);
     } catch (err) {
       console.error("Error creating document:", err);
@@ -186,6 +208,7 @@ const DocumentsPage: React.FC = () => {
         setLastSavedAt(first.updatedAt || first.createdAt || null);
         setSaveError(null);
         setIsSaving(false);
+        setHasLocalChanges(false);
         window.setTimeout(() => setSwitchingDoc(false), 200);
       } else {
         setSelectedId(null);
@@ -193,6 +216,7 @@ const DocumentsPage: React.FC = () => {
         setEditContent("");
         setLastSavedAt(null);
         setSwitchingDoc(false);
+        setHasLocalChanges(false);
       }
     }
 
@@ -232,6 +256,14 @@ const DocumentsPage: React.FC = () => {
     if (saveError) {
       return (
         <span style={{ fontSize: 12, color: "#ff7b88" }}>{saveError}</span>
+      );
+    }
+
+    if (hasLocalChanges) {
+      return (
+        <span style={{ fontSize: 12, color: "#f0c36a" }}>
+          Unsaved changes…
+        </span>
       );
     }
 
@@ -481,7 +513,11 @@ const DocumentsPage: React.FC = () => {
               <input
                 type="text"
                 value={editTitle}
-                onChange={(e) => setEditTitle(e.target.value)}
+                onChange={(e) => {
+                  setEditTitle(e.target.value);
+                  setHasLocalChanges(true);
+                  setSaveError(null);
+                }}
                 placeholder="Document title"
                 style={{
                   padding: "8px 10px",
@@ -524,7 +560,11 @@ const DocumentsPage: React.FC = () => {
 
             <textarea
               value={editContent}
-              onChange={(e) => setEditContent(e.target.value)}
+              onChange={(e) => {
+                setEditContent(e.target.value);
+                setHasLocalChanges(true);
+                setSaveError(null);
+              }}
               placeholder="Start writing your document here..."
               style={{
                 minHeight: 160,
