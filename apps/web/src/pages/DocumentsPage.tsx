@@ -1,6 +1,7 @@
 // apps/web/src/pages/DocumentsPage.tsx
 import React, { useEffect, useState } from "react";
 import ReactQuill from "react-quill";
+import "react-quill/dist/quill.snow.css";
 import {
   fetchDocuments,
   createDocument,
