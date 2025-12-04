@@ -23,11 +23,11 @@ const TasksPage: React.FC = () => {
 
   const [actionError, setActionError] = useState<string | null>(null);
 
-  // Inline editing
+  // Inline editing (title)
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState("");
 
-  // Inline due date editing
+  // Inline editing (due date)
   const [editingDueId, setEditingDueId] = useState<string | null>(null);
   const [editingDueValue, setEditingDueValue] = useState<string>("");
 
@@ -64,11 +64,7 @@ const TasksPage: React.FC = () => {
 
   // --- Date helpers: avoid timezone shifts ---
 
-  /**
-   * Turn a yyyy-mm-dd string (from <input type="date">) into an ISO string.
-   * We still use Date + toISOString for the backend, but all *display*
-   * logic below ignores the timezone and only uses the yyyy-mm-dd part.
-   */
+  // yyyy-mm-dd -> ISO (for backend)
   function dateInputToIso(value: string): string | null {
     if (!value) return null;
     const d = new Date(value);
@@ -76,10 +72,7 @@ const TasksPage: React.FC = () => {
     return d.toISOString();
   }
 
-  /**
-   * Given an ISO-ish string, pull out yyyy-mm-dd.
-   * If it doesn't look valid, return null.
-   */
+  // ISO -> yyyy-mm-dd string (for <input type="date">)
   function isoToInputValue(iso: string | null | undefined): string | null {
     if (!iso) return null;
     const parts = iso.split("T")[0];
@@ -87,10 +80,7 @@ const TasksPage: React.FC = () => {
     return parts;
   }
 
-  /**
-   * Convert an ISO date string into a Date object *using only the date part*
-   * as a local date (ignores timezone, fixes off-by-one issues).
-   */
+  // ISO -> local Date using only yyyy-mm-dd (no timezone offset)
   function isoToLocalDate(iso: string | null | undefined): Date | null {
     const ymd = isoToInputValue(iso);
     if (!ymd) return null;
@@ -99,12 +89,10 @@ const TasksPage: React.FC = () => {
     const month = Number(m);
     const day = Number(d);
     if (!year || !month || !day) return null;
-    return new Date(year, month - 1, day); // local date
+    return new Date(year, month - 1, day);
   }
 
-  /**
-   * Format a due date as label + tone, using local date only.
-   */
+  // Label + tone for due date
   function formatDueLabel(
     dueDate?: string | null
   ): { label: string; tone: "neutral" | "overdue" | "today" } {
@@ -136,6 +124,37 @@ const TasksPage: React.FC = () => {
       tone: "neutral",
     };
   }
+
+  // --- Today / overdue radar ---
+
+  const { todayCount, overdueCount } = useMemo(() => {
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    let todayC = 0;
+    let overdueC = 0;
+
+    for (const t of tasks) {
+      const local = isoToLocalDate(t.dueDate || null);
+      if (!local) continue;
+
+      const target = new Date(
+        local.getFullYear(),
+        local.getMonth(),
+        local.getDate()
+      );
+      const diffMs = target.getTime() - today.getTime();
+      const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+      if (diffDays < 0) {
+        overdueC += 1;
+      } else if (diffDays === 0) {
+        todayC += 1;
+      }
+    }
+
+    return { todayCount: todayC, overdueCount: overdueC };
+  }, [tasks]);
 
   // --- Create task ---
 
@@ -177,12 +196,7 @@ const TasksPage: React.FC = () => {
     const previous = tasks;
     setTasks((prev) =>
       prev.map((t) =>
-        t.id === task.id
-          ? {
-              ...t,
-              status: newStatus,
-            }
-          : t
+        t.id === task.id ? { ...t, status: newStatus } : t
       )
     );
 
@@ -249,12 +263,7 @@ const TasksPage: React.FC = () => {
     const previous = tasks;
     setTasks((prev) =>
       prev.map((t) =>
-        t.id === task.id
-          ? {
-              ...t,
-              title: trimmed,
-            }
-          : t
+        t.id === task.id ? { ...t, title: trimmed } : t
       )
     );
 
@@ -295,12 +304,7 @@ const TasksPage: React.FC = () => {
     const previous = tasks;
     setTasks((prev) =>
       prev.map((t) =>
-        t.id === task.id
-          ? {
-              ...t,
-              dueDate: iso,
-            }
-          : t
+        t.id === task.id ? { ...t, dueDate: iso } : t
       )
     );
 
@@ -323,11 +327,7 @@ const TasksPage: React.FC = () => {
 
   function renderColumnHeader(label: string, count: number) {
     return (
-      <div
-        style={{
-          marginBottom: 6,
-        }}
-      >
+      <div style={{ marginBottom: 6 }}>
         <div
           style={{
             fontSize: 12,
@@ -568,6 +568,36 @@ const TasksPage: React.FC = () => {
         </p>
       </section>
 
+      {/* Today / Overdue radar */}
+      <section
+        style={{
+          borderRadius: 999,
+          border: "1px solid rgba(255,255,255,0.12)",
+          background: "#050713",
+          padding: "8px 12px",
+          display: "flex",
+          justifyContent: "space-between",
+          alignItems: "center",
+          gap: 8,
+          fontSize: 12,
+        }}
+      >
+        <span style={{ color: "#9da2c8" }}>
+          Due today:{" "}
+          <strong style={{ color: "#f5f5f5" }}>{todayCount}</strong>
+        </span>
+        <span
+          style={{
+            color: overdueCount > 0 ? "#ff7b88" : "#6f7598",
+          }}
+        >
+          Overdue:{" "}
+          <strong>
+            {overdueCount}
+          </strong>
+        </span>
+      </section>
+
       <section
         style={{
           borderRadius: 12,
@@ -688,7 +718,7 @@ const TasksPage: React.FC = () => {
           <p style={{ fontSize: 12, color: "#ff7b88" }}>{actionError}</p>
         )}
 
-        {/* Columns – stacked vertically for mobile friendliness */}
+        {/* Columns – stacked vertically */}
         <div
           style={{
             display: "flex",
