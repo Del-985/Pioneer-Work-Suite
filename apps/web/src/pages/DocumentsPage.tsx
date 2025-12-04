@@ -14,7 +14,7 @@ const DocumentsPage: React.FC = () => {
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
 
-  // Currently selected document
+  // Currently “selected” doc id
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [editTitle, setEditTitle] = useState("");
   const [editContent, setEditContent] = useState("");
@@ -31,11 +31,15 @@ const DocumentsPage: React.FC = () => {
   // Simple loading flag when switching docs
   const [switchingDoc, setSwitchingDoc] = useState(false);
 
+  // Resolve selected doc from the list
   const selectedDoc = selectedId
     ? documents.find((d) => d.id === selectedId) || null
     : null;
 
-  // Load docs on mount
+  // Has a *real* selection?
+  const hasSelection = !!selectedDoc;
+
+  // Load all documents on mount
   useEffect(() => {
     (async () => {
       try {
@@ -56,6 +60,8 @@ const DocumentsPage: React.FC = () => {
   useEffect(() => {
     if (!selectedId && documents.length > 0) {
       const first = documents[0];
+      if (!first || !first.id) return;
+
       setSelectedId(first.id);
       setSwitchingDoc(true);
       setEditTitle(first.title);
@@ -72,10 +78,12 @@ const DocumentsPage: React.FC = () => {
 
   // Save the currently selected document
   async function saveCurrentDocument() {
-    // We only render the editor when there *is* a selection,
-    // so at this point selectedId should be set.
-    const targetId = selectedId as string;
+    if (!selectedDoc || !selectedDoc.id) {
+      setSaveError("No document selected to save.");
+      return;
+    }
 
+    const targetId = selectedDoc.id;
     setIsSaving(true);
     setSaveError(null);
 
@@ -100,9 +108,11 @@ const DocumentsPage: React.FC = () => {
     }
   }
 
+  // Switch selected doc
   function handleSelect(id: string) {
     const doc = documents.find((d) => d.id === id);
     setSelectedId(id);
+
     if (doc) {
       setSwitchingDoc(true);
       setEditTitle(doc.title);
@@ -114,14 +124,29 @@ const DocumentsPage: React.FC = () => {
       window.setTimeout(() => {
         setSwitchingDoc(false);
       }, 200);
+    } else {
+      // If somehow we can't resolve it, clear selection
+      setEditTitle("");
+      setEditContent("");
+      setLastSavedAt(null);
     }
   }
 
+  // Create a new doc and select it
   async function handleCreateNew() {
     setCreating(true);
     setSaveError(null);
     try {
       const created = await createDocument("Untitled document", "");
+
+      // Ensure the created doc actually has an id
+      if (!created || !created.id) {
+        console.error("createDocument returned item without id:", created);
+        setSaveError("Unable to create document (no id).");
+        setCreating(false);
+        return;
+      }
+
       setDocuments((prev) => [created, ...prev]);
 
       setSelectedId(created.id);
@@ -147,13 +172,14 @@ const DocumentsPage: React.FC = () => {
     await saveCurrentDocument();
   }
 
+  // Delete, with confirmation if non-empty
   async function handleDelete(id: string) {
     const doc = documents.find((d) => d.id === id);
 
     let titleEmpty = true;
     let contentEmpty = true;
 
-    if (id === selectedId) {
+    if (selectedDoc && selectedDoc.id === id) {
       titleEmpty = !editTitle || editTitle.trim().length === 0;
       contentEmpty = !editContent || editContent.trim().length === 0;
     } else if (doc) {
@@ -165,9 +191,7 @@ const DocumentsPage: React.FC = () => {
       const confirmed = window.confirm(
         "This document has content. Are you sure you want to delete it?"
       );
-      if (!confirmed) {
-        return;
-      }
+      if (!confirmed) return;
     }
 
     setDeletingId(id);
@@ -177,7 +201,7 @@ const DocumentsPage: React.FC = () => {
     const remaining = documents.filter((d) => d.id !== id);
     setDocuments(remaining);
 
-    if (selectedId === id) {
+    if (selectedDoc && selectedDoc.id === id) {
       if (remaining.length > 0) {
         const first = remaining[0];
         setSelectedId(first.id);
@@ -213,8 +237,6 @@ const DocumentsPage: React.FC = () => {
       setDeletingId(null);
     }
   }
-
-  const hasSelection = selectedId !== null;
 
   function renderSaveStatus() {
     if (!hasSelection) return null;
@@ -390,13 +412,13 @@ const DocumentsPage: React.FC = () => {
           )}
 
           {documents.map((doc) => {
-            const isActive = doc.id === selectedId;
+            const isActive = selectedDoc && doc.id === selectedDoc.id;
             const updatedLabel = getUpdatedLabel(doc);
             const isDeleting = deletingId === doc.id;
 
             return (
               <div
-                key={doc.id}
+                key={doc.id || Math.random().toString(36)}
                 style={{
                   display: "flex",
                   alignItems: "center",
@@ -406,7 +428,7 @@ const DocumentsPage: React.FC = () => {
               >
                 <button
                   type="button"
-                  onClick={() => handleSelect(doc.id)}
+                  onClick={() => doc.id && handleSelect(doc.id)}
                   style={{
                     flex: 1,
                     textAlign: "left",
@@ -418,7 +440,7 @@ const DocumentsPage: React.FC = () => {
                     background: isActive
                       ? "rgba(127,61,255,0.15)"
                       : "transparent",
-                    cursor: "pointer",
+                    cursor: doc.id ? "pointer" : "default",
                     display: "flex",
                     flexDirection: "column",
                     gap: 2,
@@ -445,21 +467,23 @@ const DocumentsPage: React.FC = () => {
                     Updated {updatedLabel}
                   </span>
                 </button>
-                <button
-                  type="button"
-                  onClick={() => handleDelete(doc.id)}
-                  disabled={isDeleting}
-                  style={{
-                    all: "unset",
-                    cursor: isDeleting ? "default" : "pointer",
-                    fontSize: 11,
-                    opacity: 0.75,
-                    padding: "0 4px",
-                  }}
-                  aria-label="Delete document"
-                >
-                  {isDeleting ? "…" : "✕"}
-                </button>
+                {doc.id && (
+                  <button
+                    type="button"
+                    onClick={() => handleDelete(doc.id!)}
+                    disabled={isDeleting}
+                    style={{
+                      all: "unset",
+                      cursor: isDeleting ? "default" : "pointer",
+                      fontSize: 11,
+                      opacity: 0.75,
+                      padding: "0 4px",
+                    }}
+                    aria-label="Delete document"
+                  >
+                    {isDeleting ? "…" : "✕"}
+                  </button>
+                )}
               </div>
             );
           })}
