@@ -31,12 +31,11 @@ const DocumentsPage: React.FC = () => {
   // Simple loading flag when switching docs
   const [switchingDoc, setSwitchingDoc] = useState(false);
 
-  // Find the currently selected document in the list (for labels)
   const selectedDoc = selectedId
     ? documents.find((d) => d.id === selectedId) || null
     : null;
 
-  // Load all documents on mount
+  // Load docs on mount
   useEffect(() => {
     (async () => {
       try {
@@ -73,15 +72,13 @@ const DocumentsPage: React.FC = () => {
 
   // Save the currently selected document
   async function saveCurrentDocument() {
-    if (!selectedId) {
-      setSaveError("No document selected to save.");
-      return;
-    }
+    // We only render the editor when there *is* a selection,
+    // so at this point selectedId should be set.
+    const targetId = selectedId as string;
 
     setIsSaving(true);
     setSaveError(null);
 
-    const targetId = selectedId;
     const currentTitle = editTitle;
     const currentContent = editContent;
 
@@ -92,9 +89,7 @@ const DocumentsPage: React.FC = () => {
       });
 
       setDocuments((prev) =>
-        prev.map((doc) =>
-          doc.id === updated.id ? updated : doc
-        )
+        prev.map((doc) => (doc.id === updated.id ? updated : doc))
       );
       setLastSavedAt(updated.updatedAt || updated.createdAt || null);
     } catch (err) {
@@ -105,7 +100,6 @@ const DocumentsPage: React.FC = () => {
     }
   }
 
-  // When clicking a doc in the list, just switch editor state to that doc
   function handleSelect(id: string) {
     const doc = documents.find((d) => d.id === id);
     setSelectedId(id);
@@ -123,16 +117,13 @@ const DocumentsPage: React.FC = () => {
     }
   }
 
-  // Create a new document and select it
   async function handleCreateNew() {
     setCreating(true);
     setSaveError(null);
     try {
       const created = await createDocument("Untitled document", "");
-      // Prepend new doc to list
       setDocuments((prev) => [created, ...prev]);
 
-      // Select and bind editor to it
       setSelectedId(created.id);
       setSwitchingDoc(true);
       setEditTitle(created.title);
@@ -156,7 +147,6 @@ const DocumentsPage: React.FC = () => {
     await saveCurrentDocument();
   }
 
-  // Delete a document (with confirmation if not empty), using live editor content
   async function handleDelete(id: string) {
     const doc = documents.find((d) => d.id === id);
 
@@ -247,9 +237,7 @@ const DocumentsPage: React.FC = () => {
 
     if (saveError) {
       return (
-        <span style={{ fontSize: 12, color: "#ff7b88" }}>
-          {saveError}
-        </span>
+        <span style={{ fontSize: 12, color: "#ff7b88" }}>{saveError}</span>
       );
     }
 
