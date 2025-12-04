@@ -187,6 +187,8 @@ const DocumentsPage: React.FC = () => {
       setSaveError(null);
       setIsSaving(false);
       setHasLocalChanges(false);
+      const count = countWordsFromHtml(doc.content || "");
+      setWordCount(count);
       window.setTimeout(() => setSwitchingDoc(false), 200);
     } else {
       setEditTitle("");
@@ -568,7 +570,7 @@ const DocumentsPage: React.FC = () => {
           border: "1px solid rgba(255,255,255,0.08)",
           background: "#05070a",
           padding: 12,
-          minHeight: 160,
+          minHeight: 220,
         }}
       >
         {!hasSelection ? (
@@ -653,7 +655,15 @@ const DocumentsPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="doc-editor">
+            <div
+              className="doc-editor"
+              style={{
+                flex: 1,
+                minHeight: 200,
+                display: "flex",
+                flexDirection: "column",
+              }}
+            >
               <ReactQuill
                 ref={quillRef}
                 value={editContent}
@@ -665,6 +675,12 @@ const DocumentsPage: React.FC = () => {
                 placeholder="Start writing your document here..."
                 theme="snow"
                 modules={quillModules}
+                style={{
+                  flex: 1,
+                  minHeight: 180,
+                  background: "#050713",
+                  color: "#f5f5f5",
+                }}
               />
             </div>
           </>
