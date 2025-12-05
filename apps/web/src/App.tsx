@@ -1,30 +1,11 @@
 // apps/web/src/App.tsx
-import React, { useState, useEffect } from "react";
+import React from "react";
 import { Routes, Route, Navigate, Link } from "react-router-dom";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import TasksPage from "./pages/TasksPage";
 import DocumentsPage from "./pages/DocumentsPage";
-import {
-  fetchTasks,
-  createTask,
-  updateTask,
-  deleteTask,
-  Task,
-} from "./api/tasks";
-import {
-  fetchDocuments,
-  Document as Doc,
-} from "./api/documents";
-
-type SidebarMode = "tasks" | "documents";
-const SIDEBAR_MODE_KEY = "pioneer-sidebar-mode";
-
-function loadInitialSidebarMode(): SidebarMode {
-  if (typeof window === "undefined") return "tasks";
-  const stored = window.localStorage.getItem(SIDEBAR_MODE_KEY);
-  return stored === "documents" ? "documents" : "tasks";
-}
+import RightSidebar from "./components/RightSidebar";
 
 const RequireAuth: React.FC<{ children: React.ReactElement }> = ({
   children,
@@ -39,15 +20,7 @@ const RequireAuth: React.FC<{ children: React.ReactElement }> = ({
   return children;
 };
 
-interface DashboardProps {
-  sidebarMode: SidebarMode;
-  onSidebarModeChange: (mode: SidebarMode) => void;
-}
-
-const Dashboard: React.FC<DashboardProps> = ({
-  sidebarMode,
-  onSidebarModeChange,
-}) => {
+const Dashboard: React.FC = () => {
   const userName =
     typeof window !== "undefined"
       ? window.localStorage.getItem("userName") || "Student"
@@ -57,159 +30,16 @@ const Dashboard: React.FC<DashboardProps> = ({
     <div className="workspace-placeholder">
       <h2>Welcome, {userName}</h2>
       <p>
-        This is your student workspace. In v1, you&apos;ll be able to write
-        documents, track tasks, and later expand to email and spreadsheets.
+        This is your student workspace. You&apos;ll be able to write documents,
+        track tasks, and later expand to email and spreadsheets.
       </p>
-
-      {/* Right panel preference */}
-      <div style={{ marginTop: 12 }}>
-        <label style={{ fontSize: 13, color: "#9da2c8" }}>
-          Right panel content:
-          <select
-            value={sidebarMode}
-            onChange={(e) =>
-              onSidebarModeChange(
-                e.target.value === "documents" ? "documents" : "tasks"
-              )
-            }
-            style={{
-              marginLeft: 6,
-              padding: "4px 6px",
-              borderRadius: 999,
-              border: "1px solid rgba(255,255,255,0.18)",
-              background: "#05070a",
-              color: "#f5f5f5",
-              fontSize: 12,
-            }}
-          >
-            <option value="tasks">Tasks</option>
-            <option value="documents">Documents</option>
-          </select>
-        </label>
-      </div>
     </div>
   );
 };
 
 const App: React.FC = () => {
-  const [isTodoOpen, setIsTodoOpen] = useState(false);
-
   const hasToken =
     typeof window !== "undefined" && !!window.localStorage.getItem("token");
-
-  // Sidebar mode preference
-  const [sidebarMode, setSidebarMode] = useState<SidebarMode>(() =>
-    loadInitialSidebarMode()
-  );
-
-  function handleSidebarModeChange(mode: SidebarMode) {
-    setSidebarMode(mode);
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(SIDEBAR_MODE_KEY, mode);
-    }
-  }
-
-  // ---- Tasks state for both TasksPage and right-hand panel ----
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [tasksLoading, setTasksLoading] = useState(false);
-  const [tasksError, setTasksError] = useState<string | null>(null);
-  const [newTaskTitle, setNewTaskTitle] = useState("");
-
-  // ---- Documents state for the right-hand panel (list only) ----
-  const [sidebarDocs, setSidebarDocs] = useState<Doc[]>([]);
-  const [sidebarDocsLoading, setSidebarDocsLoading] = useState(false);
-  const [sidebarDocsError, setSidebarDocsError] = useState<string | null>(null);
-
-  // Load tasks + documents when authenticated
-  useEffect(() => {
-    if (!hasToken) {
-      setTasks([]);
-      setSidebarDocs([]);
-      return;
-    }
-
-    (async () => {
-      // Tasks
-      try {
-        setTasksLoading(true);
-        setTasksError(null);
-        const loadedTasks = await fetchTasks();
-        setTasks(loadedTasks);
-      } catch (err) {
-        console.error("Error loading tasks:", err);
-        setTasksError("Unable to load tasks.");
-      } finally {
-        setTasksLoading(false);
-      }
-
-      // Documents (for sidebar list)
-      try {
-        setSidebarDocsLoading(true);
-        setSidebarDocsError(null);
-        const docs = await fetchDocuments();
-        setSidebarDocs(docs);
-      } catch (err) {
-        console.error("Error loading documents for sidebar:", err);
-        setSidebarDocsError("Unable to load documents.");
-      } finally {
-        setSidebarDocsLoading(false);
-      }
-    })();
-  }, [hasToken]);
-
-  // Shared helper: create a task from a title (used by TasksPage & sidebar)
-  async function createTaskFromTitle(title: string) {
-    const trimmed = title.trim();
-    if (!trimmed) return;
-
-    setTasksError(null);
-
-    try {
-      const created = await createTask(trimmed);
-      setTasks((prev) => [created, ...prev]);
-    } catch (err) {
-      console.error("Error creating task:", err);
-      setTasksError("Unable to create task.");
-    }
-  }
-
-  // Sidebar-only handler for its form
-  async function handleAddTask(e: React.FormEvent) {
-    e.preventDefault();
-    if (!newTaskTitle.trim()) return;
-
-    await createTaskFromTitle(newTaskTitle);
-    setNewTaskTitle("");
-  }
-
-  async function handleToggleTask(task: Task) {
-    const nextStatus: Task["status"] =
-      task.status === "done" ? "todo" : "done";
-
-    setTasks((prev) =>
-      prev.map((t) =>
-        t.id === task.id ? { ...t, status: nextStatus } : t
-      )
-    );
-
-    try {
-      await updateTask(task.id, { status: nextStatus });
-    } catch (err) {
-      console.error("Error updating task:", err);
-      setTasksError("Unable to update task.");
-    }
-  }
-
-  async function handleDeleteTask(id: string) {
-    setTasks((prev) => prev.filter((t) => t.id !== id));
-
-    try {
-      await deleteTask(id);
-    } catch (err) {
-      console.error("Error deleting task:", err);
-      setTasksError("Unable to delete task.");
-    }
-  }
 
   return (
     <div className="app app-dark">
@@ -239,7 +69,8 @@ const App: React.FC = () => {
           <header className="workspace-header">
             <h1>Student Workspace</h1>
             <p className="workspace-subtitle">
-              Sign in, register, and access your dashboard, documents, and tasks.
+              Sign in, register, and access your dashboard, documents, and
+              tasks.
             </p>
           </header>
 
@@ -247,17 +78,16 @@ const App: React.FC = () => {
             <Routes>
               <Route path="/login" element={<LoginPage />} />
               <Route path="/register" element={<RegisterPage />} />
+
               <Route
                 path="/dashboard"
                 element={
                   <RequireAuth>
-                    <Dashboard
-                      sidebarMode={sidebarMode}
-                      onSidebarModeChange={handleSidebarModeChange}
-                    />
+                    <Dashboard />
                   </RequireAuth>
                 }
               />
+
               <Route
                 path="/documents"
                 element={
@@ -266,21 +96,16 @@ const App: React.FC = () => {
                   </RequireAuth>
                 }
               />
+
               <Route
                 path="/tasks"
                 element={
                   <RequireAuth>
-                    <TasksPage
-                      tasks={tasks}
-                      loading={tasksLoading}
-                      error={tasksError}
-                      onCreate={createTaskFromTitle}
-                      onToggle={handleToggleTask}
-                      onDelete={handleDeleteTask}
-                    />
+                    <TasksPage />
                   </RequireAuth>
                 }
               />
+
               <Route
                 path="/"
                 element={
@@ -291,224 +116,14 @@ const App: React.FC = () => {
                   )
                 }
               />
+
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </section>
         </main>
 
-        {/* Right panel */}
-        <aside
-          className={
-            "sidebar-right" +
-            (isTodoOpen ? " sidebar-right-open" : " sidebar-right-collapsed")
-          }
-        >
-          <div className="todo-header">
-            <button
-              className="todo-toggle"
-              onClick={() => setIsTodoOpen((open) => !open)}
-              type="button"
-            >
-              {isTodoOpen ? "➜" : "⬅"}
-            </button>
-            {isTodoOpen && (
-              <h2 className="todo-title">
-                {sidebarMode === "tasks" ? "Tasks" : "Documents"}
-              </h2>
-            )}
-          </div>
-
-          {isTodoOpen && (
-            <div className="todo-body">
-              {!hasToken ? (
-                <ul className="todo-list">
-                  <li>Register a student account</li>
-                  <li>Log in with your new account</li>
-                  <li>Come back later for documents and tasks UI</li>
-                </ul>
-              ) : sidebarMode === "tasks" ? (
-                <>
-                  {/* Tasks-only panel */}
-                  <form
-                    onSubmit={handleAddTask}
-                    style={{
-                      display: "flex",
-                      gap: 6,
-                      marginBottom: 10,
-                    }}
-                  >
-                    <input
-                      type="text"
-                      value={newTaskTitle}
-                      onChange={(e) => setNewTaskTitle(e.target.value)}
-                      placeholder="Add a task..."
-                      style={{
-                        flex: 1,
-                        padding: "6px 8px",
-                        borderRadius: 999,
-                        border: "1px solid rgba(255,255,255,0.18)",
-                        background: "#05070a",
-                        color: "#f5f5f5",
-                        fontSize: 12,
-                      }}
-                    />
-                    <button
-                      type="submit"
-                      style={{
-                        padding: "6px 10px",
-                        borderRadius: 999,
-                        border: "none",
-                        fontSize: 12,
-                        cursor: "pointer",
-                        background:
-                          "linear-gradient(135deg, #3f64ff, #7f3dff)",
-                        color: "#ffffff",
-                      }}
-                    >
-                      +
-                    </button>
-                  </form>
-
-                  {tasksLoading && (
-                    <p style={{ fontSize: 12, color: "#9da2c8" }}>
-                      Loading tasks...
-                    </p>
-                  )}
-
-                  {tasksError && (
-                    <p style={{ fontSize: 12, color: "#ff7b88" }}>
-                      {tasksError}
-                    </p>
-                  )}
-
-                  {!tasksLoading &&
-                    tasks.length === 0 &&
-                    !tasksError && (
-                      <p style={{ fontSize: 12, color: "#9da2c8" }}>
-                        No tasks yet. Add your first one above.
-                      </p>
-                    )}
-
-                  <ul className="todo-list">
-                    {tasks.map((task) => (
-                      <li
-                        key={task.id}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: 8,
-                        }}
-                      >
-                        <label
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 8,
-                            cursor: "pointer",
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={task.status === "done"}
-                            onChange={() => handleToggleTask(task)}
-                          />
-                          <span
-                            style={{
-                              fontSize: 13,
-                              textDecoration:
-                                task.status === "done"
-                                  ? "line-through"
-                                  : "none",
-                              color:
-                                task.status === "done"
-                                  ? "#6f7598"
-                                  : "#f5f5f5",
-                            }}
-                          >
-                            {task.title}
-                          </span>
-                        </label>
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteTask(task.id)}
-                          style={{
-                            all: "unset",
-                            cursor: "pointer",
-                            fontSize: 11,
-                            opacity: 0.7,
-                          }}
-                          aria-label="Delete task"
-                        >
-                          ✕
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              ) : (
-                <>
-                  {/* Documents-only panel */}
-                  {sidebarDocsLoading && (
-                    <p style={{ fontSize: 12, color: "#9da2c8" }}>
-                      Loading documents...
-                    </p>
-                  )}
-
-                  {sidebarDocsError && (
-                    <p style={{ fontSize: 12, color: "#ff7b88" }}>
-                      {sidebarDocsError}
-                    </p>
-                  )}
-
-                  {!sidebarDocsLoading &&
-                    sidebarDocs.length === 0 &&
-                    !sidebarDocsError && (
-                      <p style={{ fontSize: 12, color: "#9da2c8" }}>
-                        No documents yet. Create one from the Documents page.
-                      </p>
-                    )}
-
-                  <ul className="todo-list">
-                    {sidebarDocs.map((doc) => (
-                      <li
-                        key={doc.id}
-                        style={{
-                          padding: "4px 2px",
-                          fontSize: 12,
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                        }}
-                      >
-                        {doc.title || "Untitled document"}
-                      </li>
-                    ))}
-                  </ul>
-
-                  <div
-                    style={{
-                      marginTop: 8,
-                      display: "flex",
-                      justifyContent: "flex-end",
-                    }}
-                  >
-                    <Link
-                      to="/documents"
-                      style={{
-                        fontSize: 11,
-                        color: "#aeb7ff",
-                        textDecoration: "underline",
-                      }}
-                    >
-                      Open Documents
-                    </Link>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-        </aside>
+        {/* Right sidebar */}
+        <RightSidebar />
       </div>
     </div>
   );
