@@ -149,7 +149,7 @@ body {
   color: var(--text-muted);
 }
 
-/* Right sidebar (To-Do) */
+/* Right sidebar (To-Do / right panel) */
 
 .sidebar-right {
   width: 260px;
@@ -293,4 +293,204 @@ body {
 .doc-editor .ql-editor a {
   color: #7f3dff;
   text-decoration: underline;
+}
+
+/* ==== Tasks v3 layout ==== */
+
+.tasks-page {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+/* Header + counts + filters */
+.tasks-header-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tasks-counts {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+/* Filter chips row */
+.tasks-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.tasks-filter-chip {
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: transparent;
+  font-size: 12px;
+  color: #d7dcff;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.tasks-filter-chip-active {
+  background: linear-gradient(135deg, #3f64ff, #7f3dff);
+  border-color: transparent;
+  color: #ffffff;
+}
+
+/* New task input row */
+.tasks-new-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.tasks-new-input {
+  flex: 1;
+  padding: 10px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #05070a;
+  color: #f5f5f5;
+  font-size: 14px;
+}
+
+.tasks-new-input::placeholder {
+  color: #6f7598;
+}
+
+.tasks-new-button {
+  padding: 0 18px;
+  border-radius: 999px;
+  border: none;
+  background: linear-gradient(135deg, #3f64ff, #7f3dff);
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+/* Columns container */
+.tasks-columns {
+  display: flex;
+  align-items: flex-start;
+  gap: 14px;
+  margin-top: 10px;
+}
+
+/* Stack columns on mobile so nothing overlaps */
+@media (max-width: 768px) {
+  .tasks-columns {
+    flex-direction: column;
+  }
+}
+
+/* Each column */
+.tasks-column {
+  flex: 1;
+  min-width: 0;
+  background: radial-gradient(circle at top left, #181b2c, #05070a);
+  border-radius: 18px;
+  padding: 12px 14px 14px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+.tasks-column-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  margin-bottom: 6px;
+}
+
+.tasks-column-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: #f5f5f5;
+}
+
+.tasks-column-count {
+  font-size: 12px;
+  color: #9da2c8;
+}
+
+.tasks-column-empty {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #6f7598;
+}
+
+/* Individual task card */
+.task-card {
+  margin-top: 8px;
+  padding: 10px 10px 8px;
+  border-radius: 14px;
+  background: radial-gradient(circle at top left, #262a40, #11141f);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Title & delete */
+.task-card-main {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.task-card-title {
+  font-size: 13px;
+  color: #f5f5f5;
+  word-break: break-word;
+}
+
+.task-card-delete {
+  all: unset;
+  cursor: pointer;
+  font-size: 12px;
+  color: #ff7b88;
+  opacity: 0.8;
+}
+
+.task-card-delete:hover {
+  opacity: 1;
+}
+
+/* Due date + status row */
+.task-card-footer {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.task-card-due-label {
+  color: #9da2c8;
+}
+
+.task-card-due-input {
+  padding: 3px 6px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: #05070a;
+  color: #f5f5f5;
+  font-size: 11px;
+}
+
+/* Status select */
+.task-card-status {
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: #05070a;
+  color: #f5f5f5;
+  font-size: 11px;
+}
+
+/* Completed tasks styling */
+.task-card--done .task-card-title {
+  text-decoration: line-through;
+  color: #6f7598;
 }
