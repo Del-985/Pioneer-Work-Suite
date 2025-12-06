@@ -4,7 +4,7 @@ import cors from "cors";
 import { authRouter } from "./auth";
 import { documentsRouter } from "./documents";
 import { tasksRouter } from "./tasks";
-import { prisma } from "./prisma"; // 👈 NEW
+import { eventsRouter } from "./events";
 
 const app = express();
 
@@ -21,28 +21,6 @@ app.get("/health", (_req, res) => {
   });
 });
 
-// 🔍 TEMP DEBUG ROUTE: check Task table / Prisma
-app.get("/tasks-debug", async (_req, res) => {
-  try {
-    const tasks = await prisma.task.findMany({
-      take: 3,
-    });
-    return res.json({
-      ok: true,
-      count: tasks.length,
-      sample: tasks,
-    });
-  } catch (err: any) {
-    console.error("Error in /tasks-debug:", err);
-    return res.status(500).json({
-      ok: false,
-      error: String(err),
-      // @ts-ignore
-      code: err?.code,
-    });
-  }
-});
-
 // Student auth routes (register, login, me)
 app.use("/auth", authRouter);
 
@@ -51,6 +29,9 @@ app.use("/documents", documentsRouter);
 
 // Student tasks (requires auth)
 app.use("/tasks", tasksRouter);
+
+// Student calendar events (requires auth)
+app.use("/events", eventsRouter);
 
 const PORT = process.env.PORT || 4000;
 
