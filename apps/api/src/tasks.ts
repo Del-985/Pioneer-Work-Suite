@@ -9,13 +9,21 @@ const router = express.Router();
 router.use(authMiddleware);
 
 type TaskStatus = "todo" | "in_progress" | "done";
+type TaskPriority = "low" | "normal" | "high";
 
 interface TaskResponse {
   id: string;
   title: string;
   status: TaskStatus;
+  priority: TaskPriority;
   createdAt: string;
   dueDate?: string | null;
+}
+
+// Helper to normalize priority from any input
+function normalizePriority(input: any): TaskPriority {
+  if (input === "low" || input === "high") return input;
+  return "normal";
 }
 
 // Helper to map Prisma Task to API shape
@@ -24,9 +32,11 @@ function mapTask(task: any): TaskResponse {
     id: task.id,
     title: task.title,
     status: (task.status as TaskStatus) || "todo",
-    createdAt: task.createdAt instanceof Date
-      ? task.createdAt.toISOString()
-      : String(task.createdAt),
+    priority: normalizePriority(task.priority),
+    createdAt:
+      task.createdAt instanceof Date
+        ? task.createdAt.toISOString()
+        : String(task.createdAt),
     dueDate:
       task.dueDate instanceof Date
         ? task.dueDate.toISOString()
@@ -50,8 +60,7 @@ router.get("/", async (req, res) => {
 
     const mapped = tasks.map(mapTask);
 
-    // For safety with the existing frontend, return just the array.
-    // (Your frontend's fetchTasks already expects a Task[] from /tasks.)
+    // Frontend expects an array
     return res.json(mapped);
   } catch (err) {
     console.error("Error in GET /tasks:", err);
@@ -67,7 +76,7 @@ router.post("/", async (req, res) => {
     return res.status(401).json({ error: "Unauthenticated" });
   }
 
-  const { title, status, dueDate } = req.body || {};
+  const { title, status, dueDate, priority } = req.body || {};
 
   if (!title || typeof title !== "string") {
     return res.status(400).json({ error: "Title is required" });
@@ -75,6 +84,8 @@ router.post("/", async (req, res) => {
 
   const statusValue: TaskStatus =
     status === "in_progress" || status === "done" ? status : "todo";
+
+  const priorityValue: TaskPriority = normalizePriority(priority);
 
   let parsedDueDate: Date | null = null;
   if (dueDate) {
@@ -89,6 +100,7 @@ router.post("/", async (req, res) => {
       data: {
         title: title.trim(),
         status: statusValue,
+        priority: priorityValue,
         userId: user.id,
         dueDate: parsedDueDate,
       },
@@ -102,7 +114,7 @@ router.post("/", async (req, res) => {
   }
 });
 
-// PUT /tasks/:id - update task (title/status/dueDate)
+// PUT /tasks/:id - update task (title/status/dueDate/priority)
 router.put("/:id", async (req, res) => {
   const user = (req as any).user as User | undefined;
 
@@ -111,10 +123,10 @@ router.put("/:id", async (req, res) => {
   }
 
   const { id } = req.params;
-  const { title, status, dueDate } = req.body || {};
+  const { title, status, dueDate, priority } = req.body || {};
 
-  // Build update data dynamically
   const data: any = {};
+
   if (typeof title === "string" && title.trim().length > 0) {
     data.title = title.trim();
   }
@@ -123,6 +135,10 @@ router.put("/:id", async (req, res) => {
     if (status === "todo" || status === "in_progress" || status === "done") {
       data.status = status;
     }
+  }
+
+  if (priority !== undefined) {
+    data.priority = normalizePriority(priority);
   }
 
   if (dueDate !== undefined) {
@@ -137,7 +153,6 @@ router.put("/:id", async (req, res) => {
   }
 
   try {
-    // Ensure this task belongs to the current user
     const existing = await prisma.task.findFirst({
       where: { id, userId: user.id },
     });
