@@ -1,431 +1,270 @@
 // apps/web/src/pages/TasksPage.tsx
-import React, { useMemo, useState } from "react";
-import type { Task } from "../api/tasks";
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  fetchTasks,
+  createTask,
+  updateTask,
+  deleteTask,
+  Task,
+  TaskPriority,
+} from "../api/tasks";
 
-type FilterMode = "all" | "today" | "overdue" | "completed";
+type TaskFilter = "all" | "today" | "overdue" | "completed";
 
-interface TasksPageProps {
-  tasks: Task[] | undefined | null;
-  loading: boolean;
-  error: string | null;
-  onCreate: (title: string) => void | Promise<void>;
-  onToggle: (task: Task) => void | Promise<void>;
-  onDelete: (id: string) => void | Promise<void>;
-  // Optional – if App doesn’t pass this, we just won’t persist due dates
-  onUpdate?: (
-    id: string,
-    updates: Partial<Pick<Task, "title" | "status" | "dueDate">>
-  ) => void | Promise<void>;
+function isoToDateInput(iso?: string | null): string {
+  if (!iso) return "";
+  // ISO like 2025-12-04T00:00:00.000Z → keep YYYY-MM-DD to avoid TZ shift
+  return iso.slice(0, 10);
 }
 
-function parseDate(value?: string | null): Date | null {
-  if (!value) return null;
-  const d = new Date(value);
-  if (Number.isNaN(d.getTime())) return null;
-  return d;
+function todayKey(): string {
+  return new Date().toISOString().slice(0, 10);
 }
 
-function formatShortDate(value?: string | null): string | null {
-  const d = parseDate(value);
-  if (!d) return null;
-  try {
-    return d.toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  } catch {
-    return d.toISOString().slice(0, 10);
-  }
+function getTaskDateKey(task: Task): string | null {
+  if (!task.dueDate) return null;
+  return String(task.dueDate).slice(0, 10);
 }
 
-function isSameDay(a: Date, b: Date): boolean {
-  return (
-    a.getFullYear() === b.getFullYear() &&
-    a.getMonth() === b.getMonth() &&
-    a.getDate() === b.getDate()
-  );
+function isOverdue(task: Task): boolean {
+  const key = getTaskDateKey(task);
+  if (!key) return false;
+  return key < todayKey();
 }
 
-const TasksPage: React.FC<TasksPageProps> = ({
-  tasks,
-  loading,
-  error,
-  onCreate,
-  onToggle,
-  onDelete,
-  onUpdate,
-}) => {
-  // Absolute safety: never trust the prop, always normalize.
-  const safeTasks: Task[] = Array.isArray(tasks) ? tasks : [];
+function isDueToday(task: Task): boolean {
+  const key = getTaskDateKey(task);
+  if (!key) return false;
+  return key === todayKey();
+}
 
-  // Debug: you can see this in the iOS console
-  console.log("TasksPage tasks prop:", tasks);
+const TasksPage: React.FC = () => {
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const [filter, setFilter] = useState<FilterMode>("all");
   const [newTitle, setNewTitle] = useState("");
-  const [newDue, setNewDue] = useState<string>("");
+  const [filter, setFilter] = useState<TaskFilter>("all");
 
-  const today = useMemo(() => new Date(), []);
-
-  const { todayCount, overdueCount, completedCount } = useMemo(() => {
-    let todayCount = 0;
-    let overdueCount = 0;
-    let completedCount = 0;
-
-    for (const t of safeTasks) {
-      const due = parseDate(t.dueDate);
-      if (t.status === "done") {
-        completedCount++;
+  // Initial load
+  useEffect(() => {
+    (async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const loaded = await fetchTasks();
+        setTasks(loaded);
+      } catch (err) {
+        console.error("Error loading tasks:", err);
+        setError("Unable to load tasks.");
+      } finally {
+        setLoading(false);
       }
-      if (due) {
-        if (isSameDay(due, today)) {
-          todayCount++;
-        } else if (due < today) {
-          overdueCount++;
-        }
-      }
-    }
+    })();
+  }, []);
 
-    return { todayCount, overdueCount, completedCount };
-  }, [safeTasks, today]);
-
-  const filtered = useMemo(() => {
-    return safeTasks.filter((t) => {
-      const due = parseDate(t.dueDate);
-
-      if (filter === "completed") {
-        return t.status === "done";
-      }
-
-      if (filter === "today") {
-        if (!due) return false;
-        return isSameDay(due, today);
-      }
-
-      if (filter === "overdue") {
-        if (!due) return false;
-        if (isSameDay(due, today)) return false;
-        return due < today && t.status !== "done";
-      }
-
-      return true; // "all"
-    });
-  }, [safeTasks, filter, today]);
-
-  const grouped = useMemo(() => {
-    return {
-      todo: filtered.filter((t) => t.status === "todo"),
-      in_progress: filtered.filter((t) => t.status === "in_progress"),
-      done: filtered.filter((t) => t.status === "done"),
-    };
-  }, [filtered]);
-
-  async function handleAdd(e: React.FormEvent) {
+  async function handleAddTask(e: React.FormEvent) {
     e.preventDefault();
-    const title = newTitle.trim();
-    if (!title) return;
-
-    await onCreate(title);
-    setNewTitle("");
-    setNewDue("");
+    const trimmed = newTitle.trim();
+    if (!trimmed) return;
+    try {
+      setError(null);
+      // priority defaults to "normal" inside createTask
+      const created = await createTask(trimmed);
+      setTasks((prev) => [created, ...prev]);
+      setNewTitle("");
+    } catch (err) {
+      console.error("Error creating task:", err);
+      setError("Unable to create task.");
+    }
   }
 
-  async function handleDueChange(task: Task, newValue: string) {
-    if (!onUpdate) return; // no-op if parent didn’t wire this yet
-    const formatted = newValue || null;
-    await onUpdate(task.id, { dueDate: formatted ?? undefined });
-  }
+  async function handleStatusChange(task: Task, nextStatus: Task["status"]) {
+    if (task.status === nextStatus) return;
 
-  function renderFilterButton(mode: FilterMode, label: string) {
-    const active = filter === mode;
-    return (
-      <button
-        type="button"
-        onClick={() => setFilter(mode)}
-        style={{
-          padding: "4px 12px",
-          borderRadius: 999,
-          border: active
-            ? "1px solid rgba(111, 135, 255, 0.9)"
-            : "1px solid rgba(255, 255, 255, 0.16)",
-          background: active ? "rgba(63, 100, 255, 0.2)" : "transparent",
-          color: active ? "#ffffff" : "#d0d2ff",
-          fontSize: 12,
-          cursor: "pointer",
-        }}
-      >
-        {label}
-      </button>
+    const prevTasks = tasks;
+    setTasks((curr) =>
+      curr.map((t) => (t.id === task.id ? { ...t, status: nextStatus } : t))
     );
+
+    try {
+      await updateTask(task.id, { status: nextStatus });
+    } catch (err) {
+      console.error("Error updating task status:", err);
+      setError("Unable to update task.");
+      setTasks(prevTasks);
+    }
   }
 
-  function renderColumn(
-    title: string,
-    items: Task[],
-    statusLabel: string
-  ): React.ReactNode {
-    return (
+  async function handlePriorityChange(task: Task, value: TaskPriority) {
+    const prevTasks = tasks;
+    setTasks((curr) =>
+      curr.map((t) => (t.id === task.id ? { ...t, priority: value } : t))
+    );
+
+    try {
+      await updateTask(task.id, { priority: value });
+    } catch (err) {
+      console.error("Error updating task priority:", err);
+      setError("Unable to update priority.");
+      setTasks(prevTasks);
+    }
+  }
+
+  async function handleDueDateChange(task: Task, value: string) {
+    // value is YYYY-MM-DD or ""
+    const prevTasks = tasks;
+    const nextDue = value || null;
+
+    setTasks((curr) =>
+      curr.map((t) =>
+        t.id === task.id ? { ...t, dueDate: nextDue } : t
+      )
+    );
+
+    try {
+      await updateTask(task.id, { dueDate: nextDue });
+    } catch (err) {
+      console.error("Error updating task due date:", err);
+      setError("Unable to update due date.");
+      setTasks(prevTasks);
+    }
+  }
+
+  async function handleDelete(taskId: string) {
+    const prevTasks = tasks;
+    setTasks((curr) => curr.filter((t) => t.id !== taskId));
+    try {
+      await deleteTask(taskId);
+    } catch (err) {
+      console.error("Error deleting task:", err);
+      setError("Unable to delete task.");
+      setTasks(prevTasks);
+    }
+  }
+
+  // Derived stats
+  const todayCount = useMemo(
+    () => tasks.filter((t) => t.status !== "done" && isDueToday(t)).length,
+    [tasks]
+  );
+  const overdueCount = useMemo(
+    () => tasks.filter((t) => t.status !== "done" && isOverdue(t)).length,
+    [tasks]
+  );
+  const completedCount = useMemo(
+    () => tasks.filter((t) => t.status === "done").length,
+    [tasks]
+  );
+
+  // Filtered tasks
+  const filteredTasks = useMemo(() => {
+    return tasks.filter((task) => {
+      if (filter === "completed") {
+        return task.status === "done";
+      }
+      if (filter === "today") {
+        return task.status !== "done" && isDueToday(task);
+      }
+      if (filter === "overdue") {
+        return task.status !== "done" && isOverdue(task);
+      }
+      return true; // all
+    });
+  }, [tasks, filter]);
+
+  const todoTasks = filteredTasks.filter((t) => t.status === "todo");
+  const inProgressTasks = filteredTasks.filter(
+    (t) => t.status === "in_progress"
+  );
+  const doneTasks = filteredTasks.filter((t) => t.status === "done");
+
+  return (
+    <div>
+      <h2>Tasks</h2>
+      <p className="workspace-subtitle">
+        Plan your work, track progress, and keep an eye on due dates and priority.
+      </p>
+
+      {/* Summary + filters */}
       <div
         style={{
-          flex: 1,
-          minWidth: 0,
-          borderRadius: 16,
-          border: "1px solid rgba(255, 255, 255, 0.06)",
-          background:
-            "radial-gradient(circle at top left, #151b3a 0, #050713 55%)",
-          padding: 14,
+          marginTop: 12,
+          marginBottom: 12,
+          display: "flex",
+          flexDirection: "column",
+          gap: 8,
         }}
       >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            marginBottom: 8,
-          }}
-        >
-          <h3 style={{ margin: 0, fontSize: 15 }}>{title}</h3>
-          <span style={{ fontSize: 11, color: "#9da2c8" }}>
-            {items.length} {items.length === 1 ? "task" : "tasks"}
-          </span>
+        <div style={{ fontSize: 13 }}>
+          <span style={{ marginRight: 16 }}>Today: {todayCount}</span>
+          <span style={{ marginRight: 16 }}>Overdue: {overdueCount}</span>
+          <span>Completed: {completedCount}</span>
         </div>
 
-        {items.length === 0 ? (
-          <p
-            style={{
-              fontSize: 12,
-              color: "#9da2c8",
-              margin: 0,
-            }}
-          >
-            {title === "To-Do"
-              ? "No tasks in this column."
-              : title === "In Progress"
-              ? "No tasks in progress."
-              : "No completed tasks yet."}
-          </p>
-        ) : (
-          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-            {items.map((task) => {
-              const dueText = formatShortDate(task.dueDate);
-              return (
-                <div
-                  key={task.id}
-                  style={{
-                    borderRadius: 12,
-                    border: "1px solid rgba(255, 255, 255, 0.1)",
-                    background: "#050713",
-                    padding: 10,
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 6,
-                  }}
-                >
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      gap: 8,
-                      alignItems: "center",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 6,
-                      }}
-                    >
-                      <input
-                        type="checkbox"
-                        checked={task.status === "done"}
-                        onChange={() => onToggle(task)}
-                      />
-                      <span
-                        style={{
-                          fontSize: 13,
-                          textDecoration:
-                            task.status === "done"
-                              ? "line-through"
-                              : "none",
-                          color:
-                            task.status === "done" ? "#6f7598" : "#f5f5f5",
-                        }}
-                      >
-                        {task.title}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => onDelete(task.id)}
-                      style={{
-                        all: "unset",
-                        cursor: "pointer",
-                        fontSize: 11,
-                        color: "#ff7b88",
-                      }}
-                    >
-                      Delete
-                    </button>
-                  </div>
-
-                  {/* Due date + status label row */}
-                  <div
-                    style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
-                      gap: 8,
-                      fontSize: 11,
-                      color: "#9da2c8",
-                      flexWrap: "wrap",
-                    }}
-                  >
-                    <div
-                      style={{
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 6,
-                      }}
-                    >
-                      <span>Due:</span>
-                      <input
-                        type="date"
-                        value={
-                          task.dueDate
-                            ? new Date(task.dueDate)
-                                .toISOString()
-                                .slice(0, 10)
-                            : ""
-                        }
-                        onChange={(e) =>
-                          handleDueChange(task, e.target.value)
-                        }
-                        style={{
-                          fontSize: 11,
-                          padding: "3px 6px",
-                          borderRadius: 6,
-                          border: "1px solid rgba(255, 255, 255, 0.18)",
-                          background: "#02030a",
-                          color: "#f5f5f5",
-                        }}
-                      />
-                      {dueText && (
-                        <span style={{ opacity: 0.7 }}>({dueText})</span>
-                      )}
-                    </div>
-
-                    <span
-                      style={{
-                        padding: "2px 8px",
-                        borderRadius: 999,
-                        border: "1px solid rgba(255, 255, 255, 0.14)",
-                      }}
-                    >
-                      {statusLabel}
-                    </span>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    );
-  }
-
-  return (
-    <div className="tasks-page">
-      <header style={{ marginBottom: 16 }}>
-        <h2 style={{ margin: 0, fontSize: 20 }}>Tasks</h2>
-        <p
-          style={{
-            margin: "4px 0 0",
-            fontSize: 13,
-            color: "#9da2c8",
-          }}
-        >
-          Plan your work, track progress, and keep an eye on due dates.
-        </p>
-      </header>
-
-      {/* Summary strip */}
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 8,
-          alignItems: "center",
-          fontSize: 12,
-          color: "#d0d2ff",
-          marginBottom: 10,
-        }}
-      >
-        <span>
-          Today: {todayCount}{" "}
-          <span style={{ color: "#9da2c8" }}>
-            Overdue: {overdueCount} Completed: {completedCount}
-          </span>
-        </span>
-
-        <div style={{ flex: 1 }} />
-
         <div
           style={{
             display: "flex",
-            gap: 6,
             flexWrap: "wrap",
-            justifyContent: "flex-end",
+            gap: 8,
+            fontSize: 13,
           }}
         >
-          {renderFilterButton("all", "All")}
-          {renderFilterButton("today", "Today")}
-          {renderFilterButton("overdue", "Overdue")}
-          {renderFilterButton("completed", "Completed")}
+          {(["all", "today", "overdue", "completed"] as TaskFilter[]).map(
+            (f) => (
+              <button
+                key={f}
+                type="button"
+                onClick={() => setFilter(f)}
+                style={{
+                  padding: "6px 12px",
+                  borderRadius: 999,
+                  border:
+                    filter === f
+                      ? "1px solid rgba(255,255,255,0.7)"
+                      : "1px solid rgba(255,255,255,0.18)",
+                  background:
+                    filter === f ? "rgba(63,100,255,0.32)" : "transparent",
+                  color: "#f5f5f5",
+                  cursor: "pointer",
+                }}
+              >
+                {f === "all"
+                  ? "All"
+                  : f === "today"
+                  ? "Today"
+                  : f === "overdue"
+                  ? "Overdue"
+                  : "Completed"}
+              </button>
+            )
+          )}
         </div>
       </div>
 
       {/* New task input */}
       <form
-        onSubmit={handleAdd}
+        onSubmit={handleAddTask}
         style={{
-          marginBottom: 16,
+          marginBottom: 18,
           display: "flex",
           gap: 10,
-          flexWrap: "wrap",
           alignItems: "center",
         }}
       >
         <input
           type="text"
-          placeholder="New task..."
           value={newTitle}
           onChange={(e) => setNewTitle(e.target.value)}
-          style={{
-            flex: 2,
-            minWidth: 0,
-            padding: "10px 14px",
-            borderRadius: 999,
-            border: "1px solid rgba(255, 255, 255, 0.2)",
-            background: "#02030a",
-            color: "#f5f5f5",
-            fontSize: 13,
-          }}
-        />
-        <input
-          type="date"
-          value={newDue}
-          onChange={(e) => setNewDue(e.target.value)}
+          placeholder="New task..."
           style={{
             flex: 1,
-            minWidth: 120,
-            padding: "8px 10px",
+            padding: "10px 12px",
             borderRadius: 999,
-            border: "1px solid rgba(255, 255, 255, 0.2)",
-            background: "#02030a",
+            border: "1px solid rgba(255,255,255,0.18)",
+            background: "#050713",
             color: "#f5f5f5",
-            fontSize: 12,
+            fontSize: 14,
           }}
         />
         <button
@@ -434,36 +273,265 @@ const TasksPage: React.FC<TasksPageProps> = ({
             padding: "10px 18px",
             borderRadius: 999,
             border: "none",
-            background: "linear-gradient(135deg, #3f64ff, #7f3dff)",
-            color: "#ffffff",
-            fontSize: 13,
             cursor: "pointer",
-            whiteSpace: "nowrap",
+            background: "linear-gradient(135deg,#3f64ff,#7f3dff)",
+            color: "#ffffff",
+            fontSize: 14,
+            fontWeight: 500,
           }}
         >
           Add
         </button>
       </form>
 
-      {loading && (
-        <p style={{ fontSize: 12, color: "#9da2c8" }}>Loading tasks…</p>
-      )}
-
+      {loading && <p style={{ fontSize: 13 }}>Loading tasks...</p>}
       {error && (
-        <p style={{ fontSize: 12, color: "#ff7b88" }}>{error}</p>
+        <p style={{ fontSize: 13, color: "#ff7b88" }}>{error}</p>
       )}
 
       {/* Columns */}
       <div
         style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 12,
+          display: "grid",
+          gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
+          gap: 16,
         }}
       >
-        {renderColumn("To-Do", grouped.todo, "To-Do")}
-        {renderColumn("In Progress", grouped.in_progress, "In Progress")}
-        {renderColumn("Done", grouped.done, "Done")}
+        {/* To-Do */}
+        <TasksColumn
+          title="To-Do"
+          tasks={todoTasks}
+          emptyText="No tasks in this column."
+          onStatusChange={handleStatusChange}
+          onPriorityChange={handlePriorityChange}
+          onDueDateChange={handleDueDateChange}
+          onDelete={handleDelete}
+        />
+
+        {/* In Progress */}
+        <TasksColumn
+          title="In Progress"
+          tasks={inProgressTasks}
+          emptyText="No tasks in progress."
+          onStatusChange={handleStatusChange}
+          onPriorityChange={handlePriorityChange}
+          onDueDateChange={handleDueDateChange}
+          onDelete={handleDelete}
+        />
+
+        {/* Done */}
+        <TasksColumn
+          title="Done"
+          tasks={doneTasks}
+          emptyText="No completed tasks yet."
+          onStatusChange={handleStatusChange}
+          onPriorityChange={handlePriorityChange}
+          onDueDateChange={handleDueDateChange}
+          onDelete={handleDelete}
+        />
+      </div>
+    </div>
+  );
+};
+
+interface TasksColumnProps {
+  title: string;
+  tasks: Task[];
+  emptyText: string;
+  onStatusChange: (task: Task, nextStatus: Task["status"]) => void;
+  onPriorityChange: (task: Task, value: TaskPriority) => void;
+  onDueDateChange: (task: Task, value: string) => void;
+  onDelete: (id: string) => void;
+}
+
+const TasksColumn: React.FC<TasksColumnProps> = ({
+  title,
+  tasks,
+  emptyText,
+  onStatusChange,
+  onPriorityChange,
+  onDueDateChange,
+  onDelete,
+}) => {
+  return (
+    <div
+      style={{
+        borderRadius: 12,
+        border: "1px solid rgba(255,255,255,0.08)",
+        padding: 12,
+        background:
+          "radial-gradient(circle at top, #131731 0, #050713 60%)",
+      }}
+    >
+      <h3 style={{ marginTop: 0, marginBottom: 4 }}>{title}</h3>
+      <p
+        style={{
+          marginTop: 0,
+          marginBottom: 10,
+          fontSize: 12,
+          color: "#9da2c8",
+        }}
+      >
+        {tasks.length} task{tasks.length === 1 ? "" : "s"}
+      </p>
+      {tasks.length === 0 ? (
+        <p style={{ fontSize: 12, color: "#9da2c8" }}>{emptyText}</p>
+      ) : (
+        tasks.map((task) => (
+          <TaskCard
+            key={task.id}
+            task={task}
+            onStatusChange={onStatusChange}
+            onPriorityChange={onPriorityChange}
+            onDueDateChange={onDueDateChange}
+            onDelete={onDelete}
+          />
+        ))
+      )}
+    </div>
+  );
+};
+
+interface TaskCardProps {
+  task: Task;
+  onStatusChange: (task: Task, nextStatus: Task["status"]) => void;
+  onPriorityChange: (task: Task, value: TaskPriority) => void;
+  onDueDateChange: (task: Task, value: string) => void;
+  onDelete: (id: string) => void;
+}
+
+const TaskCard: React.FC<TaskCardProps> = ({
+  task,
+  onStatusChange,
+  onPriorityChange,
+  onDueDateChange,
+  onDelete,
+}) => {
+  return (
+    <div
+      style={{
+        marginBottom: 10,
+        padding: 10,
+        borderRadius: 10,
+        border: "1px solid rgba(255,255,255,0.16)",
+        background: "#050713",
+        fontSize: 13,
+      }}
+    >
+      <div
+        style={{
+          marginBottom: 6,
+          fontWeight: 500,
+          color: "#f5f5f5",
+          wordBreak: "break-word",
+        }}
+      >
+        {task.title}
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          flexDirection: "column",
+          gap: 6,
+        }}
+      >
+        <label
+          style={{
+            fontSize: 11,
+            color: "#9da2c8",
+            display: "flex",
+            flexDirection: "column",
+            gap: 4,
+          }}
+        >
+          <span>Due date</span>
+          <input
+            type="date"
+            value={isoToDateInput(task.dueDate ?? null)}
+            onChange={(e) => onDueDateChange(task, e.target.value)}
+            style={{
+              padding: "4px 6px",
+              borderRadius: 6,
+              border: "1px solid rgba(255,255,255,0.24)",
+              background: "#050713",
+              color: "#f5f5f5",
+              fontSize: 12,
+            }}
+          />
+        </label>
+
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            gap: 8,
+          }}
+        >
+          <select
+            value={task.status}
+            onChange={(e) =>
+              onStatusChange(
+                task,
+                e.target.value as Task["status"]
+              )
+            }
+            style={{
+              flex: 1,
+              padding: "4px 6px",
+              borderRadius: 999,
+              border: "1px solid rgba(255,255,255,0.24)",
+              background: "#050713",
+              color: "#f5f5f5",
+              fontSize: 12,
+            }}
+          >
+            <option value="todo">To-Do</option>
+            <option value="in_progress">In Progress</option>
+            <option value="done">Done</option>
+          </select>
+
+          <select
+            value={task.priority}
+            onChange={(e) =>
+              onPriorityChange(
+                task,
+                e.target.value as TaskPriority
+              )
+            }
+            style={{
+              flex: 1,
+              padding: "4px 6px",
+              borderRadius: 999,
+              border: "1px solid rgba(255,255,255,0.24)",
+              background: "#050713",
+              color: "#f5f5f5",
+              fontSize: 12,
+            }}
+          >
+            <option value="low">Low</option>
+            <option value="normal">Normal</option>
+            <option value="high">High</option>
+          </select>
+
+          <button
+            type="button"
+            onClick={() => onDelete(task.id)}
+            style={{
+              padding: "4px 10px",
+              borderRadius: 999,
+              border: "none",
+              background: "rgba(255, 107, 120, 0.16)",
+              color: "#ff9aa7",
+              fontSize: 12,
+              cursor: "pointer",
+              whiteSpace: "nowrap",
+            }}
+          >
+            Delete
+          </button>
+        </div>
       </div>
     </div>
   );
