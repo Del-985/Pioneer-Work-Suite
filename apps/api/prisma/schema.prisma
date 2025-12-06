@@ -43,7 +43,7 @@ model Document {
   updatedAt DateTime @updatedAt
 }
 
-// Calendar events for Calendar v1
+// Calendar events for Calendar v1 (Suite v3)
 model Event {
   id          String   @id @default(cuid())
   user        User     @relation(fields: [userId], references: [id])
@@ -54,7 +54,7 @@ model Event {
   start       DateTime
   end         DateTime
   allDay      Boolean  @default(false)
-  kind        String   @default("event") // "event" | "exam" | etc. (free-form for now)
+  kind        String   @default("event") // free-form: "event", "exam", "class", etc.
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
