@@ -5,7 +5,7 @@ import type { Task } from "../api/tasks";
 type FilterMode = "all" | "today" | "overdue" | "completed";
 
 interface TasksPageProps {
-  tasks: Task[];
+  tasks: Task[] | undefined | null;
   loading: boolean;
   error: string | null;
   onCreate: (title: string) => void | Promise<void>;
@@ -56,6 +56,12 @@ const TasksPage: React.FC<TasksPageProps> = ({
   onDelete,
   onUpdate,
 }) => {
+  // Absolute safety: never trust the prop, always normalize.
+  const safeTasks: Task[] = Array.isArray(tasks) ? tasks : [];
+
+  // Debug: you can see this in the iOS console
+  console.log("TasksPage tasks prop:", tasks);
+
   const [filter, setFilter] = useState<FilterMode>("all");
   const [newTitle, setNewTitle] = useState("");
   const [newDue, setNewDue] = useState<string>("");
@@ -67,7 +73,7 @@ const TasksPage: React.FC<TasksPageProps> = ({
     let overdueCount = 0;
     let completedCount = 0;
 
-    for (const t of tasks) {
+    for (const t of safeTasks) {
       const due = parseDate(t.dueDate);
       if (t.status === "done") {
         completedCount++;
@@ -82,10 +88,10 @@ const TasksPage: React.FC<TasksPageProps> = ({
     }
 
     return { todayCount, overdueCount, completedCount };
-  }, [tasks, today]);
+  }, [safeTasks, today]);
 
   const filtered = useMemo(() => {
-    return tasks.filter((t) => {
+    return safeTasks.filter((t) => {
       const due = parseDate(t.dueDate);
 
       if (filter === "completed") {
@@ -105,7 +111,7 @@ const TasksPage: React.FC<TasksPageProps> = ({
 
       return true; // "all"
     });
-  }, [tasks, filter, today]);
+  }, [safeTasks, filter, today]);
 
   const grouped = useMemo(() => {
     return {
@@ -123,13 +129,10 @@ const TasksPage: React.FC<TasksPageProps> = ({
     await onCreate(title);
     setNewTitle("");
     setNewDue("");
-    // If we decide to persist a default due date for new tasks later,
-    // we’ll do that via onUpdate in App, not here.
   }
 
   async function handleDueChange(task: Task, newValue: string) {
-    // Update via onUpdate if the parent wired it, otherwise just ignore.
-    if (!onUpdate) return;
+    if (!onUpdate) return; // no-op if parent didn’t wire this yet
     const formatted = newValue || null;
     await onUpdate(task.id, { dueDate: formatted ?? undefined });
   }
@@ -279,7 +282,13 @@ const TasksPage: React.FC<TasksPageProps> = ({
                       flexWrap: "wrap",
                     }}
                   >
-                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                      }}
+                    >
                       <span>Due:</span>
                       <input
                         type="date"
