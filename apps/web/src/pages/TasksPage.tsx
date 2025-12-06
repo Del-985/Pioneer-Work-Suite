@@ -122,6 +122,24 @@ const TasksPage: React.FC = () => {
     }
   }
 
+  async function handleTitleChange(task: Task, nextTitle: string) {
+    const trimmed = nextTitle.trim();
+    if (!trimmed || trimmed === task.title) return;
+
+    const prevTasks = tasks;
+    setTasks((curr) =>
+      curr.map((t) => (t.id === task.id ? { ...t, title: trimmed } : t))
+    );
+
+    try {
+      await updateTask(task.id, { title: trimmed });
+    } catch (err) {
+      console.error("Error updating task title:", err);
+      setError("Unable to update title.");
+      setTasks(prevTasks);
+    }
+  }
+
   async function handleDelete(taskId: string) {
     const prevTasks = tasks;
     setTasks((curr) => curr.filter((t) => t.id !== taskId));
@@ -289,6 +307,7 @@ const TasksPage: React.FC = () => {
           onStatusChange={handleStatusChange}
           onPriorityChange={handlePriorityChange}
           onDueDateChange={handleDueDateChange}
+          onTitleChange={handleTitleChange}
           onDelete={handleDelete}
         />
         <TasksColumn
@@ -298,6 +317,7 @@ const TasksPage: React.FC = () => {
           onStatusChange={handleStatusChange}
           onPriorityChange={handlePriorityChange}
           onDueDateChange={handleDueDateChange}
+          onTitleChange={handleTitleChange}
           onDelete={handleDelete}
         />
         <TasksColumn
@@ -307,6 +327,7 @@ const TasksPage: React.FC = () => {
           onStatusChange={handleStatusChange}
           onPriorityChange={handlePriorityChange}
           onDueDateChange={handleDueDateChange}
+          onTitleChange={handleTitleChange}
           onDelete={handleDelete}
         />
       </div>
@@ -321,6 +342,7 @@ interface TasksColumnProps {
   onStatusChange: (task: Task, nextStatus: Task["status"]) => void;
   onPriorityChange: (task: Task, value: TaskPriority) => void;
   onDueDateChange: (task: Task, value: string) => void;
+  onTitleChange: (task: Task, value: string) => void;
   onDelete: (id: string) => void;
 }
 
@@ -331,6 +353,7 @@ const TasksColumn: React.FC<TasksColumnProps> = ({
   onStatusChange,
   onPriorityChange,
   onDueDateChange,
+  onTitleChange,
   onDelete,
 }) => {
   return (
@@ -363,6 +386,7 @@ const TasksColumn: React.FC<TasksColumnProps> = ({
             onStatusChange={onStatusChange}
             onPriorityChange={onPriorityChange}
             onDueDateChange={onDueDateChange}
+            onTitleChange={onTitleChange}
             onDelete={onDelete}
           />
         ))
@@ -376,6 +400,7 @@ interface TaskCardProps {
   onStatusChange: (task: Task, nextStatus: Task["status"]) => void;
   onPriorityChange: (task: Task, value: TaskPriority) => void;
   onDueDateChange: (task: Task, value: string) => void;
+  onTitleChange: (task: Task, value: string) => void;
   onDelete: (id: string) => void;
 }
 
@@ -384,8 +409,47 @@ const TaskCard: React.FC<TaskCardProps> = ({
   onStatusChange,
   onPriorityChange,
   onDueDateChange,
+  onTitleChange,
   onDelete,
 }) => {
+  const [isEditingTitle, setIsEditingTitle] = useState(false);
+  const [draftTitle, setDraftTitle] = useState(task.title);
+
+  useEffect(() => {
+    setDraftTitle(task.title);
+  }, [task.title]);
+
+  function startEditing() {
+    setDraftTitle(task.title);
+    setIsEditingTitle(true);
+  }
+
+  async function saveTitle() {
+    const trimmed = draftTitle.trim();
+    if (!trimmed || trimmed === task.title) {
+      setIsEditingTitle(false);
+      setDraftTitle(task.title);
+      return;
+    }
+    await onTitleChange(task, trimmed);
+    setIsEditingTitle(false);
+  }
+
+  function cancelEditing() {
+    setDraftTitle(task.title);
+    setIsEditingTitle(false);
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter") {
+      e.preventDefault();
+      saveTitle();
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      cancelEditing();
+    }
+  }
+
   return (
     <div
       style={{
@@ -397,17 +461,89 @@ const TaskCard: React.FC<TaskCardProps> = ({
         fontSize: 13,
       }}
     >
-      <div
-        style={{
-          marginBottom: 6,
-          fontWeight: 500,
-          color: "#f5f5f5",
-          wordBreak: "break-word",
-        }}
-      >
-        {task.title}
-      </div>
+      {/* Title row */}
+      {!isEditingTitle ? (
+        <button
+          type="button"
+          onClick={startEditing}
+          style={{
+            all: "unset",
+            display: "block",
+            marginBottom: 6,
+            fontWeight: 500,
+            color: "#f5f5f5",
+            wordBreak: "break-word",
+            cursor: "text",
+          }}
+        >
+          {task.title || "Untitled task"}
+        </button>
+      ) : (
+        <div
+          style={{
+            marginBottom: 6,
+            display: "flex",
+            flexDirection: "column",
+            gap: 6,
+          }}
+        >
+          <input
+            type="text"
+            value={draftTitle}
+            onChange={(e) => setDraftTitle(e.target.value)}
+            onKeyDown={handleKeyDown}
+            autoFocus
+            style={{
+              padding: "6px 8px",
+              borderRadius: 8,
+              border: "1px solid rgba(255,255,255,0.24)",
+              background: "#050713",
+              color: "#f5f5f5",
+              fontSize: 13,
+            }}
+          />
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "flex-end",
+              gap: 6,
+            }}
+          >
+            <button
+              type="button"
+              onClick={cancelEditing}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 999,
+                border: "1px solid rgba(255,255,255,0.24)",
+                background: "transparent",
+                color: "#d0d2ff",
+                fontSize: 11,
+                cursor: "pointer",
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={saveTitle}
+              style={{
+                padding: "4px 10px",
+                borderRadius: 999,
+                border: "none",
+                background: "linear-gradient(135deg,#3f64ff,#7f3dff)",
+                color: "#ffffff",
+                fontSize: 11,
+                cursor: "pointer",
+              }}
+            >
+              Save
+            </button>
+          </div>
+        </div>
+      )}
 
+      {/* Body controls */}
       <div
         style={{
           display: "flex",
