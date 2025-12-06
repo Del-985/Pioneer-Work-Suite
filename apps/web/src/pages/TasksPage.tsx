@@ -1,34 +1,50 @@
 // apps/web/src/pages/TasksPage.tsx
 import React, { useMemo, useState } from "react";
-import { Task } from "../api/tasks";
+import type { Task } from "../api/tasks";
 
-export type TaskFilter = "all" | "today" | "overdue" | "completed";
+type FilterMode = "all" | "today" | "overdue" | "completed";
 
-export interface TasksPageProps {
+interface TasksPageProps {
   tasks: Task[];
   loading: boolean;
   error: string | null;
-  onCreate: (title: string) => void;
-  onToggle: (task: Task) => void;
-  onDelete: (id: string) => void;
+  onCreate: (title: string) => void | Promise<void>;
+  onToggle: (task: Task) => void | Promise<void>;
+  onDelete: (id: string) => void | Promise<void>;
+  // Optional – if App doesn’t pass this, we just won’t persist due dates
+  onUpdate?: (
+    id: string,
+    updates: Partial<Pick<Task, "title" | "status" | "dueDate">>
+  ) => void | Promise<void>;
 }
 
-function normalizeDateOnly(date: Date) {
-  return new Date(date.getFullYear(), date.getMonth(), date.getDate());
+function parseDate(value?: string | null): Date | null {
+  if (!value) return null;
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return null;
+  return d;
 }
 
-function isSameDay(a: Date, b: Date) {
+function formatShortDate(value?: string | null): string | null {
+  const d = parseDate(value);
+  if (!d) return null;
+  try {
+    return d.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  } catch {
+    return d.toISOString().slice(0, 10);
+  }
+}
+
+function isSameDay(a: Date, b: Date): boolean {
   return (
     a.getFullYear() === b.getFullYear() &&
     a.getMonth() === b.getMonth() &&
     a.getDate() === b.getDate()
   );
-}
-
-function parseDue(due?: string | null): Date | null {
-  if (!due) return null;
-  const d = new Date(due);
-  return isNaN(d.getTime()) ? null : d;
 }
 
 const TasksPage: React.FC<TasksPageProps> = ({
@@ -38,155 +54,338 @@ const TasksPage: React.FC<TasksPageProps> = ({
   onCreate,
   onToggle,
   onDelete,
+  onUpdate,
 }) => {
-  const [filter, setFilter] = useState<TaskFilter>("all");
+  const [filter, setFilter] = useState<FilterMode>("all");
   const [newTitle, setNewTitle] = useState("");
+  const [newDue, setNewDue] = useState<string>("");
 
-  const today = useMemo(() => normalizeDateOnly(new Date()), []);
+  const today = useMemo(() => new Date(), []);
 
-  const stats = useMemo(() => {
+  const { todayCount, overdueCount, completedCount } = useMemo(() => {
     let todayCount = 0;
     let overdueCount = 0;
     let completedCount = 0;
 
     for (const t of tasks) {
-      const due = parseDue(t.dueDate);
-      if (t.status === "done") completedCount++;
+      const due = parseDate(t.dueDate);
+      if (t.status === "done") {
+        completedCount++;
+      }
       if (due) {
-        const dueOnly = normalizeDateOnly(due);
-        if (isSameDay(dueOnly, today)) todayCount++;
-        if (dueOnly < today && t.status !== "done") overdueCount++;
+        if (isSameDay(due, today)) {
+          todayCount++;
+        } else if (due < today) {
+          overdueCount++;
+        }
       }
     }
 
     return { todayCount, overdueCount, completedCount };
   }, [tasks, today]);
 
-  const filteredTasks = useMemo(() => {
-    switch (filter) {
-      case "today":
-        return tasks.filter((t) => {
-          const due = parseDue(t.dueDate);
-          if (!due) return false;
-          return isSameDay(normalizeDateOnly(due), today);
-        });
-      case "overdue":
-        return tasks.filter((t) => {
-          const due = parseDue(t.dueDate);
-          if (!due) return false;
-          return normalizeDateOnly(due) < today && t.status !== "done";
-        });
-      case "completed":
-        return tasks.filter((t) => t.status === "done");
-      case "all":
-      default:
-        return tasks;
-    }
+  const filtered = useMemo(() => {
+    return tasks.filter((t) => {
+      const due = parseDate(t.dueDate);
+
+      if (filter === "completed") {
+        return t.status === "done";
+      }
+
+      if (filter === "today") {
+        if (!due) return false;
+        return isSameDay(due, today);
+      }
+
+      if (filter === "overdue") {
+        if (!due) return false;
+        if (isSameDay(due, today)) return false;
+        return due < today && t.status !== "done";
+      }
+
+      return true; // "all"
+    });
   }, [tasks, filter, today]);
 
-  const todo = filteredTasks.filter((t) => t.status === "todo");
-  const inProgress = filteredTasks.filter((t) => t.status === "in_progress");
-  const done = filteredTasks.filter((t) => t.status === "done");
+  const grouped = useMemo(() => {
+    return {
+      todo: filtered.filter((t) => t.status === "todo"),
+      in_progress: filtered.filter((t) => t.status === "in_progress"),
+      done: filtered.filter((t) => t.status === "done"),
+    };
+  }, [filtered]);
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleAdd(e: React.FormEvent) {
     e.preventDefault();
-    const trimmed = newTitle.trim();
-    if (!trimmed) return;
-    await onCreate(trimmed);
+    const title = newTitle.trim();
+    if (!title) return;
+
+    await onCreate(title);
     setNewTitle("");
+    setNewDue("");
+    // If we decide to persist a default due date for new tasks later,
+    // we’ll do that via onUpdate in App, not here.
   }
 
-  function formatDue(due?: string | null) {
-    if (!due) return "No due date";
-    const d = parseDue(due);
-    if (!d) return "No due date";
-    return d.toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
+  async function handleDueChange(task: Task, newValue: string) {
+    // Update via onUpdate if the parent wired it, otherwise just ignore.
+    if (!onUpdate) return;
+    const formatted = newValue || null;
+    await onUpdate(task.id, { dueDate: formatted ?? undefined });
   }
 
-  function sectionTitle(label: string, count: number) {
+  function renderFilterButton(mode: FilterMode, label: string) {
+    const active = filter === mode;
+    return (
+      <button
+        type="button"
+        onClick={() => setFilter(mode)}
+        style={{
+          padding: "4px 12px",
+          borderRadius: 999,
+          border: active
+            ? "1px solid rgba(111, 135, 255, 0.9)"
+            : "1px solid rgba(255, 255, 255, 0.16)",
+          background: active ? "rgba(63, 100, 255, 0.2)" : "transparent",
+          color: active ? "#ffffff" : "#d0d2ff",
+          fontSize: 12,
+          cursor: "pointer",
+        }}
+      >
+        {label}
+      </button>
+    );
+  }
+
+  function renderColumn(
+    title: string,
+    items: Task[],
+    statusLabel: string
+  ): React.ReactNode {
     return (
       <div
         style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "baseline",
-          marginTop: 18,
-          marginBottom: 4,
+          flex: 1,
+          minWidth: 0,
+          borderRadius: 16,
+          border: "1px solid rgba(255, 255, 255, 0.06)",
+          background:
+            "radial-gradient(circle at top left, #151b3a 0, #050713 55%)",
+          padding: 14,
         }}
       >
-        <h2 style={{ margin: 0, fontSize: 18 }}>{label}</h2>
-        <span style={{ fontSize: 12, color: "#9da2c8" }}>{count}</span>
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            marginBottom: 8,
+          }}
+        >
+          <h3 style={{ margin: 0, fontSize: 15 }}>{title}</h3>
+          <span style={{ fontSize: 11, color: "#9da2c8" }}>
+            {items.length} {items.length === 1 ? "task" : "tasks"}
+          </span>
+        </div>
+
+        {items.length === 0 ? (
+          <p
+            style={{
+              fontSize: 12,
+              color: "#9da2c8",
+              margin: 0,
+            }}
+          >
+            {title === "To-Do"
+              ? "No tasks in this column."
+              : title === "In Progress"
+              ? "No tasks in progress."
+              : "No completed tasks yet."}
+          </p>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+            {items.map((task) => {
+              const dueText = formatShortDate(task.dueDate);
+              return (
+                <div
+                  key={task.id}
+                  style={{
+                    borderRadius: 12,
+                    border: "1px solid rgba(255, 255, 255, 0.1)",
+                    background: "#050713",
+                    padding: 10,
+                    display: "flex",
+                    flexDirection: "column",
+                    gap: 6,
+                  }}
+                >
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: 8,
+                      alignItems: "center",
+                    }}
+                  >
+                    <div
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 6,
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={task.status === "done"}
+                        onChange={() => onToggle(task)}
+                      />
+                      <span
+                        style={{
+                          fontSize: 13,
+                          textDecoration:
+                            task.status === "done"
+                              ? "line-through"
+                              : "none",
+                          color:
+                            task.status === "done" ? "#6f7598" : "#f5f5f5",
+                        }}
+                      >
+                        {task.title}
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onDelete(task.id)}
+                      style={{
+                        all: "unset",
+                        cursor: "pointer",
+                        fontSize: 11,
+                        color: "#ff7b88",
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </div>
+
+                  {/* Due date + status label row */}
+                  <div
+                    style={{
+                      display: "flex",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      gap: 8,
+                      fontSize: 11,
+                      color: "#9da2c8",
+                      flexWrap: "wrap",
+                    }}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span>Due:</span>
+                      <input
+                        type="date"
+                        value={
+                          task.dueDate
+                            ? new Date(task.dueDate)
+                                .toISOString()
+                                .slice(0, 10)
+                            : ""
+                        }
+                        onChange={(e) =>
+                          handleDueChange(task, e.target.value)
+                        }
+                        style={{
+                          fontSize: 11,
+                          padding: "3px 6px",
+                          borderRadius: 6,
+                          border: "1px solid rgba(255, 255, 255, 0.18)",
+                          background: "#02030a",
+                          color: "#f5f5f5",
+                        }}
+                      />
+                      {dueText && (
+                        <span style={{ opacity: 0.7 }}>({dueText})</span>
+                      )}
+                    </div>
+
+                    <span
+                      style={{
+                        padding: "2px 8px",
+                        borderRadius: 999,
+                        border: "1px solid rgba(255, 255, 255, 0.14)",
+                      }}
+                    >
+                      {statusLabel}
+                    </span>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     );
   }
 
   return (
-    <section className="tasks-page">
-      <div className="workspace-placeholder" style={{ marginBottom: 16 }}>
-        <h2>Tasks</h2>
-        <p>
+    <div className="tasks-page">
+      <header style={{ marginBottom: 16 }}>
+        <h2 style={{ margin: 0, fontSize: 20 }}>Tasks</h2>
+        <p
+          style={{
+            margin: "4px 0 0",
+            fontSize: 13,
+            color: "#9da2c8",
+          }}
+        >
           Plan your work, track progress, and keep an eye on due dates.
-          <br />
-          <span style={{ fontSize: 12, color: "#9da2c8" }}>
-            Today: {stats.todayCount} · Overdue: {stats.overdueCount} ·
-            Completed: {stats.completedCount}
-          </span>
         </p>
-      </div>
+      </header>
 
-      {/* Filter pills */}
+      {/* Summary strip */}
       <div
         style={{
           display: "flex",
-          gap: 8,
           flexWrap: "wrap",
-          marginBottom: 12,
+          gap: 8,
+          alignItems: "center",
+          fontSize: 12,
+          color: "#d0d2ff",
+          marginBottom: 10,
         }}
       >
-        {(["all", "today", "overdue", "completed"] as TaskFilter[]).map(
-          (key) => (
-            <button
-              key={key}
-              type="button"
-              onClick={() => setFilter(key)}
-              style={{
-                padding: "6px 14px",
-                borderRadius: 999,
-                border:
-                  filter === key
-                    ? "1px solid rgba(111, 122, 255, 0.8)"
-                    : "1px solid rgba(255,255,255,0.12)",
-                background:
-                  filter === key ? "rgba(63, 100, 255, 0.16)" : "transparent",
-                color: "#f5f5f5",
-                fontSize: 13,
-                cursor: "pointer",
-              }}
-            >
-              {key === "all"
-                ? "All"
-                : key === "today"
-                ? "Today"
-                : key === "overdue"
-                ? "Overdue"
-                : "Completed"}
-            </button>
-          )
-        )}
+        <span>
+          Today: {todayCount}{" "}
+          <span style={{ color: "#9da2c8" }}>
+            Overdue: {overdueCount} Completed: {completedCount}
+          </span>
+        </span>
+
+        <div style={{ flex: 1 }} />
+
+        <div
+          style={{
+            display: "flex",
+            gap: 6,
+            flexWrap: "wrap",
+            justifyContent: "flex-end",
+          }}
+        >
+          {renderFilterButton("all", "All")}
+          {renderFilterButton("today", "Today")}
+          {renderFilterButton("overdue", "Overdue")}
+          {renderFilterButton("completed", "Completed")}
+        </div>
       </div>
 
-      {/* New task form */}
+      {/* New task input */}
       <form
-        onSubmit={handleSubmit}
+        onSubmit={handleAdd}
         style={{
+          marginBottom: 16,
           display: "flex",
-          gap: 8,
-          marginBottom: 20,
+          gap: 10,
           flexWrap: "wrap",
+          alignItems: "center",
         }}
       >
         <input
@@ -195,13 +394,29 @@ const TasksPage: React.FC<TasksPageProps> = ({
           value={newTitle}
           onChange={(e) => setNewTitle(e.target.value)}
           style={{
-            flex: "1 1 180px",
-            padding: "10px 12px",
+            flex: 2,
+            minWidth: 0,
+            padding: "10px 14px",
             borderRadius: 999,
-            border: "1px solid rgba(255,255,255,0.16)",
-            background: "#050713",
+            border: "1px solid rgba(255, 255, 255, 0.2)",
+            background: "#02030a",
             color: "#f5f5f5",
-            fontSize: 14,
+            fontSize: 13,
+          }}
+        />
+        <input
+          type="date"
+          value={newDue}
+          onChange={(e) => setNewDue(e.target.value)}
+          style={{
+            flex: 1,
+            minWidth: 120,
+            padding: "8px 10px",
+            borderRadius: 999,
+            border: "1px solid rgba(255, 255, 255, 0.2)",
+            background: "#02030a",
+            color: "#f5f5f5",
+            fontSize: 12,
           }}
         />
         <button
@@ -212,9 +427,9 @@ const TasksPage: React.FC<TasksPageProps> = ({
             border: "none",
             background: "linear-gradient(135deg, #3f64ff, #7f3dff)",
             color: "#ffffff",
-            fontSize: 14,
+            fontSize: 13,
             cursor: "pointer",
-            flexShrink: 0,
+            whiteSpace: "nowrap",
           }}
         >
           Add
@@ -222,165 +437,24 @@ const TasksPage: React.FC<TasksPageProps> = ({
       </form>
 
       {loading && (
-        <p style={{ fontSize: 13, color: "#9da2c8" }}>Loading tasks…</p>
+        <p style={{ fontSize: 12, color: "#9da2c8" }}>Loading tasks…</p>
       )}
+
       {error && (
-        <p style={{ fontSize: 13, color: "#ff7b88" }}>{error}</p>
+        <p style={{ fontSize: 12, color: "#ff7b88" }}>{error}</p>
       )}
 
       {/* Columns */}
       <div
         style={{
           display: "flex",
-          flexDirection: "column",
-          gap: 24,
-        }}
-      >
-        {/* To-Do */}
-        <div>
-          {sectionTitle("To-Do", todo.length)}
-          {todo.length === 0 ? (
-            <p style={{ fontSize: 13, color: "#9da2c8" }}>
-              No tasks in this column.
-            </p>
-          ) : (
-            todo.map((task) => (
-              <TaskRow
-                key={task.id}
-                task={task}
-                onToggle={onToggle}
-                onDelete={onDelete}
-                formatDue={formatDue}
-              />
-            ))
-          )}
-        </div>
-
-        {/* In Progress */}
-        <div>
-          {sectionTitle("In Progress", inProgress.length)}
-          {inProgress.length === 0 ? (
-            <p style={{ fontSize: 13, color: "#9da2c8" }}>
-              No tasks in progress.
-            </p>
-          ) : (
-            inProgress.map((task) => (
-              <TaskRow
-                key={task.id}
-                task={task}
-                onToggle={onToggle}
-                onDelete={onDelete}
-                formatDue={formatDue}
-              />
-            ))
-          )}
-        </div>
-
-        {/* Done */}
-        <div>
-          {sectionTitle("Done", done.length)}
-          {done.length === 0 ? (
-            <p style={{ fontSize: 13, color: "#9da2c8" }}>
-              No completed tasks yet.
-            </p>
-          ) : (
-            done.map((task) => (
-              <TaskRow
-                key={task.id}
-                task={task}
-                onToggle={onToggle}
-                onDelete={onDelete}
-                formatDue={formatDue}
-              />
-            ))
-          )}
-        </div>
-      </div>
-    </section>
-  );
-};
-
-interface TaskRowProps {
-  task: Task;
-  onToggle: (task: Task) => void;
-  onDelete: (id: string) => void;
-  formatDue: (due?: string | null) => string;
-}
-
-const TaskRow: React.FC<TaskRowProps> = ({
-  task,
-  onToggle,
-  onDelete,
-  formatDue,
-}) => {
-  const label =
-    task.status === "todo"
-      ? "To-Do"
-      : task.status === "in_progress"
-      ? "In Progress"
-      : "Done";
-
-  return (
-    <div
-      style={{
-        borderRadius: 12,
-        border: "1px solid rgba(255,255,255,0.12)",
-        padding: "10px 12px",
-        marginBottom: 8,
-        background:
-          "radial-gradient(circle at top left, #151b3a 0, #050713 55%)",
-      }}
-    >
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          gap: 12,
-          alignItems: "center",
-          marginBottom: 4,
-        }}
-      >
-        <span style={{ fontSize: 14 }}>{task.title}</span>
-        <button
-          type="button"
-          onClick={() => onDelete(task.id)}
-          style={{
-            all: "unset",
-            cursor: "pointer",
-            fontSize: 12,
-            color: "#ff7b88",
-          }}
-        >
-          Delete
-        </button>
-      </div>
-
-      <div
-        style={{
-          display: "flex",
           flexWrap: "wrap",
-          gap: 8,
-          alignItems: "center",
-          fontSize: 12,
-          color: "#9da2c8",
+          gap: 12,
         }}
       >
-        <span>Due {formatDue(task.dueDate)}</span>
-        <button
-          type="button"
-          onClick={() => onToggle(task)}
-          style={{
-            borderRadius: 999,
-            border: "1px solid rgba(255,255,255,0.16)",
-            padding: "4px 10px",
-            background: "transparent",
-            color: "#f5f5f5",
-            cursor: "pointer",
-            fontSize: 12,
-          }}
-        >
-          {label}
-        </button>
+        {renderColumn("To-Do", grouped.todo, "To-Do")}
+        {renderColumn("In Progress", grouped.in_progress, "In Progress")}
+        {renderColumn("Done", grouped.done, "Done")}
       </div>
     </div>
   );
