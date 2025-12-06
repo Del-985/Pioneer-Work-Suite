@@ -13,7 +13,6 @@ type TaskFilter = "all" | "today" | "overdue" | "completed";
 
 function isoToDateInput(iso?: string | null): string {
   if (!iso) return "";
-  // ISO like 2025-12-04T00:00:00.000Z → keep YYYY-MM-DD to avoid TZ shift
   return iso.slice(0, 10);
 }
 
@@ -46,7 +45,6 @@ const TasksPage: React.FC = () => {
   const [newTitle, setNewTitle] = useState("");
   const [filter, setFilter] = useState<TaskFilter>("all");
 
-  // Initial load
   useEffect(() => {
     (async () => {
       try {
@@ -69,7 +67,6 @@ const TasksPage: React.FC = () => {
     if (!trimmed) return;
     try {
       setError(null);
-      // priority defaults to "normal" inside createTask
       const created = await createTask(trimmed);
       setTasks((prev) => [created, ...prev]);
       setNewTitle("");
@@ -81,12 +78,10 @@ const TasksPage: React.FC = () => {
 
   async function handleStatusChange(task: Task, nextStatus: Task["status"]) {
     if (task.status === nextStatus) return;
-
     const prevTasks = tasks;
     setTasks((curr) =>
       curr.map((t) => (t.id === task.id ? { ...t, status: nextStatus } : t))
     );
-
     try {
       await updateTask(task.id, { status: nextStatus });
     } catch (err) {
@@ -101,7 +96,6 @@ const TasksPage: React.FC = () => {
     setTasks((curr) =>
       curr.map((t) => (t.id === task.id ? { ...t, priority: value } : t))
     );
-
     try {
       await updateTask(task.id, { priority: value });
     } catch (err) {
@@ -112,14 +106,11 @@ const TasksPage: React.FC = () => {
   }
 
   async function handleDueDateChange(task: Task, value: string) {
-    // value is YYYY-MM-DD or ""
     const prevTasks = tasks;
     const nextDue = value || null;
 
     setTasks((curr) =>
-      curr.map((t) =>
-        t.id === task.id ? { ...t, dueDate: nextDue } : t
-      )
+      curr.map((t) => (t.id === task.id ? { ...t, dueDate: nextDue } : t))
     );
 
     try {
@@ -143,7 +134,6 @@ const TasksPage: React.FC = () => {
     }
   }
 
-  // Derived stats
   const todayCount = useMemo(
     () => tasks.filter((t) => t.status !== "done" && isDueToday(t)).length,
     [tasks]
@@ -157,7 +147,6 @@ const TasksPage: React.FC = () => {
     [tasks]
   );
 
-  // Filtered tasks
   const filteredTasks = useMemo(() => {
     return tasks.filter((task) => {
       if (filter === "completed") {
@@ -169,7 +158,7 @@ const TasksPage: React.FC = () => {
       if (filter === "overdue") {
         return task.status !== "done" && isOverdue(task);
       }
-      return true; // all
+      return true;
     });
   }, [tasks, filter]);
 
@@ -183,10 +172,10 @@ const TasksPage: React.FC = () => {
     <div>
       <h2>Tasks</h2>
       <p className="workspace-subtitle">
-        Plan your work, track progress, and keep an eye on due dates and priority.
+        Plan your work, track progress, and keep an eye on due dates and
+        priority.
       </p>
 
-      {/* Summary + filters */}
       <div
         style={{
           marginTop: 12,
@@ -242,7 +231,6 @@ const TasksPage: React.FC = () => {
         </div>
       </div>
 
-      {/* New task input */}
       <form
         onSubmit={handleAddTask}
         style={{
@@ -285,11 +273,8 @@ const TasksPage: React.FC = () => {
       </form>
 
       {loading && <p style={{ fontSize: 13 }}>Loading tasks...</p>}
-      {error && (
-        <p style={{ fontSize: 13, color: "#ff7b88" }}>{error}</p>
-      )}
+      {error && <p style={{ fontSize: 13, color: "#ff7b88" }}>{error}</p>}
 
-      {/* Columns */}
       <div
         style={{
           display: "grid",
@@ -297,7 +282,6 @@ const TasksPage: React.FC = () => {
           gap: 16,
         }}
       >
-        {/* To-Do */}
         <TasksColumn
           title="To-Do"
           tasks={todoTasks}
@@ -307,8 +291,6 @@ const TasksPage: React.FC = () => {
           onDueDateChange={handleDueDateChange}
           onDelete={handleDelete}
         />
-
-        {/* In Progress */}
         <TasksColumn
           title="In Progress"
           tasks={inProgressTasks}
@@ -318,8 +300,6 @@ const TasksPage: React.FC = () => {
           onDueDateChange={handleDueDateChange}
           onDelete={handleDelete}
         />
-
-        {/* Done */}
         <TasksColumn
           title="Done"
           tasks={doneTasks}
@@ -359,8 +339,7 @@ const TasksColumn: React.FC<TasksColumnProps> = ({
         borderRadius: 12,
         border: "1px solid rgba(255,255,255,0.08)",
         padding: 12,
-        background:
-          "radial-gradient(circle at top, #131731 0, #050713 60%)",
+        background: "radial-gradient(circle at top, #131731 0, #050713 60%)",
       }}
     >
       <h3 style={{ marginTop: 0, marginBottom: 4 }}>{title}</h3>
@@ -433,7 +412,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
         style={{
           display: "flex",
           flexDirection: "column",
-          gap: 6,
+          gap: 8,
         }}
       >
         <label
@@ -464,21 +443,16 @@ const TaskCard: React.FC<TaskCardProps> = ({
         <div
           style={{
             display: "flex",
-            justifyContent: "space-between",
-            alignItems: "center",
-            gap: 8,
+            flexDirection: "column",
+            gap: 6,
           }}
         >
           <select
             value={task.status}
             onChange={(e) =>
-              onStatusChange(
-                task,
-                e.target.value as Task["status"]
-              )
+              onStatusChange(task, e.target.value as Task["status"])
             }
             style={{
-              flex: 1,
               padding: "4px 6px",
               borderRadius: 999,
               border: "1px solid rgba(255,255,255,0.24)",
@@ -495,13 +469,9 @@ const TaskCard: React.FC<TaskCardProps> = ({
           <select
             value={task.priority}
             onChange={(e) =>
-              onPriorityChange(
-                task,
-                e.target.value as TaskPriority
-              )
+              onPriorityChange(task, e.target.value as TaskPriority)
             }
             style={{
-              flex: 1,
               padding: "4px 6px",
               borderRadius: 999,
               border: "1px solid rgba(255,255,255,0.24)",
@@ -510,11 +480,18 @@ const TaskCard: React.FC<TaskCardProps> = ({
               fontSize: 12,
             }}
           >
-            <option value="low">Low</option>
-            <option value="normal">Normal</option>
-            <option value="high">High</option>
+            <option value="low">Low priority</option>
+            <option value="normal">Normal priority</option>
+            <option value="high">High priority</option>
           </select>
+        </div>
 
+        <div
+          style={{
+            display: "flex",
+            justifyContent: "flex-end",
+          }}
+        >
           <button
             type="button"
             onClick={() => onDelete(task.id)}
