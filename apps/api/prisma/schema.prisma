@@ -26,7 +26,8 @@ model Task {
   user      User     @relation(fields: [userId], references: [id])
   userId    String
   title     String
-  status    String   // "todo" | "in_progress" | "done" (we'll keep strings)
+  status    String   // "todo" | "in_progress" | "done"
+  priority  String   @default("normal") // "low" | "normal" | "high"
   dueDate   DateTime?
   createdAt DateTime @default(now())
 }
