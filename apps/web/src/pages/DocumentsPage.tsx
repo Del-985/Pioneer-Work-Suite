@@ -10,6 +10,8 @@ import {
   Document,
 } from "../api/documents";
 
+const LAST_DOC_KEY = "suite:lastDocumentId";
+
 const DocumentsPage: React.FC = () => {
   // List
   const [documents, setDocuments] = useState<Document[]>([]);
@@ -34,7 +36,7 @@ const DocumentsPage: React.FC = () => {
   // Word count
   const [wordCount, setWordCount] = useState(0);
 
-  // Quill ref for undo/redo
+  // Quill ref for undo/redo + commands
   const quillRef = React.useRef<any>(null);
 
   const selectedDoc =
@@ -48,9 +50,10 @@ const DocumentsPage: React.FC = () => {
     toolbar: {
       container: [
         [{ header: [1, 2, false] }],
+        [{ font: [] }, { size: [] }],
         ["bold", "italic", "underline", "strike"],
         [{ list: "ordered" }, { list: "bullet" }],
-        ["link"],
+        ["link", "image"],
         ["undo", "redo"],
       ],
       handlers: {
@@ -62,6 +65,32 @@ const DocumentsPage: React.FC = () => {
           const editor = quillRef.current?.getEditor?.();
           if (editor && editor.history) editor.history.redo();
         },
+        image: () => {
+          const editor = quillRef.current?.getEditor?.();
+          if (!editor || typeof document === "undefined") return;
+
+          const input = document.createElement("input");
+          input.setAttribute("type", "file");
+          input.setAttribute("accept", "image/*");
+
+          input.onchange = () => {
+            const file = input.files && input.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+              const base64 = e.target?.result;
+              if (typeof base64 !== "string") return;
+              const range = editor.getSelection(true);
+              const index = range ? range.index : editor.getLength();
+              editor.insertEmbed(index, "image", base64, "user");
+              editor.setSelection(index + 1);
+            };
+            reader.readAsDataURL(file);
+          };
+
+          input.click();
+        },
       },
     },
     history: {
@@ -70,6 +99,20 @@ const DocumentsPage: React.FC = () => {
       userOnly: true,
     },
   };
+
+  const quillFormats = [
+    "header",
+    "font",
+    "size",
+    "bold",
+    "italic",
+    "underline",
+    "strike",
+    "list",
+    "bullet",
+    "link",
+    "image",
+  ];
 
   // ----- Helpers -----
   function countWordsFromHtml(html: string): number {
@@ -94,6 +137,17 @@ const DocumentsPage: React.FC = () => {
     });
   }
 
+  function formatShortDate(raw: string | undefined | null): string {
+    if (!raw) return "";
+    const d = new Date(raw);
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+      year: "numeric",
+    });
+  }
+
   function extractPlain(html: string | undefined | null): string {
     if (!html) return "";
     if (typeof document === "undefined") return html;
@@ -102,7 +156,25 @@ const DocumentsPage: React.FC = () => {
     return (tempDiv.textContent || tempDiv.innerText || "").trim();
   }
 
-  // ----- Load documents once, and select first if present -----
+  function rememberLastDoc(id: string | null) {
+    if (typeof window === "undefined") return;
+    if (!id) {
+      window.localStorage.removeItem(LAST_DOC_KEY);
+    } else {
+      window.localStorage.setItem(LAST_DOC_KEY, id);
+    }
+  }
+
+  function getRememberedLastDocId(): string | null {
+    if (typeof window === "undefined") return null;
+    try {
+      return window.localStorage.getItem(LAST_DOC_KEY);
+    } catch {
+      return null;
+    }
+  }
+
+  // ----- Load documents once, and select last opened if present -----
   useEffect(() => {
     (async () => {
       setListLoading(true);
@@ -110,14 +182,24 @@ const DocumentsPage: React.FC = () => {
       try {
         const docs = await fetchDocuments();
         setDocuments(docs);
+
         if (docs.length > 0) {
-          const first = docs[0];
-          setSelectedId(first.id);
-          setEditTitle(first.title);
-          setEditContent(first.content || "");
-          setLastSavedAt(first.updatedAt || first.createdAt || null);
+          const rememberedId = getRememberedLastDocId();
+          let initial = docs[0];
+
+          if (rememberedId) {
+            const match = docs.find((d) => d.id === rememberedId);
+            if (match) {
+              initial = match;
+            }
+          }
+
+          setSelectedId(initial.id);
+          setEditTitle(initial.title);
+          setEditContent(initial.content || "");
+          setLastSavedAt(initial.updatedAt || initial.createdAt || null);
           setHasLocalChanges(false);
-          setWordCount(countWordsFromHtml(first.content || ""));
+          setWordCount(countWordsFromHtml(initial.content || ""));
         }
       } catch (err) {
         console.error("Error loading documents:", err);
@@ -127,6 +209,13 @@ const DocumentsPage: React.FC = () => {
       }
     })();
   }, []);
+
+  // Persist last selected id
+  useEffect(() => {
+    if (selectedId) {
+      rememberLastDoc(selectedId);
+    }
+  }, [selectedId]);
 
   // ----- Update word count when editor changes -----
   useEffect(() => {
@@ -181,6 +270,55 @@ const DocumentsPage: React.FC = () => {
 
     return () => window.clearTimeout(timeout);
   }, [editTitle, editContent, hasLocalChanges, hasSelection, selectedDoc?.id]);
+
+  // Keyboard shortcuts: Ctrl/Cmd+S for save, Ctrl/Cmd+Alt+1/2/0 for headings
+  useEffect(() => {
+    function handleKeydown(e: KeyboardEvent) {
+      if (!hasSelection) return;
+
+      const isMac =
+        typeof navigator !== "undefined" &&
+        navigator.platform.toUpperCase().indexOf("MAC") >= 0;
+
+      const key = e.key.toLowerCase();
+
+      const isSaveCombo =
+        ((isMac && e.metaKey) || (!isMac && e.ctrlKey)) &&
+        !e.altKey &&
+        !e.shiftKey &&
+        key === "s";
+
+      if (isSaveCombo) {
+        e.preventDefault();
+        if (!isSaving) {
+          void saveCurrentDocument();
+        }
+        return;
+      }
+
+      const editor = quillRef.current?.getEditor?.();
+      if (!editor) return;
+
+      const headingCombo =
+        ((isMac && e.metaKey) || (!isMac && e.ctrlKey)) && e.altKey;
+
+      if (headingCombo) {
+        if (key === "1") {
+          e.preventDefault();
+          editor.format("header", 1);
+        } else if (key === "2") {
+          e.preventDefault();
+          editor.format("header", 2);
+        } else if (key === "0") {
+          e.preventDefault();
+          editor.format("header", false);
+        }
+      }
+    }
+
+    window.addEventListener("keydown", handleKeydown);
+    return () => window.removeEventListener("keydown", handleKeydown);
+  }, [hasSelection, isSaving, selectedDoc, editTitle, editContent]);
 
   // ----- UI handlers -----
   async function handleSelect(id: string) {
@@ -335,6 +473,13 @@ const DocumentsPage: React.FC = () => {
   }
 
   // ----- Render -----
+  const createdLabel = selectedDoc
+    ? formatShortDate(selectedDoc.createdAt)
+    : "";
+  const updatedLabel = selectedDoc
+    ? formatShortDate(selectedDoc.updatedAt || selectedDoc.createdAt)
+    : "";
+
   return (
     <div
       style={{
@@ -581,6 +726,7 @@ const DocumentsPage: React.FC = () => {
                   alignItems: "center",
                   justifyContent: "space-between",
                   gap: 8,
+                  marginTop: 2,
                 }}
               >
                 <div
@@ -599,6 +745,19 @@ const DocumentsPage: React.FC = () => {
                   >
                     {wordCount} word{wordCount === 1 ? "" : "s"}
                   </span>
+                  {createdLabel && (
+                    <span
+                      style={{
+                        fontSize: 11,
+                        color: "#6f7598",
+                      }}
+                    >
+                      Created {createdLabel}
+                      {updatedLabel && updatedLabel !== createdLabel
+                        ? ` · Updated ${updatedLabel}`
+                        : ""}
+                    </span>
+                  )}
                 </div>
                 <button
                   type="button"
@@ -640,6 +799,7 @@ const DocumentsPage: React.FC = () => {
                 placeholder="Start writing your document here..."
                 theme="snow"
                 modules={quillModules}
+                formats={quillFormats}
                 style={{
                   flex: 1,
                   minHeight: 180,
