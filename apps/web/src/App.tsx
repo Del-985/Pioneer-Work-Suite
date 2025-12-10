@@ -1,6 +1,12 @@
 // apps/web/src/App.tsx
 import React, { useState, useEffect } from "react";
-import { Routes, Route, Navigate, Link } from "react-router-dom";
+import {
+  Routes,
+  Route,
+  Navigate,
+  Link,
+  useNavigate,
+} from "react-router-dom";
 import LoginPage from "./pages/LoginPage";
 import RegisterPage from "./pages/RegisterPage";
 import TasksPage from "./pages/TasksPage";
@@ -89,6 +95,8 @@ const Dashboard: React.FC<DashboardProps> = ({
 };
 
 const App: React.FC = () => {
+  const navigate = useNavigate();
+
   const [isTodoOpen, setIsTodoOpen] = useState(false);
 
   const hasToken =
@@ -208,6 +216,23 @@ const App: React.FC = () => {
     }
   }
 
+  // ---- Logout ----
+  function handleLogout() {
+    try {
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem("token");
+        window.localStorage.removeItem("userName");
+      }
+      setTasks([]);
+      setSidebarDocs([]);
+      setIsTodoOpen(false);
+      navigate("/login", { replace: true });
+    } catch (e) {
+      console.error("Error during logout:", e);
+      navigate("/login", { replace: true });
+    }
+  }
+
   return (
     <div className="app app-dark">
       {/* Left sidebar */}
@@ -231,6 +256,27 @@ const App: React.FC = () => {
             Calendar
           </Link>
         </nav>
+
+        {/* Logout at the bottom */}
+        {hasToken && (
+          <button
+            type="button"
+            onClick={handleLogout}
+            style={{
+              marginTop: "auto",
+              padding: "6px 10px",
+              borderRadius: 999,
+              border: "1px solid rgba(255,255,255,0.18)",
+              background: "transparent",
+              color: "#f5f5f5",
+              fontSize: 12,
+              cursor: "pointer",
+              alignSelf: "stretch",
+            }}
+          >
+            Log out
+          </button>
+        )}
       </aside>
 
       <div className="main-layout">
