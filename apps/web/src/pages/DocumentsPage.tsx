@@ -36,8 +36,9 @@ const DocumentsPage: React.FC = () => {
   // Word count
   const [wordCount, setWordCount] = useState(0);
 
-  // Quill ref for undo/redo + commands
+  // Quill refs
   const quillRef = React.useRef<any>(null);
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
 
   const selectedDoc =
     selectedId != null
@@ -66,29 +67,11 @@ const DocumentsPage: React.FC = () => {
           if (editor && editor.history) editor.history.redo();
         },
         image: () => {
-          const editor = quillRef.current?.getEditor?.();
-          if (!editor || typeof document === "undefined") return;
-
-          const input = document.createElement("input");
-          input.setAttribute("type", "file");
-          input.setAttribute("accept", "image/*");
-
-          input.onchange = () => {
-            const file = input.files && input.files[0];
-            if (!file) return;
-
-            const reader = new FileReader();
-            reader.onload = (e) => {
-              const base64 = e.target?.result;
-              if (typeof base64 !== "string") return;
-              const range = editor.getSelection(true);
-              const index = range ? range.index : editor.getLength();
-              editor.insertEmbed(index, "image", base64, "user");
-              editor.setSelection(index + 1);
-            };
-            reader.readAsDataURL(file);
-          };
-
+          // Use a real hidden input instead of creating one dynamically.
+          const input = fileInputRef.current;
+          if (!input) return;
+          // Reset so selecting the same file twice still fires change
+          input.value = "";
           input.click();
         },
       },
@@ -172,6 +155,29 @@ const DocumentsPage: React.FC = () => {
     } catch {
       return null;
     }
+  }
+
+  // Handle file -> base64 -> insert image into Quill
+  function handleImageFileChange(
+    e: React.ChangeEvent<HTMLInputElement>
+  ) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result;
+      if (!base64 || typeof base64 !== "string") return;
+
+      const editor = quillRef.current?.getEditor?.();
+      if (!editor) return;
+
+      const range = editor.getSelection(true);
+      const index = range ? range.index : editor.getLength();
+      editor.insertEmbed(index, "image", base64, "user");
+      editor.setSelection(index + 1);
+    };
+    reader.readAsDataURL(file);
   }
 
   // ----- Load documents once, and select last opened if present -----
@@ -788,6 +794,15 @@ const DocumentsPage: React.FC = () => {
                 flexDirection: "column",
               }}
             >
+              {/* Hidden input used by the Quill image handler */}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                style={{ display: "none" }}
+                onChange={handleImageFileChange}
+              />
+
               <ReactQuill
                 ref={quillRef}
                 value={editContent}
