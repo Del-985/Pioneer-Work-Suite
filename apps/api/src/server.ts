@@ -4,13 +4,28 @@ import cors from "cors";
 import { authRouter } from "./auth";
 import { documentsRouter } from "./documents";
 import { tasksRouter } from "./tasks";
-import { eventsRouter } from "./events";
 
 const app = express();
 
 // Middleware
-app.use(cors());
-app.use(express.json());
+app.use(
+  cors({
+    origin: "*", // you can tighten this later if you want
+  })
+);
+
+// IMPORTANT: increase body size limits so Quill's base64 images don't 413
+app.use(
+  express.json({
+    limit: "5mb", // adjust higher/lower if needed
+  })
+);
+app.use(
+  express.urlencoded({
+    extended: true,
+    limit: "5mb",
+  })
+);
 
 // Health check
 app.get("/health", (_req, res) => {
@@ -29,9 +44,6 @@ app.use("/documents", documentsRouter);
 
 // Student tasks (requires auth)
 app.use("/tasks", tasksRouter);
-
-// Student calendar events (requires auth)
-app.use("/events", eventsRouter);
 
 const PORT = process.env.PORT || 4000;
 
