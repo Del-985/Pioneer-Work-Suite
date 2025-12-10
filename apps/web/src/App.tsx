@@ -21,6 +21,7 @@ import {
 } from "./api/tasks";
 import { fetchDocuments, Document as Doc } from "./api/documents";
 
+// ---- Right-sidebar mode ----
 type SidebarMode = "tasks" | "documents";
 const SIDEBAR_MODE_KEY = "pioneer-sidebar-mode";
 
@@ -30,6 +31,7 @@ function loadInitialSidebarMode(): SidebarMode {
   return stored === "documents" ? "documents" : "tasks";
 }
 
+// ---- Auth guard ----
 const RequireAuth: React.FC<{ children: React.ReactElement }> = ({
   children,
 }) => {
@@ -43,6 +45,7 @@ const RequireAuth: React.FC<{ children: React.ReactElement }> = ({
   return children;
 };
 
+// ---- Dashboard v3 ----
 interface DashboardProps {
   sidebarMode: SidebarMode;
   onSidebarModeChange: (mode: SidebarMode) => void;
@@ -57,17 +60,325 @@ const Dashboard: React.FC<DashboardProps> = ({
       ? window.localStorage.getItem("userName") || "Student"
       : "Student";
 
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [todayCount, setTodayCount] = useState(0);
+  const [overdueCount, setOverdueCount] = useState(0);
+  const [completedCount, setCompletedCount] = useState(0);
+
+  const [recentDocs, setRecentDocs] = useState<Doc[]>([]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        setLoading(true);
+        setError(null);
+
+        // Load tasks for summary
+        const tasks = await fetchTasks();
+
+        const now = new Date();
+        const todayKey = now.toISOString().slice(0, 10); // YYYY-MM-DD
+
+        let today = 0;
+        let overdue = 0;
+        let completed = 0;
+
+        for (const t of tasks) {
+          if (t.status === "done") {
+            completed++;
+          }
+
+          if (!t.dueDate) continue;
+
+          const d = new Date(t.dueDate);
+          if (isNaN(d.getTime())) continue;
+
+          const key = d.toISOString().slice(0, 10);
+
+          if (key === todayKey) {
+            today++;
+          } else if (d < now && t.status !== "done") {
+            overdue++;
+          }
+        }
+
+        // Load recent documents
+        const docs = await fetchDocuments();
+        const sortedDocs = [...docs].sort((a, b) => {
+          const aTime = new Date(a.updatedAt || a.createdAt).getTime();
+          const bTime = new Date(b.updatedAt || b.createdAt).getTime();
+          return bTime - aTime;
+        });
+
+        if (!cancelled) {
+          setTodayCount(today);
+          setOverdueCount(overdue);
+          setCompletedCount(completed);
+          setRecentDocs(sortedDocs.slice(0, 3));
+        }
+      } catch (err) {
+        console.error("Error loading dashboard data:", err);
+        if (!cancelled) {
+          setError("Unable to load dashboard data.");
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    load();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function formatDocDate(raw: string): string {
+    const d = new Date(raw);
+    if (isNaN(d.getTime())) return "";
+    return d.toLocaleDateString(undefined, {
+      month: "short",
+      day: "numeric",
+    });
+  }
+
   return (
     <div className="workspace-placeholder">
       <h2>Welcome, {userName}</h2>
       <p>
-        This is your student workspace. You can work with documents, tasks, and
-        the calendar as we expand the suite.
+        This is your student workspace. Track your tasks, jump into recent
+        documents, and choose what you want in the right sidebar.
       </p>
 
-      <div style={{ marginTop: 12 }}>
-        <label style={{ fontSize: 13, color: "#9da2c8" }}>
-          Right panel content:
+      {/* Summary row */}
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 12,
+          marginTop: 16,
+        }}
+      >
+        <div
+          style={{
+            flex: "1 1 120px",
+            minWidth: 120,
+            padding: "10px 12px",
+            borderRadius: 10,
+            border: "1px solid rgba(255,255,255,0.08)",
+            background:
+              "radial-gradient(circle at top, rgba(63,100,255,0.35), #050713)",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 11,
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+              color: "#c7ceff",
+              marginBottom: 4,
+            }}
+          >
+            Today
+          </div>
+          <div style={{ fontSize: 22, fontWeight: 600 }}>{todayCount}</div>
+          <div style={{ fontSize: 11, color: "#aab0dd", marginTop: 2 }}>
+            tasks due today
+          </div>
+        </div>
+
+        <div
+          style={{
+            flex: "1 1 120px",
+            minWidth: 120,
+            padding: "10px 12px",
+            borderRadius: 10,
+            border: "1px solid rgba(255,255,255,0.08)",
+            background:
+              "radial-gradient(circle at top, rgba(255,118,118,0.3), #050713)",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 11,
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+              color: "#ffc0c4",
+              marginBottom: 4,
+            }}
+          >
+            Overdue
+          </div>
+          <div style={{ fontSize: 22, fontWeight: 600 }}>{overdueCount}</div>
+          <div style={{ fontSize: 11, color: "#f2a3a6", marginTop: 2 }}>
+            tasks past due
+          </div>
+        </div>
+
+        <div
+          style={{
+            flex: "1 1 120px",
+            minWidth: 120,
+            padding: "10px 12px",
+            borderRadius: 10,
+            border: "1px solid rgba(255,255,255,0.08)",
+            background:
+              "radial-gradient(circle at top, rgba(127,61,255,0.35), #050713)",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 11,
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+              color: "#e0c9ff",
+              marginBottom: 4,
+            }}
+          >
+            Completed
+          </div>
+          <div style={{ fontSize: 22, fontWeight: 600 }}>
+            {completedCount}
+          </div>
+          <div style={{ fontSize: 11, color: "#cdb3ff", marginTop: 2 }}>
+            tasks finished
+          </div>
+        </div>
+      </div>
+
+      {/* Recent docs + sidebar preference row */}
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 16,
+          marginTop: 18,
+        }}
+      >
+        {/* Recent documents */}
+        <div
+          style={{
+            flex: "2 1 220px",
+            minWidth: 220,
+            padding: "10px 12px",
+            borderRadius: 10,
+            border: "1px solid rgba(255,255,255,0.08)",
+            background: "#050713",
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 6,
+            }}
+          >
+            <span style={{ fontSize: 13, fontWeight: 500 }}>
+              Recent documents
+            </span>
+            <Link
+              to="/documents"
+              style={{
+                fontSize: 11,
+                color: "#aeb7ff",
+                textDecoration: "underline",
+              }}
+            >
+              Open all
+            </Link>
+          </div>
+
+          {loading && (
+            <p style={{ fontSize: 12, color: "#9da2c8", margin: 0 }}>
+              Loading…
+            </p>
+          )}
+          {error && (
+            <p style={{ fontSize: 12, color: "#ff7b88", margin: 0 }}>
+              {error}
+            </p>
+          )}
+          {!loading && !error && recentDocs.length === 0 && (
+            <p style={{ fontSize: 12, color: "#9da2c8", margin: 0 }}>
+              No documents yet. Create your first one on the Documents page.
+            </p>
+          )}
+          {!loading && !error && recentDocs.length > 0 && (
+            <ul
+              style={{
+                listStyle: "none",
+                padding: 0,
+                margin: 0,
+                display: "flex",
+                flexDirection: "column",
+                gap: 4,
+              }}
+            >
+              {recentDocs.map((doc) => (
+                <li
+                  key={doc.id}
+                  style={{
+                    display: "flex",
+                    justifyContent: "space-between",
+                    gap: 8,
+                    padding: "4px 0",
+                  }}
+                >
+                  <span
+                    style={{
+                      fontSize: 13,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {doc.title || "Untitled document"}
+                  </span>
+                  <span
+                    style={{ fontSize: 11, color: "#6f7598", flexShrink: 0 }}
+                  >
+                    {formatDocDate(doc.updatedAt || doc.createdAt)}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+
+        {/* Right-sidebar preference card */}
+        <div
+          style={{
+            flex: "1 1 180px",
+            minWidth: 180,
+            padding: "10px 12px",
+            borderRadius: 10,
+            border: "1px solid rgba(255,255,255,0.08)",
+            background: "#050713",
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+          }}
+        >
+          <span style={{ fontSize: 13, fontWeight: 500 }}>
+            Right panel content
+          </span>
+          <p
+            style={{
+              margin: 0,
+              fontSize: 11,
+              color: "#9da2c8",
+            }}
+          >
+            Choose what you want to see in the right sidebar while you work.
+          </p>
+
           <select
             value={sidebarMode}
             onChange={(e) =>
@@ -76,8 +387,8 @@ const Dashboard: React.FC<DashboardProps> = ({
               )
             }
             style={{
-              marginLeft: 6,
-              padding: "4px 6px",
+              marginTop: 4,
+              padding: "6px 10px",
               borderRadius: 999,
               border: "1px solid rgba(255,255,255,0.18)",
               background: "#05070a",
@@ -88,12 +399,13 @@ const Dashboard: React.FC<DashboardProps> = ({
             <option value="tasks">Tasks</option>
             <option value="documents">Documents</option>
           </select>
-        </label>
+        </div>
       </div>
     </div>
   );
 };
 
+// ---- App ----
 const App: React.FC = () => {
   const navigate = useNavigate();
 
@@ -102,7 +414,7 @@ const App: React.FC = () => {
   const hasToken =
     typeof window !== "undefined" && !!window.localStorage.getItem("token");
 
-  // Sidebar mode preference
+  // Sidebar mode preference (for right sidebar)
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>(() =>
     loadInitialSidebarMode()
   );
@@ -114,18 +426,18 @@ const App: React.FC = () => {
     }
   }
 
-  // ---- Tasks state for both TasksPage and right-hand panel ----
+  // ---- Tasks state for right-hand panel ----
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
   const [tasksError, setTasksError] = useState<string | null>(null);
   const [newTaskTitle, setNewTaskTitle] = useState("");
 
-  // ---- Documents state for the right-hand panel (list only) ----
+  // ---- Documents list for right-hand panel ----
   const [sidebarDocs, setSidebarDocs] = useState<Doc[]>([]);
   const [sidebarDocsLoading, setSidebarDocsLoading] = useState(false);
   const [sidebarDocsError, setSidebarDocsError] = useState<string | null>(null);
 
-  // Load tasks + documents when authenticated
+  // Load tasks + docs for right sidebar when authenticated
   useEffect(() => {
     if (!hasToken) {
       setTasks([]);
@@ -147,7 +459,7 @@ const App: React.FC = () => {
         setTasksLoading(false);
       }
 
-      // Documents (for sidebar list)
+      // Documents
       try {
         setSidebarDocsLoading(true);
         setSidebarDocsError(null);
@@ -162,7 +474,7 @@ const App: React.FC = () => {
     })();
   }, [hasToken]);
 
-  // Shared helper: create a task from a title (used by TasksPage & sidebar)
+  // Shared helper: create task from title (for sidebar form)
   async function createTaskFromTitle(title: string) {
     const trimmed = title.trim();
     if (!trimmed) return;
@@ -178,7 +490,7 @@ const App: React.FC = () => {
     }
   }
 
-  // Sidebar-only handler for its form
+  // Sidebar-only "add task" handler
   async function handleAddTask(e: React.FormEvent) {
     e.preventDefault();
     if (!newTaskTitle.trim()) return;
@@ -216,7 +528,7 @@ const App: React.FC = () => {
     }
   }
 
-  // ---- Logout ----
+  // Logout
   function handleLogout() {
     try {
       if (typeof window !== "undefined") {
@@ -257,7 +569,6 @@ const App: React.FC = () => {
           </Link>
         </nav>
 
-        {/* Logout at the bottom */}
         {hasToken && (
           <button
             type="button"
@@ -376,7 +687,7 @@ const App: React.FC = () => {
                 </ul>
               ) : sidebarMode === "tasks" ? (
                 <>
-                  {/* Tasks-only panel */}
+                  {/* Tasks-only right panel */}
                   <form
                     onSubmit={handleAddTask}
                     style={{
@@ -496,7 +807,7 @@ const App: React.FC = () => {
                 </>
               ) : (
                 <>
-                  {/* Documents-only panel */}
+                  {/* Documents-only right panel */}
                   {sidebarDocsLoading && (
                     <p style={{ fontSize: 12, color: "#9da2c8" }}>
                       Loading documents...
