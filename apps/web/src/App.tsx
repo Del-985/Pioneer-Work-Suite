@@ -60,6 +60,8 @@ const Dashboard: React.FC<DashboardProps> = ({
       ? window.localStorage.getItem("userName") || "Student"
       : "Student";
 
+  const navigate = useNavigate();
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -148,6 +150,10 @@ const Dashboard: React.FC<DashboardProps> = ({
     });
   }
 
+  function goToTasks() {
+    navigate("/tasks");
+  }
+
   return (
     <div className="workspace-placeholder">
       <h2>Welcome, {userName}</h2>
@@ -165,7 +171,9 @@ const Dashboard: React.FC<DashboardProps> = ({
           marginTop: 16,
         }}
       >
+        {/* Today card */}
         <div
+          onClick={goToTasks}
           style={{
             flex: "1 1 120px",
             minWidth: 120,
@@ -174,6 +182,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             border: "1px solid rgba(255,255,255,0.08)",
             background:
               "radial-gradient(circle at top, rgba(63,100,255,0.35), #050713)",
+            cursor: "pointer",
           }}
         >
           <div
@@ -193,7 +202,9 @@ const Dashboard: React.FC<DashboardProps> = ({
           </div>
         </div>
 
+        {/* Overdue card */}
         <div
+          onClick={goToTasks}
           style={{
             flex: "1 1 120px",
             minWidth: 120,
@@ -202,6 +213,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             border: "1px solid rgba(255,255,255,0.08)",
             background:
               "radial-gradient(circle at top, rgba(255,118,118,0.3), #050713)",
+            cursor: "pointer",
           }}
         >
           <div
@@ -221,7 +233,9 @@ const Dashboard: React.FC<DashboardProps> = ({
           </div>
         </div>
 
+        {/* Completed card */}
         <div
+          onClick={goToTasks}
           style={{
             flex: "1 1 120px",
             minWidth: 120,
@@ -230,6 +244,7 @@ const Dashboard: React.FC<DashboardProps> = ({
             border: "1px solid rgba(255,255,255,0.08)",
             background:
               "radial-gradient(circle at top, rgba(127,61,255,0.35), #050713)",
+            cursor: "pointer",
           }}
         >
           <div
