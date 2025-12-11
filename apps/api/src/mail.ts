@@ -186,7 +186,8 @@ router.post("/messages", async (req, res) => {
       .json({ error: "Subject and toAddress are required" });
   }
 
-  const normalizedTo = String(toAddress).toLowerCase();
+  // Trim + lowercase so we don't lose matches due to spaces or casing
+  const normalizedTo = String(toAddress).trim().toLowerCase();
   const effectiveFolder: MailFolder =
     folder === "draft" ? "draft" : "sent";
 
@@ -211,14 +212,32 @@ router.post("/messages", async (req, res) => {
       },
     });
 
-    // 2) If it's actually being "sent", also deliver a copy into
-    //    the recipient's inbox (if that account exists).
+    // 2) If it's actually sent, deliver a copy into the recipient's inbox
     if (effectiveFolder === "sent") {
-      const recipientAccount = await prisma.mailAccount.findFirst({
-        where: { emailAddress: normalizedTo },
+      // Find a User with this email (internal mail only)
+      const recipientUser = await prisma.user.findUnique({
+        where: { email: normalizedTo },
       });
 
-      if (recipientAccount) {
+      if (recipientUser) {
+        // Make sure they have a MailAccount as well
+        const recipientAccount = await prisma.mailAccount.upsert({
+          where: {
+            // assumes you have a unique constraint on MailAccount.userId
+            userId: recipientUser.id,
+          },
+          update: {
+            emailAddress: normalizedTo,
+            displayName: recipientUser.name || normalizedTo,
+          },
+          create: {
+            userId: recipientUser.id,
+            provider: "internal",
+            emailAddress: normalizedTo,
+            displayName: recipientUser.name || normalizedTo,
+          },
+        });
+
         await prisma.mailMessage.create({
           data: {
             accountId: recipientAccount.id,
@@ -234,6 +253,12 @@ router.post("/messages", async (req, res) => {
             receivedAt: now,
           },
         });
+      } else {
+        // Optional: log if recipient email does not correspond to any User
+        console.log(
+          "[mail] No internal recipient user found for",
+          normalizedTo
+        );
       }
     }
 
