@@ -31,7 +31,9 @@ const MailPage: React.FC = () => {
   // Selection
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const selectedMessage =
-    selectedId != null ? messages.find((m) => m.id === selectedId) || null : null;
+    selectedId != null
+      ? messages.find((m) => m.id === selectedId) || null
+      : null;
 
   // Filters
   const [searchText, setSearchText] = useState("");
@@ -44,7 +46,6 @@ const MailPage: React.FC = () => {
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
 
-  // List/selection helper
   function resetSelection() {
     setSelectedId(null);
   }
@@ -59,11 +60,7 @@ const MailPage: React.FC = () => {
         setListError(null);
         resetSelection();
 
-        const folderMessages = await fetchMailMessages({
-          folder: activeFolder,
-          // NOTE: search + starredOnly could be pushed to the backend later.
-          // For now we still filter on the client (below).
-        });
+        const folderMessages = await fetchMailMessages(activeFolder);
 
         if (!cancelled) {
           setMessages(folderMessages);
@@ -125,7 +122,6 @@ const MailPage: React.FC = () => {
   function handleSelectMessage(id: string) {
     setSelectedId(id);
 
-    // Optimistically mark as read when opened
     const msg = messages.find((m) => m.id === id);
     if (msg && !msg.isRead) {
       void toggleRead(msg, true);
@@ -134,7 +130,6 @@ const MailPage: React.FC = () => {
 
   async function toggleRead(message: MailMessage, read: boolean) {
     try {
-      // Optimistic update
       setMessages((prev) =>
         prev.map((m) =>
           m.id === message.id ? { ...m, isRead: read } : m
@@ -143,7 +138,6 @@ const MailPage: React.FC = () => {
       await updateMailMessage(message.id, { isRead: read });
     } catch (err) {
       console.error("Error updating read state:", err);
-      // Roll back if needed
       setMessages((prev) =>
         prev.map((m) =>
           m.id === message.id ? { ...m, isRead: message.isRead } : m
@@ -171,6 +165,40 @@ const MailPage: React.FC = () => {
     }
   }
 
+  async function moveToFolder(message: MailMessage, folder: MailFolder) {
+    if (message.folder === folder) return;
+
+    try {
+      setMessages((prev) =>
+        prev
+          .map((m) =>
+            m.id === message.id ? { ...m, folder } : m
+          )
+          .filter((m) =>
+            m.folder === activeFolder ? true : m.id !== message.id
+          )
+      );
+
+      if (selectedId === message.id && folder !== activeFolder) {
+        resetSelection();
+      }
+
+      await updateMailMessage(message.id, { folder });
+    } catch (err) {
+      console.error("Error moving message:", err);
+      // Reload the current folder from the server if needed
+      try {
+        const refreshed = await fetchMailMessages(activeFolder);
+        setMessages(refreshed);
+        if (selectedId && !refreshed.find((m) => m.id === selectedId)) {
+          resetSelection();
+        }
+      } catch (innerErr) {
+        console.error("Error reloading messages after move failure:", innerErr);
+      }
+    }
+  }
+
   async function handleDelete(message: MailMessage) {
     const confirmed = window.confirm("Delete this message?");
     if (!confirmed) return;
@@ -185,7 +213,6 @@ const MailPage: React.FC = () => {
       await deleteMailMessage(message.id);
     } catch (err) {
       console.error("Error deleting mail message:", err);
-      // Roll back if it wasn't a 404
       setMessages(previous);
     }
   }
@@ -209,10 +236,9 @@ const MailPage: React.FC = () => {
         toAddress: to,
         subject,
         bodyText: body,
-        bodyHtml: body, // simple mirror for v1
+        bodyHtml: body,
       });
 
-      // If we're currently viewing "sent", inject the new mail at the top
       if (activeFolder === "sent") {
         setMessages((prev) => [sent, ...prev]);
       }
@@ -564,6 +590,24 @@ const MailPage: React.FC = () => {
             >
               {msg.isRead ? "Mark unread" : "Mark read"}
             </button>
+
+            {msg.folder !== "archive" && (
+              <button
+                type="button"
+                onClick={() => void moveToFolder(msg, "archive")}
+                style={{
+                  padding: "4px 8px",
+                  borderRadius: 999,
+                  border: "1px solid rgba(255,255,255,0.18)",
+                  background: "transparent",
+                  color: "#f5f5f5",
+                  fontSize: 11,
+                  cursor: "pointer",
+                }}
+              >
+                Archive
+              </button>
+            )}
           </div>
         </div>
 
@@ -597,9 +641,7 @@ const MailPage: React.FC = () => {
           }}
         >
           {msg.bodyHtml ? (
-            <div
-              dangerouslySetInnerHTML={{ __html: msg.bodyHtml }}
-            />
+            <div dangerouslySetInnerHTML={{ __html: msg.bodyHtml }} />
           ) : (
             <pre
               style={{
