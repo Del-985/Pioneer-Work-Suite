@@ -1,5 +1,3 @@
-// apps/api/prisma/schema.prisma
-
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
@@ -10,16 +8,19 @@ generator client {
 }
 
 model User {
-  id           String    @id @default(cuid())
-  email        String    @unique
+  id           String   @id @default(cuid())
+  email        String   @unique
   name         String
   passwordHash String
-  role         String    // "student" for now
-  createdAt    DateTime  @default(now())
+  role         String   // "student" for now
+  createdAt    DateTime @default(now())
 
   tasks        Task[]
   documents    Document[]
-  events       Event[]
+
+  // Mail v1 relations
+  mailAccounts MailAccount[]
+  mailMessages MailMessage[]
 }
 
 model Task {
@@ -27,8 +28,7 @@ model Task {
   user      User     @relation(fields: [userId], references: [id])
   userId    String
   title     String
-  status    String   // "todo" | "in_progress" | "done"
-  priority  String   @default("normal") // "low" | "normal" | "high"
+  status    String   // "todo" | "in_progress" | "done" (we'll keep strings)
   dueDate   DateTime?
   createdAt DateTime @default(now())
 }
@@ -43,19 +43,76 @@ model Document {
   updatedAt DateTime @updatedAt
 }
 
-// Calendar events for Calendar v1 (Suite v3)
-model Event {
-  id          String   @id @default(cuid())
-  user        User     @relation(fields: [userId], references: [id])
-  userId      String
+//
+// Mail v1 models
+//
 
-  title       String
-  description String   @default("")
-  start       DateTime
-  end         DateTime
-  allDay      Boolean  @default(false)
-  kind        String   @default("event") // free-form: "event", "exam", "class", etc.
+// Connection to an external email account (or pseudo-account for internal mail)
+model MailAccount {
+  id        String   @id @default(cuid())
 
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id])
+  userId    String
+
+  // e.g. "imap", "gmail", "outlook"
+  provider     String
+  emailAddress String
+  displayName  String?
+
+  // IMAP connection info
+  imapHost   String
+  imapPort   Int
+  imapUseTLS Boolean @default(true)
+
+  // SMTP connection info
+  smtpHost   String
+  smtpPort   Int
+  smtpUseTLS Boolean @default(true)
+
+  // Credentials (store encrypted / tokenized in passwordEnc)
+  username    String
+  passwordEnc String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  messages MailMessage[]
+}
+
+// Cached copy of a mail message (or internally composed one)
+model MailMessage {
+  id String @id @default(cuid())
+
+  // Which account this came from / is sent through
+  account   MailAccount @relation(fields: [accountId], references: [id])
+  accountId String
+
+  // Owner in our app
+  user   User   @relation(fields: [userId], references: [id])
+  userId String
+
+  // Optional external identifiers (IMAP UID / Message-ID)
+  externalId String?
+  folder     String   // "inbox" | "sent" | "draft" | "archive" | "starred" | etc.
+
+  subject     String
+  fromAddress String
+  toAddress   String
+  ccAddress   String?
+  bccAddress  String?
+
+  bodyHtml String @default("")
+  bodyText String @default("")
+
+  isRead    Boolean @default(false)
+  isStarred Boolean @default(false)
+
+  sentAt     DateTime?
+  receivedAt DateTime?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  // Simple threading helpers for later versions
+  threadKey   String?
+  inReplyToId String?
 }
