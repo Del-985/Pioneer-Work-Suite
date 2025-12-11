@@ -1,3 +1,5 @@
+// apps/api/prisma/schema.prisma
+
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
@@ -28,7 +30,8 @@ model Task {
   user      User     @relation(fields: [userId], references: [id])
   userId    String
   title     String
-  status    String   // "todo" | "in_progress" | "done" (we'll keep strings)
+  status    String   // "todo" | "in_progress" | "done"
+  priority  String   // keep this so Prisma doesn't try to drop the column
   dueDate   DateTime?
   createdAt DateTime @default(now())
 }
@@ -47,7 +50,6 @@ model Document {
 // Mail v1 models
 //
 
-// Connection to an external email account (or pseudo-account for internal mail)
 model MailAccount {
   id        String   @id @default(cuid())
 
@@ -79,7 +81,6 @@ model MailAccount {
   messages MailMessage[]
 }
 
-// Cached copy of a mail message (or internally composed one)
 model MailMessage {
   id String @id @default(cuid())
 
