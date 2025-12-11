@@ -84,26 +84,42 @@ function mapMessage(m: any): MailMessageResponse {
   };
 }
 
-// Ensure the current user has a MailAccount
+// Ensure the current user has a MailAccount.
+// NOTE: MailAccount has required IMAP/SMTP fields + credentials,
+// so we seed them with safe "internal" defaults for Mail v1.
 async function ensureAccountForUser(user: User) {
   const email = (user.email || "").toLowerCase();
   const displayName = user.name || user.email;
 
-  const account = await prisma.mailAccount.upsert({
-    where: {
-      // assuming you have a unique on (userId)
-      userId: user.id,
-    },
-    update: {
-      // keep provider/email/displayName up to date
-      emailAddress: email,
-      displayName,
-    },
-    create: {
+  // 1) Try to find an existing account for this user
+  const existing = await prisma.mailAccount.findFirst({
+    where: { userId: user.id },
+  });
+
+  if (existing) {
+    return existing;
+  }
+
+  // 2) Create a new internal-only account with placeholder connection details
+  const account = await prisma.mailAccount.create({
+    data: {
       userId: user.id,
       provider: "internal",
       emailAddress: email,
       displayName,
+
+      // Internal / dummy IMAP+SMTP config (Mail v1 doesn't actually connect)
+      imapHost: "internal",
+      imapPort: 0,
+      imapUseTLS: false,
+
+      smtpHost: "internal",
+      smtpPort: 0,
+      smtpUseTLS: false,
+
+      // Basic internal identity
+      username: email,
+      passwordEnc: "",
     },
   });
 
@@ -147,6 +163,7 @@ router.get("/messages", async (req, res) => {
     const messages = await prisma.mailMessage.findMany({
       where: {
         accountId: account.id,
+        userId: user.id,
         folder,
       },
       orderBy: [
@@ -186,8 +203,7 @@ router.post("/messages", async (req, res) => {
       .json({ error: "Subject and toAddress are required" });
   }
 
-  // Trim + lowercase so we don't lose matches due to spaces or casing
-  const normalizedTo = String(toAddress).trim().toLowerCase();
+  const normalizedTo = String(toAddress).toLowerCase();
   const effectiveFolder: MailFolder =
     folder === "draft" ? "draft" : "sent";
 
@@ -199,66 +215,52 @@ router.post("/messages", async (req, res) => {
     const sentMessage = await prisma.mailMessage.create({
       data: {
         accountId: account.id,
+        userId: user.id, // required by schema
         folder: effectiveFolder,
+
         subject: String(subject),
         fromAddress: account.emailAddress,
         toAddress: normalizedTo,
+
         bodyHtml: String(bodyHtml),
         bodyText: String(bodyText || bodyHtml || ""),
+
         isRead: true,
         isStarred: false,
+
         sentAt: effectiveFolder === "sent" ? now : null,
         receivedAt: null,
       },
     });
 
-    // 2) If it's actually sent, deliver a copy into the recipient's inbox
+    // 2) If it's actually being "sent", also deliver a copy into
+    //    the recipient's inbox (if that account exists).
     if (effectiveFolder === "sent") {
-      // Find a User with this email (internal mail only)
-      const recipientUser = await prisma.user.findUnique({
-        where: { email: normalizedTo },
+      const recipientAccount = await prisma.mailAccount.findFirst({
+        where: { emailAddress: normalizedTo },
       });
 
-      if (recipientUser) {
-        // Make sure they have a MailAccount as well
-        const recipientAccount = await prisma.mailAccount.upsert({
-          where: {
-            // assumes you have a unique constraint on MailAccount.userId
-            userId: recipientUser.id,
-          },
-          update: {
-            emailAddress: normalizedTo,
-            displayName: recipientUser.name || normalizedTo,
-          },
-          create: {
-            userId: recipientUser.id,
-            provider: "internal",
-            emailAddress: normalizedTo,
-            displayName: recipientUser.name || normalizedTo,
-          },
-        });
-
+      if (recipientAccount) {
         await prisma.mailMessage.create({
           data: {
             accountId: recipientAccount.id,
+            userId: recipientAccount.userId, // belongs to that user
             folder: "inbox",
+
             subject: String(subject),
             fromAddress: account.emailAddress,
             toAddress: normalizedTo,
+
             bodyHtml: String(bodyHtml),
             bodyText: String(bodyText || bodyHtml || ""),
+
             isRead: false,
             isStarred: false,
+
             sentAt: now,
             receivedAt: now,
           },
         });
-      } else {
-        // Optional: log if recipient email does not correspond to any User
-        console.log(
-          "[mail] No internal recipient user found for",
-          normalizedTo
-        );
       }
     }
 
@@ -285,6 +287,7 @@ router.get("/messages/:id", async (req, res) => {
       where: {
         id,
         accountId: account.id,
+        userId: user.id,
       },
     });
 
@@ -329,6 +332,7 @@ router.patch("/messages/:id", async (req, res) => {
       where: {
         id,
         accountId: account.id,
+        userId: user.id,
       },
     });
 
@@ -364,6 +368,7 @@ router.delete("/messages/:id", async (req, res) => {
       where: {
         id,
         accountId: account.id,
+        userId: user.id,
       },
     });
 
