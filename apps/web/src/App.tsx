@@ -12,6 +12,7 @@ import RegisterPage from "./pages/RegisterPage";
 import TasksPage from "./pages/TasksPage";
 import DocumentsPage from "./pages/DocumentsPage";
 import CalendarPage from "./pages/CalendarPage";
+import MailPage from "./pages/MailPage";
 import {
   fetchTasks,
   createTask,
@@ -582,6 +583,9 @@ const App: React.FC = () => {
           <Link className="nav-item" to="/calendar">
             Calendar
           </Link>
+          <Link className="nav-item" to="/mail">
+            Mail
+          </Link>
         </nav>
 
         {hasToken && (
@@ -612,7 +616,7 @@ const App: React.FC = () => {
             <h1>Student Workspace</h1>
             <p className="workspace-subtitle">
               Sign in, register, and access your dashboard, documents, tasks,
-              and calendar.
+              calendar, and mail.
             </p>
           </header>
 
@@ -652,6 +656,14 @@ const App: React.FC = () => {
                 element={
                   <RequireAuth>
                     <CalendarPage />
+                  </RequireAuth>
+                }
+              />
+              <Route
+                path="/mail"
+                element={
+                  <RequireAuth>
+                    <MailPage />
                   </RequireAuth>
                 }
               />
