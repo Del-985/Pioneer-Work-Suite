@@ -5,10 +5,10 @@ import { prisma } from "./prisma";
 
 const router = express.Router();
 
-// All /mail routes require authentication
+// All /mail routes require auth
 router.use(authMiddleware);
 
-type Folder = "inbox" | "sent" | "draft" | "archive";
+export type MailFolder = "inbox" | "sent" | "draft" | "archive";
 
 interface MailAccountResponse {
   id: string;
@@ -20,23 +20,25 @@ interface MailAccountResponse {
 interface MailMessageResponse {
   id: string;
   accountId: string;
-  folder: Folder;
+  folder: MailFolder;
+
   subject: string;
   fromAddress: string;
   toAddress: string;
   ccAddress?: string | null;
   bccAddress?: string | null;
+
   bodyHtml: string;
   bodyText: string;
+
   isRead: boolean;
   isStarred: boolean;
+
   sentAt?: string | null;
   receivedAt?: string | null;
   createdAt: string;
   updatedAt: string;
 }
-
-// --- helpers ---
 
 function mapAccount(a: any): MailAccountResponse {
   return {
@@ -51,16 +53,20 @@ function mapMessage(m: any): MailMessageResponse {
   return {
     id: m.id,
     accountId: m.accountId,
-    folder: (m.folder as Folder) || "inbox",
+    folder: (m.folder as MailFolder) || "inbox",
+
     subject: m.subject,
     fromAddress: m.fromAddress,
     toAddress: m.toAddress,
     ccAddress: m.ccAddress ?? null,
     bccAddress: m.bccAddress ?? null,
+
     bodyHtml: m.bodyHtml ?? "",
     bodyText: m.bodyText ?? "",
+
     isRead: !!m.isRead,
     isStarred: !!m.isStarred,
+
     sentAt:
       m.sentAt instanceof Date ? m.sentAt.toISOString() : m.sentAt ?? null,
     receivedAt:
@@ -78,87 +84,76 @@ function mapMessage(m: any): MailMessageResponse {
   };
 }
 
-/**
- * Ensure the user has a default "internal" mail account.
- * We use this for Mail v1 instead of wiring real IMAP/SMTP.
- */
-async function ensureDefaultMailAccount(user: User) {
-  const existing = await prisma.mailAccount.findFirst({
-    where: { userId: user.id },
-  });
+// Ensure the current user has a MailAccount
+async function ensureAccountForUser(user: User) {
+  const email = (user.email || "").toLowerCase();
+  const displayName = user.name || user.email;
 
-  if (existing) return existing;
-
-  const emailAddress = user.email;
-  const displayName = user.name || "Student";
-
-  // Dummy connection info for now. In a future version this
-  // will be real IMAP/SMTP settings or OAuth tokens.
-  return prisma.mailAccount.create({
-    data: {
+  const account = await prisma.mailAccount.upsert({
+    where: {
+      // assuming you have a unique on (userId)
+      userId: user.id,
+    },
+    update: {
+      // keep provider/email/displayName up to date
+      emailAddress: email,
+      displayName,
+    },
+    create: {
       userId: user.id,
       provider: "internal",
-      emailAddress,
+      emailAddress: email,
       displayName,
-      imapHost: "internal",
-      imapPort: 0,
-      imapUseTLS: false,
-      smtpHost: "internal",
-      smtpPort: 0,
-      smtpUseTLS: false,
-      username: emailAddress,
-      passwordEnc: "internal",
     },
   });
+
+  return account;
 }
 
-// --- Routes ---
-
-// GET /mail/accounts - list accounts for current user
+// GET /mail/accounts
 router.get("/accounts", async (req, res) => {
   const user = (req as any).user as User | undefined;
-  if (!user) return res.status(401).json({ error: "Unauthenticated" });
+  if (!user) {
+    return res.status(401).json({ error: "Unauthenticated" });
+  }
 
   try {
-    // Make sure at least one default account exists
-    await ensureDefaultMailAccount(user);
-
-    const accounts = await prisma.mailAccount.findMany({
-      where: { userId: user.id },
-      orderBy: { createdAt: "asc" },
-    });
-
-    return res.json({
-      accounts: accounts.map(mapAccount),
-    });
+    const account = await ensureAccountForUser(user);
+    return res.json({ accounts: [mapAccount(account)] });
   } catch (err) {
     console.error("Error in GET /mail/accounts:", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// GET /mail/messages?folder=inbox
+// GET /mail/messages?folder=inbox|sent|draft|archive
 router.get("/messages", async (req, res) => {
   const user = (req as any).user as User | undefined;
-  if (!user) return res.status(401).json({ error: "Unauthenticated" });
+  if (!user) {
+    return res.status(401).json({ error: "Unauthenticated" });
+  }
 
-  const folderParam = String(req.query.folder || "inbox").toLowerCase();
-  const folder: Folder =
-    folderParam === "sent" ||
-    folderParam === "draft" ||
-    folderParam === "archive"
-      ? folderParam
+  const rawFolder = (req.query.folder as string) || "inbox";
+  const folder: MailFolder =
+    rawFolder === "sent" ||
+    rawFolder === "draft" ||
+    rawFolder === "archive"
+      ? (rawFolder as MailFolder)
       : "inbox";
 
   try {
+    const account = await ensureAccountForUser(user);
+
     const messages = await prisma.mailMessage.findMany({
       where: {
-        userId: user.id,
+        accountId: account.id,
         folder,
       },
-      orderBy: {
-        createdAt: "desc",
-      },
+      orderBy: [
+        { sentAt: "desc" },
+        { receivedAt: "desc" },
+        { updatedAt: "desc" },
+      ],
     });
 
     return res.json({
@@ -170,116 +165,146 @@ router.get("/messages", async (req, res) => {
   }
 });
 
-// GET /mail/messages/:id
-router.get("/messages/:id", async (req, res) => {
-  const user = (req as any).user as User | undefined;
-  if (!user) return res.status(401).json({ error: "Unauthenticated" });
-
-  const { id } = req.params;
-
-  try {
-    const msg = await prisma.mailMessage.findFirst({
-      where: { id, userId: user.id },
-    });
-
-    if (!msg) {
-      return res.status(404).json({ error: "Message not found" });
-    }
-
-    return res.json({
-      message: mapMessage(msg),
-    });
-  } catch (err) {
-    console.error("Error in GET /mail/messages/:id:", err);
-    return res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-// POST /mail/messages - compose/send (internal-only for now)
+// POST /mail/messages  (compose/send)
 router.post("/messages", async (req, res) => {
   const user = (req as any).user as User | undefined;
-  if (!user) return res.status(401).json({ error: "Unauthenticated" });
+  if (!user) {
+    return res.status(401).json({ error: "Unauthenticated" });
+  }
 
-  const { subject, toAddress, bodyHtml, bodyText, folder } = req.body || {};
+  const {
+    subject,
+    toAddress,
+    bodyHtml = "",
+    bodyText = "",
+    folder,
+  } = req.body || {};
 
   if (!subject || !toAddress) {
     return res
       .status(400)
-      .json({ error: "Missing subject or toAddress" });
+      .json({ error: "Subject and toAddress are required" });
   }
 
-  const resolvedFolder: Folder =
-    folder === "draft" || folder === "archive" || folder === "inbox"
-      ? folder
-      : "sent";
+  const normalizedTo = String(toAddress).toLowerCase();
+  const effectiveFolder: MailFolder =
+    folder === "draft" ? "draft" : "sent";
 
   try {
-    const account = await ensureDefaultMailAccount(user);
+    const account = await ensureAccountForUser(user);
+    const now = new Date();
 
-    const created = await prisma.mailMessage.create({
+    // 1) Create the sender's Sent (or Draft) message
+    const sentMessage = await prisma.mailMessage.create({
       data: {
         accountId: account.id,
-        userId: user.id,
-        folder: resolvedFolder,
+        folder: effectiveFolder,
         subject: String(subject),
         fromAddress: account.emailAddress,
-        toAddress: String(toAddress),
-        ccAddress: null,
-        bccAddress: null,
-        bodyHtml: String(bodyHtml || ""),
-        bodyText: String(bodyText || ""),
-        isRead: resolvedFolder === "sent", // outbox messages treated as read
+        toAddress: normalizedTo,
+        bodyHtml: String(bodyHtml),
+        bodyText: String(bodyText || bodyHtml || ""),
+        isRead: true,
         isStarred: false,
-        sentAt:
-          resolvedFolder === "sent"
-            ? new Date()
-            : null,
+        sentAt: effectiveFolder === "sent" ? now : null,
         receivedAt: null,
       },
     });
 
-    return res.status(201).json({
-      message: mapMessage(created),
-    });
+    // 2) If it's actually being "sent", also deliver a copy into
+    //    the recipient's inbox (if that account exists).
+    if (effectiveFolder === "sent") {
+      const recipientAccount = await prisma.mailAccount.findFirst({
+        where: { emailAddress: normalizedTo },
+      });
+
+      if (recipientAccount) {
+        await prisma.mailMessage.create({
+          data: {
+            accountId: recipientAccount.id,
+            folder: "inbox",
+            subject: String(subject),
+            fromAddress: account.emailAddress,
+            toAddress: normalizedTo,
+            bodyHtml: String(bodyHtml),
+            bodyText: String(bodyText || bodyHtml || ""),
+            isRead: false,
+            isStarred: false,
+            sentAt: now,
+            receivedAt: now,
+          },
+        });
+      }
+    }
+
+    return res.status(201).json({ message: mapMessage(sentMessage) });
   } catch (err) {
     console.error("Error in POST /mail/messages:", err);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// PATCH /mail/messages/:id - update flags/folder (read, starred, move)
+// GET /mail/messages/:id
+router.get("/messages/:id", async (req, res) => {
+  const user = (req as any).user as User | undefined;
+  if (!user) {
+    return res.status(401).json({ error: "Unauthenticated" });
+  }
+
+  const { id } = req.params;
+
+  try {
+    const account = await ensureAccountForUser(user);
+
+    const msg = await prisma.mailMessage.findFirst({
+      where: {
+        id,
+        accountId: account.id,
+      },
+    });
+
+    if (!msg) {
+      return res.status(404).json({ error: "Message not found" });
+    }
+
+    return res.json({ message: mapMessage(msg) });
+  } catch (err) {
+    console.error("Error in GET /mail/messages/:id:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+// PATCH /mail/messages/:id  (update flags/folder)
 router.patch("/messages/:id", async (req, res) => {
   const user = (req as any).user as User | undefined;
-  if (!user) return res.status(401).json({ error: "Unauthenticated" });
+  if (!user) {
+    return res.status(401).json({ error: "Unauthenticated" });
+  }
 
   const { id } = req.params;
   const { isRead, isStarred, folder } = req.body || {};
 
-  const data: any = {};
-
-  if (typeof isRead === "boolean") {
-    data.isRead = isRead;
-  }
-
-  if (typeof isStarred === "boolean") {
-    data.isStarred = isStarred;
-  }
-
-  if (typeof folder === "string") {
-    const lower = folder.toLowerCase();
-    if (
-      lower === "inbox" ||
-      lower === "sent" ||
-      lower === "draft" ||
-      lower === "archive"
-    ) {
-      data.folder = lower;
-    }
+  const patch: any = {};
+  if (typeof isRead === "boolean") patch.isRead = isRead;
+  if (typeof isStarred === "boolean") patch.isStarred = isStarred;
+  if (
+    typeof folder === "string" &&
+    (folder === "inbox" ||
+      folder === "sent" ||
+      folder === "draft" ||
+      folder === "archive")
+  ) {
+    patch.folder = folder;
   }
 
   try {
+    const account = await ensureAccountForUser(user);
+
     const existing = await prisma.mailMessage.findFirst({
-      where: { id, userId: user.id },
+      where: {
+        id,
+        accountId: account.id,
+      },
     });
 
     if (!existing) {
@@ -288,12 +313,10 @@ router.patch("/messages/:id", async (req, res) => {
 
     const updated = await prisma.mailMessage.update({
       where: { id: existing.id },
-      data,
+      data: patch,
     });
 
-    return res.json({
-      message: mapMessage(updated),
-    });
+    return res.json({ message: mapMessage(updated) });
   } catch (err) {
     console.error("Error in PATCH /mail/messages/:id:", err);
     return res.status(500).json({ error: "Internal server error" });
@@ -303,17 +326,25 @@ router.patch("/messages/:id", async (req, res) => {
 // DELETE /mail/messages/:id
 router.delete("/messages/:id", async (req, res) => {
   const user = (req as any).user as User | undefined;
-  if (!user) return res.status(401).json({ error: "Unauthenticated" });
+  if (!user) {
+    return res.status(401).json({ error: "Unauthenticated" });
+  }
 
   const { id } = req.params;
 
   try {
+    const account = await ensureAccountForUser(user);
+
     const existing = await prisma.mailMessage.findFirst({
-      where: { id, userId: user.id },
+      where: {
+        id,
+        accountId: account.id,
+      },
     });
 
     if (!existing) {
-      return res.status(404).json({ error: "Message not found" });
+      // Treat missing as already deleted
+      return res.status(204).send();
     }
 
     await prisma.mailMessage.delete({
