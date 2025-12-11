@@ -1,31 +1,18 @@
 // apps/api/src/server.ts
 import express from "express";
 import cors from "cors";
+
 import { authRouter } from "./auth";
 import { documentsRouter } from "./documents";
 import { tasksRouter } from "./tasks";
+import { eventsRouter } from "./events";
+import { mailRouter } from "./mail";
 
 const app = express();
 
 // Middleware
-app.use(
-  cors({
-    origin: "*", // you can tighten this later if you want
-  })
-);
-
-// IMPORTANT: increase body size limits so Quill's base64 images don't 413
-app.use(
-  express.json({
-    limit: "5mb", // adjust higher/lower if needed
-  })
-);
-app.use(
-  express.urlencoded({
-    extended: true,
-    limit: "5mb",
-  })
-);
+app.use(cors());
+app.use(express.json());
 
 // Health check
 app.get("/health", (_req, res) => {
@@ -36,14 +23,20 @@ app.get("/health", (_req, res) => {
   });
 });
 
-// Student auth routes (register, login, me)
+// Auth (register, login, me)
 app.use("/auth", authRouter);
 
-// Student documents (requires auth)
+// Documents
 app.use("/documents", documentsRouter);
 
-// Student tasks (requires auth)
+// Tasks
 app.use("/tasks", tasksRouter);
+
+// Calendar events (Calendar v1)
+app.use("/events", eventsRouter);
+
+// Mail v1 (internal mailbox)
+app.use("/mail", mailRouter);
 
 const PORT = process.env.PORT || 4000;
 
