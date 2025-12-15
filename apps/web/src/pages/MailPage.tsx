@@ -59,11 +59,8 @@ const MailPage: React.FC = () => {
         setListError(null);
         resetSelection();
 
-        const folderMessages = await fetchMailMessages({
-          folder: activeFolder,
-          // NOTE: search + starredOnly could be pushed to the backend later.
-          // For now we still filter on the client (below).
-        });
+        // 🔧 FIX: pass folder as a string, not an object
+        const folderMessages = await fetchMailMessages(activeFolder);
 
         if (!cancelled) {
           setMessages(folderMessages);
