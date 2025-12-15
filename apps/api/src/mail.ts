@@ -1,8 +1,8 @@
 // apps/api/src/mail.ts
 import express from "express";
+import nodemailer from "nodemailer";
 import { authMiddleware, User } from "./auth";
 import { prisma } from "./prisma";
-import { sendWithAccount, hasSmtpConfig } from "./mailer";
 
 const router = express.Router();
 
@@ -40,6 +40,30 @@ interface MailMessageResponse {
   createdAt: string;
   updatedAt: string;
 }
+
+// ---------- SMTP transport (optional, for real email) ----------
+
+const smtpHost = process.env.MAIL_SMTP_HOST || "";
+const smtpPortRaw = process.env.MAIL_SMTP_PORT || "";
+const smtpUser = process.env.MAIL_SMTP_USER || "";
+const smtpPass = process.env.MAIL_SMTP_PASS || "";
+
+const smtpPort = smtpPortRaw ? Number(smtpPortRaw) : 587;
+const smtpEnabled = !!(smtpHost && smtpUser && smtpPass);
+
+const transporter = smtpEnabled
+  ? nodemailer.createTransport({
+      host: smtpHost,
+      port: smtpPort,
+      secure: smtpPort === 465,
+      auth: {
+        user: smtpUser,
+        pass: smtpPass,
+      },
+    })
+  : null;
+
+// ---------- Mapping helpers ----------
 
 function mapAccount(a: any): MailAccountResponse {
   return {
@@ -85,69 +109,62 @@ function mapMessage(m: any): MailMessageResponse {
   };
 }
 
-/**
- * Ensure the current user has a MailAccount row.
- *
- * - If no account exists, create a basic "internal" account with stubbed IMAP/SMTP.
- * - If an account exists, keep whatever IMAP/SMTP config is already there,
- *   only keeping emailAddress/displayName in sync with the user.
- */
+// ---------- Account helper ----------
+
 async function ensureAccountForUser(user: User) {
   const email = (user.email || "").toLowerCase();
   const displayName = user.name || user.email;
 
-  let account = await prisma.mailAccount.findFirst({
+  // Try existing account by userId
+  const existing = await prisma.mailAccount.findFirst({
     where: { userId: user.id },
   });
 
-  if (!account) {
-    // Create a minimal "internal" account with stubbed connection fields.
-    account = await prisma.mailAccount.create({
-      data: {
-        userId: user.id,
-        provider: "internal",
-        emailAddress: email,
-        displayName,
-
-        // Stub internal-only values; real external accounts will be
-        // configured via PUT /mail/accounts/current.
-        imapHost: "internal.local",
-        imapPort: 0,
-        // imapUseTLS default: true
-
-        smtpHost: "internal.local",
-        smtpPort: 0,
-        // smtpUseTLS default: true
-
-        username: email,
-        passwordEnc: "",
-      },
-    });
-
-    return account;
+  if (existing) {
+    // Keep email/display name fresh, but don't touch host/ports/creds
+    if (
+      existing.emailAddress !== email ||
+      existing.displayName !== displayName
+    ) {
+      return prisma.mailAccount.update({
+        where: { id: existing.id },
+        data: {
+          emailAddress: email,
+          displayName,
+        },
+      });
+    }
+    return existing;
   }
 
-  // If we already have an account, don't touch IMAP/SMTP creds.
-  // Just keep email + displayName in sync in case the user updates their profile.
-  if (
-    account.emailAddress !== email ||
-    account.displayName !== displayName
-  ) {
-    account = await prisma.mailAccount.update({
-      where: { id: account.id },
-      data: {
-        emailAddress: email,
-        displayName,
-      },
-    });
-  }
+  // Create a new internal account with placeholder IMAP/SMTP info
+  const created = await prisma.mailAccount.create({
+    data: {
+      userId: user.id,
+      provider: "internal",
+      emailAddress: email,
+      displayName,
 
-  return account;
+      // Minimal placeholders so Prisma is happy; real IMAP/SMTP can be filled later
+      imapHost: "",
+      imapPort: 0,
+      imapUseTLS: true,
+
+      smtpHost: "",
+      smtpPort: 0,
+      smtpUseTLS: true,
+
+      username: "",
+      passwordEnc: "",
+    },
+  });
+
+  return created;
 }
 
-// == Accounts ==
+// ---------- Routes ----------
 
-// GET /mail/accounts  – return the (single) account for this user
+// GET /mail/accounts
 router.get("/accounts", async (req, res) => {
   const user = (req as any).user as User | undefined;
   if (!user) {
@@ -162,110 +179,6 @@ router.get("/accounts", async (req, res) => {
     return res.status(500).json({ error: "Internal server error" });
   }
 });
-
-/**
- * PUT /mail/accounts/current
- *
- * Configure or update the external IMAP/SMTP details for the current user's account.
- * This is what makes Option B (per-user real email) possible.
- *
- * Expected body (all strings unless noted):
- * {
- *   provider?: string;        // e.g. "gmail", "zoho", "outlook"
- *   emailAddress?: string;
- *   displayName?: string;
- *   imapHost: string;
- *   imapPort?: number;
- *   imapUseTLS?: boolean;
- *   smtpHost: string;
- *   smtpPort?: number;
- *   smtpUseTLS?: boolean;
- *   username: string;
- *   password: string;         // stored in passwordEnc as-is for now
- * }
- */
-router.put("/accounts/current", async (req, res) => {
-  const user = (req as any).user as User | undefined;
-  if (!user) {
-    return res.status(401).json({ error: "Unauthenticated" });
-  }
-
-  const {
-    provider,
-    emailAddress,
-    displayName,
-    imapHost,
-    imapPort,
-    imapUseTLS,
-    smtpHost,
-    smtpPort,
-    smtpUseTLS,
-    username,
-    password,
-  } = req.body || {};
-
-  // Minimal validation: require host/ports + auth for "real" account
-  if (
-    !imapHost ||
-    !smtpHost ||
-    !username ||
-    !password
-  ) {
-    return res.status(400).json({
-      error:
-        "imapHost, smtpHost, username, and password are required to configure external mail.",
-    });
-  }
-
-  try {
-    let account = await prisma.mailAccount.findFirst({
-      where: { userId: user.id },
-    });
-
-    const data: any = {
-      provider: String(provider || "custom"),
-      emailAddress: String(emailAddress || (user.email || "").toLowerCase()),
-      displayName: displayName ?? user.name ?? user.email,
-
-      imapHost: String(imapHost),
-      imapPort: typeof imapPort === "number" ? imapPort : 993,
-      smtpHost: String(smtpHost),
-      smtpPort: typeof smtpPort === "number" ? smtpPort : 587,
-
-      username: String(username),
-      // NOTE: this is stored as-is. In real prod, you'd encrypt before storing.
-      passwordEnc: String(password),
-    };
-
-    if (typeof imapUseTLS === "boolean") {
-      data.imapUseTLS = imapUseTLS;
-    }
-    if (typeof smtpUseTLS === "boolean") {
-      data.smtpUseTLS = smtpUseTLS;
-    }
-
-    if (!account) {
-      account = await prisma.mailAccount.create({
-        data: {
-          userId: user.id,
-          ...data,
-        },
-      });
-    } else {
-      account = await prisma.mailAccount.update({
-        where: { id: account.id },
-        data,
-      });
-    }
-
-    return res.json({ account: mapAccount(account) });
-  } catch (err) {
-    console.error("Error in PUT /mail/accounts/current:", err);
-    return res.status(500).json({ error: "Internal server error" });
-  }
-});
-
-// == Messages ==
 
 // GET /mail/messages?folder=inbox|sent|draft|archive
 router.get("/messages", async (req, res) => {
@@ -283,16 +196,15 @@ router.get("/messages", async (req, res) => {
       : "inbox";
 
   try {
-    const account = await ensureAccountForUser(user);
-
+    // We anchor on userId so we can support multiple accounts later
     const messages = await prisma.mailMessage.findMany({
       where: {
-        accountId: account.id,
+        userId: user.id,
         folder,
       },
       orderBy: [
-        { sentAt: "desc" },
         { receivedAt: "desc" },
+        { sentAt: "desc" },
         { updatedAt: "desc" },
       ],
     });
@@ -327,77 +239,104 @@ router.post("/messages", async (req, res) => {
       .json({ error: "Subject and toAddress are required" });
   }
 
-  const normalizedTo = String(toAddress).toLowerCase();
-  const effectiveFolder: MailFolder = folder === "draft" ? "draft" : "sent";
+  const normalizedTo = String(toAddress).trim().toLowerCase();
+  const effectiveFolder: MailFolder =
+    folder === "draft" ? "draft" : "sent";
 
   try {
-    const account = await ensureAccountForUser(user);
+    const senderAccount = await ensureAccountForUser(user);
     const now = new Date();
 
-    const html = String(bodyHtml || bodyText || "");
-    const text = String(bodyText || bodyHtml || "");
+    const html = String(bodyHtml || "");
+    const text = bodyText
+      ? String(bodyText)
+      : html.replace(/<[^>]+>/g, " ");
 
-    // If this is a real "send" and the account has external SMTP config,
-    // fire off a real email.
-    if (effectiveFolder === "sent" && hasSmtpConfig(account)) {
-      try {
-        await sendWithAccount(account, {
-          to: normalizedTo,
-          subject: String(subject),
-          text,
-          html,
-        });
-      } catch (err) {
-        console.error("Error sending via SMTP:", err);
-        return res
-          .status(502)
-          .json({ error: "Unable to send external email." });
-      }
-    }
-
-    // 1) Create the sender's Sent (or Draft) message (internal record)
+    // 1) Sender's copy: Sent or Draft
     const sentMessage = await prisma.mailMessage.create({
       data: {
+        accountId: senderAccount.id,
         userId: user.id,
-        accountId: account.id,
         folder: effectiveFolder,
+
         subject: String(subject),
-        fromAddress: account.emailAddress,
+        fromAddress: senderAccount.emailAddress,
         toAddress: normalizedTo,
+        ccAddress: null,
+        bccAddress: null,
+
         bodyHtml: html,
         bodyText: text,
+
         isRead: true,
         isStarred: false,
+
         sentAt: effectiveFolder === "sent" ? now : null,
         receivedAt: null,
+
+        externalId: null,
+        threadKey: null,
+        inReplyToId: null,
       },
     });
 
-    // 2) If it's actually being "sent", also deliver a copy into
-    //    the recipient's inbox (if that account exists in our system).
+    // 2) Try to deliver to any matching internal user inbox(es)
     if (effectiveFolder === "sent") {
-      const recipientAccount = await prisma.mailAccount.findFirst({
-        where: { emailAddress: normalizedTo },
+      const recipientUsers = await prisma.user.findMany({
+        where: { email: normalizedTo },
       });
 
-      if (recipientAccount) {
-        await prisma.mailMessage.create({
-          data: {
-            userId: recipientAccount.userId,
-            accountId: recipientAccount.id,
-            folder: "inbox",
-            subject: String(subject),
-            fromAddress: account.emailAddress,
-            toAddress: normalizedTo,
-            bodyHtml: html,
-            bodyText: text,
-            isRead: false,
-            isStarred: false,
-            sentAt: now,
-            receivedAt: now,
-          },
-        });
+      if (recipientUsers.length > 0) {
+        await Promise.all(
+          recipientUsers.map(async (recipientUser) => {
+            const recipientAccount = await ensureAccountForUser(
+              recipientUser
+            );
+
+            await prisma.mailMessage.create({
+              data: {
+                accountId: recipientAccount.id,
+                userId: recipientUser.id,
+                folder: "inbox",
+
+                subject: String(subject),
+                fromAddress: senderAccount.emailAddress,
+                toAddress: normalizedTo,
+                ccAddress: null,
+                bccAddress: null,
+
+                bodyHtml: html,
+                bodyText: text,
+
+                isRead: false,
+                isStarred: false,
+
+                sentAt: now,
+                receivedAt: now,
+
+                externalId: null,
+                threadKey: null,
+                inReplyToId: sentMessage.id,
+              },
+            });
+          })
+        );
       }
+    }
+
+    // 3) Fire off real SMTP mail if configured (best-effort, non-blocking for UX)
+    if (smtpEnabled && transporter && effectiveFolder === "sent") {
+      transporter
+        .sendMail({
+          from: senderAccount.emailAddress || smtpUser,
+          to: normalizedTo,
+          subject: String(subject),
+          html,
+          text,
+        })
+        .catch((err) => {
+          console.error("Error sending SMTP mail:", err);
+        });
     }
 
     return res.status(201).json({ message: mapMessage(sentMessage) });
@@ -417,12 +356,10 @@ router.get("/messages/:id", async (req, res) => {
   const { id } = req.params;
 
   try {
-    const account = await ensureAccountForUser(user);
-
     const msg = await prisma.mailMessage.findFirst({
       where: {
         id,
-        accountId: account.id,
+        userId: user.id,
       },
     });
 
@@ -461,12 +398,10 @@ router.patch("/messages/:id", async (req, res) => {
   }
 
   try {
-    const account = await ensureAccountForUser(user);
-
     const existing = await prisma.mailMessage.findFirst({
       where: {
         id,
-        accountId: account.id,
+        userId: user.id,
       },
     });
 
@@ -496,12 +431,10 @@ router.delete("/messages/:id", async (req, res) => {
   const { id } = req.params;
 
   try {
-    const account = await ensureAccountForUser(user);
-
     const existing = await prisma.mailMessage.findFirst({
       where: {
         id,
-        accountId: account.id,
+        userId: user.id,
       },
     });
 
