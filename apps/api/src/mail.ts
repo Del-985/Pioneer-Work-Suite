@@ -1,7 +1,7 @@
 // apps/api/src/mail.ts
 import express from "express";
 import nodemailer from "nodemailer";
-import { authMiddleware, User } from "./auth";
+import { authMiddleware, User as AuthUser } from "./auth";
 import { prisma } from "./prisma";
 
 const router = express.Router();
@@ -111,9 +111,16 @@ function mapMessage(m: any): MailMessageResponse {
 
 // ---------- Account helper ----------
 
-async function ensureAccountForUser(user: User) {
+// Loose shape that works for both AuthUser and Prisma.User
+type MailUserLike = {
+  id: string;
+  email: string | null;
+  name: string | null;
+};
+
+async function ensureAccountForUser(user: MailUserLike) {
   const email = (user.email || "").toLowerCase();
-  const displayName = user.name || user.email;
+  const displayName = user.name || user.email || "";
 
   // Try existing account by userId
   const existing = await prisma.mailAccount.findFirst({
@@ -166,13 +173,17 @@ async function ensureAccountForUser(user: User) {
 
 // GET /mail/accounts
 router.get("/accounts", async (req, res) => {
-  const user = (req as any).user as User | undefined;
+  const user = (req as any).user as AuthUser | undefined;
   if (!user) {
     return res.status(401).json({ error: "Unauthenticated" });
   }
 
   try {
-    const account = await ensureAccountForUser(user);
+    const account = await ensureAccountForUser({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+    });
     return res.json({ accounts: [mapAccount(account)] });
   } catch (err) {
     console.error("Error in GET /mail/accounts:", err);
@@ -182,7 +193,7 @@ router.get("/accounts", async (req, res) => {
 
 // GET /mail/messages?folder=inbox|sent|draft|archive
 router.get("/messages", async (req, res) => {
-  const user = (req as any).user as User | undefined;
+  const user = (req as any).user as AuthUser | undefined;
   if (!user) {
     return res.status(401).json({ error: "Unauthenticated" });
   }
@@ -196,7 +207,6 @@ router.get("/messages", async (req, res) => {
       : "inbox";
 
   try {
-    // We anchor on userId so we can support multiple accounts later
     const messages = await prisma.mailMessage.findMany({
       where: {
         userId: user.id,
@@ -220,7 +230,7 @@ router.get("/messages", async (req, res) => {
 
 // POST /mail/messages  (compose/send)
 router.post("/messages", async (req, res) => {
-  const user = (req as any).user as User | undefined;
+  const user = (req as any).user as AuthUser | undefined;
   if (!user) {
     return res.status(401).json({ error: "Unauthenticated" });
   }
@@ -244,7 +254,11 @@ router.post("/messages", async (req, res) => {
     folder === "draft" ? "draft" : "sent";
 
   try {
-    const senderAccount = await ensureAccountForUser(user);
+    const senderAccount = await ensureAccountForUser({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+    });
     const now = new Date();
 
     const html = String(bodyHtml || "");
@@ -280,7 +294,7 @@ router.post("/messages", async (req, res) => {
       },
     });
 
-    // 2) Try to deliver to any matching internal user inbox(es)
+    // 2) Deliver to any matching internal user inbox(es)
     if (effectiveFolder === "sent") {
       const recipientUsers = await prisma.user.findMany({
         where: { email: normalizedTo },
@@ -289,9 +303,11 @@ router.post("/messages", async (req, res) => {
       if (recipientUsers.length > 0) {
         await Promise.all(
           recipientUsers.map(async (recipientUser) => {
-            const recipientAccount = await ensureAccountForUser(
-              recipientUser
-            );
+            const recipientAccount = await ensureAccountForUser({
+              id: recipientUser.id,
+              email: recipientUser.email,
+              name: recipientUser.name,
+            });
 
             await prisma.mailMessage.create({
               data: {
@@ -324,7 +340,7 @@ router.post("/messages", async (req, res) => {
       }
     }
 
-    // 3) Fire off real SMTP mail if configured (best-effort, non-blocking for UX)
+    // 3) Fire off real SMTP mail if configured (best-effort)
     if (smtpEnabled && transporter && effectiveFolder === "sent") {
       transporter
         .sendMail({
@@ -348,7 +364,7 @@ router.post("/messages", async (req, res) => {
 
 // GET /mail/messages/:id
 router.get("/messages/:id", async (req, res) => {
-  const user = (req as any).user as User | undefined;
+  const user = (req as any).user as AuthUser | undefined;
   if (!user) {
     return res.status(401).json({ error: "Unauthenticated" });
   }
@@ -376,7 +392,7 @@ router.get("/messages/:id", async (req, res) => {
 
 // PATCH /mail/messages/:id  (update flags/folder)
 router.patch("/messages/:id", async (req, res) => {
-  const user = (req as any).user as User | undefined;
+  const user = (req as any).user as AuthUser | undefined;
   if (!user) {
     return res.status(401).json({ error: "Unauthenticated" });
   }
@@ -423,7 +439,7 @@ router.patch("/messages/:id", async (req, res) => {
 
 // DELETE /mail/messages/:id
 router.delete("/messages/:id", async (req, res) => {
-  const user = (req as any).user as User | undefined;
+  const user = (req as any).user as AuthUser | undefined;
   if (!user) {
     return res.status(401).json({ error: "Unauthenticated" });
   }
