@@ -2,18 +2,15 @@
 /// <reference types="vite/client" />
 
 import { defineConfig } from "vite";
-// If your project uses "@vitejs/plugin-react-swc" instead, just change this import.
-import react from "@vitejs/plugin-react";
+import react from "@vitejs/plugin-react-swc";
 
 const isTauri = !!process.env.TAURI_PLATFORM;
 
 export default defineConfig(() => ({
   plugins: [react()],
 
-  // IMPORTANT: make assets load correctly inside the packaged Tauri app.
-  // - In Tauri builds, we use a relative base "./" so index.html references
-  //   "assets/..." instead of "/assets/...".
-  // - In normal web builds, we keep the usual SPA base "/".
+  // For normal web builds: base "/"
+  // For Tauri desktop builds: base "./" so assets resolve correctly
   base: isTauri ? "./" : "/",
 
   server: {
@@ -23,7 +20,7 @@ export default defineConfig(() => ({
   },
 
   build: {
-    // Tauri webview targets (pulled from Tauri docs)
+    // Tauri's recommended targets when bundling for desktop
     target: isTauri
       ? ["es2021", "chrome97", "safari13"]
       : "esnext",
