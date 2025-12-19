@@ -1,0 +1,49 @@
+name: Build Desktop (Tauri)
+
+on:
+  # Manual trigger from the Actions tab
+  workflow_dispatch:
+  # Optional: auto-build when desktop/app code changes
+  push:
+    paths:
+      - "desktop/**"
+      - "apps/web/**"
+      - ".github/workflows/desktop-build.yml"
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Install desktop dependencies
+        run: |
+          cd desktop
+          corepack enable || echo "corepack already enabled"
+          yarn install --frozen-lockfile
+
+      - name: Build Tauri desktop app
+        run: |
+          cd desktop
+          yarn tauri:build
+
+      - name: Upload Windows EXE and bundles
+        uses: actions/upload-artifact@v4
+        with:
+          name: pioneer-work-suite-windows
+          path: |
+            desktop/src-tauri/target/release/*.exe
+            desktop/src-tauri/target/release/bundle/**/*
+          if-no-files-found: error
