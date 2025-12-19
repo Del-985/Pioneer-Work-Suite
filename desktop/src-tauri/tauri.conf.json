@@ -1,0 +1,29 @@
+{
+  "$schema": "../node_modules/@tauri-apps/cli/schema.json",
+  "build": {
+    "beforeDevCommand": "cd ../apps/web && yarn dev",
+    "beforeBuildCommand": "cd ../apps/web && yarn build",
+    "devPath": "http://localhost:5173",
+    "distDir": "../apps/web/dist"
+  },
+  "package": {
+    "productName": "Pioneer Work Suite",
+    "version": "0.1.0"
+  },
+  "tauri": {
+    "windows": [
+      {
+        "title": "Pioneer Work Suite",
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "bundle": {
+      "identifier": "com.pioneer.work-suite",
+      "targets": "all"
+    },
+    "allowlist": {
+      "all": true
+    }
+  }
+}
