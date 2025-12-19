@@ -14,8 +14,6 @@
   },
 
   "tauri": {
-    "identifier": "com.pioneer.suite",
-
     "windows": [
       {
         "title": "Pioneer Work Suite",
