@@ -1,15 +1,20 @@
+// apps/web/src/main.tsx
 import React from "react";
 import ReactDOM from "react-dom/client";
-import { BrowserRouter } from "react-router-dom";
+import { HashRouter } from "react-router-dom";
 import App from "./App";
-import "./styles/global.css";
+import "./index.css";
 
-ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
+const container = document.getElementById("root");
+
+if (!container) {
+  throw new Error("Root element #root not found");
+}
+
+ReactDOM.createRoot(container).render(
   <React.StrictMode>
-    <BrowserRouter basename="/Pioneer-Work-Suite">
+    <HashRouter>
       <App />
-    </BrowserRouter>
+    </HashRouter>
   </React.StrictMode>
 );
-
-//is broken
