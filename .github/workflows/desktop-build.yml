@@ -1,53 +1,52 @@
-name: Build Desktop (Tauri)
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Pioneer Work Suite",
+  "version": "0.1.0",
+  "identifier": "com.pioneer.suite",
 
-on:
-  workflow_dispatch:
-  push:
-    paths:
-      - "desktop/**"
-      - "apps/web/**"
-      - ".github/workflows/desktop-build.yml"
+  "build": {
+    "beforeBuildCommand": "cd ../apps/web && yarn build",
+    "beforeDevCommand": "cd ../apps/web && yarn dev",
+    "devPath": "http://localhost:5173",
+    "distDir": "../../apps/web/dist"
+  },
 
-jobs:
-  build-windows:
-    runs-on: windows-latest
+  "app": {
+    "windows": [
+      {
+        "title": "Pioneer Work Suite",
+        "width": 1200,
+        "height": 800,
+        "resizable": true,
+        "fullscreen": false,
+        "hiddenTitle": true,
+        "titleBarStyle": "Overlay"
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
 
-    steps:
-      - name: Checkout repo
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-
-      - name: Setup Rust
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          toolchain: stable
-
-      # Install deps for the web app so `yarn build` has Vite available
-      - name: Install web app dependencies
-        run: |
-          cd apps/web
-          yarn install --frozen-lockfile
-
-      # Install deps for the desktop wrapper
-      - name: Install desktop dependencies
-        run: |
-          cd desktop
-          yarn install --frozen-lockfile
-
-      - name: Build Tauri desktop app
-        run: |
-          cd desktop
-          yarn tauri:build
-
-      - name: Upload Windows EXE and bundles
-        uses: actions/upload-artifact@v4
-        with:
-          name: pioneer-work-suite-windows
-          path: |
-            desktop/src-tauri/target/release/*.exe
-            desktop/src-tauri/target/release/bundle/**/*
-          if-no-files-found: error
+  "bundle": {
+    "active": true,
+    "identifier": "com.pioneer.suite",
+    "targets": [
+      "nsis"
+    ],
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "windows": {
+      "wix": null,
+      "nsis": {
+        "installerIcon": "icons/icon.ico",
+        "installMode": "perMachine"
+      }
+    }
+  }
+}
