@@ -1,52 +1,63 @@
-{
-  "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Pioneer Work Suite",
-  "version": "0.1.0",
-  "identifier": "com.pioneer.suite",
+name: Build Desktop Client
 
-  "build": {
-    "beforeBuildCommand": "cd ../apps/web && yarn build",
-    "beforeDevCommand": "cd ../apps/web && yarn dev",
-    "devPath": "http://localhost:5173",
-    "distDir": "../apps/web/dist"
-  },
+on:
+  # Manual trigger from GitHub UI
+  workflow_dispatch:
 
-  "app": {
-    "windows": [
-      {
-        "title": "Pioneer Work Suite",
-          "width": 1200,
-          "height": 800,
-          "resizable": true,
-          "fullscreen": false,
-          "hiddenTitle": true,
-          "titleBarStyle": "Overlay"
-      }
-    ],
-    "security": {
-      "csp": null
-    }
-  },
+jobs:
+  build-windows:
+    runs-on: windows-latest
 
-  "bundle": {
-    "active": true,
-    "identifier": "com.pioneer.suite",
-    "targets": [
-      "nsis"
-    ],
-    "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
-    ],
-    "windows": {
-      "wix": null,
-      "nsis": {
-        "installerIcon": "icons/icon.ico",
-        "installMode": "perMachine"
-      }
-    }
-  }
-}
+    env:
+      CARGO_TERM_COLOR: always
+      CARGO_HOME: C:\Users\runneradmin\.cargo
+      CARGO_INCREMENTAL: 0
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache Rust
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            desktop/src-tauri/target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('desktop/src-tauri/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
+
+      - name: Install web dependencies
+        working-directory: ./apps/web
+        run: |
+          yarn install --frozen-lockfile
+
+      - name: Install desktop (Tauri) dependencies
+        working-directory: ./desktop
+        run: |
+          yarn install --frozen-lockfile
+
+      - name: Build Tauri app (Windows)
+        working-directory: ./desktop
+        run: |
+          yarn tauri:build
+
+      - name: Upload Windows installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: pioneer-work-suite-windows
+          path: |
+            desktop/src-tauri/target/release/bundle/nsis/*.exe
+            desktop/src-tauri/target/release/bundle/msi/*.msi
+          if-no-files-found: warn
