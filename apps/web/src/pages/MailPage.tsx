@@ -37,6 +37,14 @@ const MailPage: React.FC = () => {
   const [searchText, setSearchText] = useState("");
   const [starredOnly, setStarredOnly] = useState(false);
 
+  // Per-folder unread counts (for badges)
+  const [unreadCounts, setUnreadCounts] = useState<Record<MailFolder, number>>({
+    inbox: 0,
+    sent: 0,
+    draft: 0,
+    archive: 0,
+  });
+
   // Compose state
   const [composeTo, setComposeTo] = useState("");
   const [composeSubject, setComposeSubject] = useState("");
@@ -49,6 +57,14 @@ const MailPage: React.FC = () => {
     setSelectedId(null);
   }
 
+  function recalcUnread(nextMessages: MailMessage[], folder: MailFolder) {
+    const unread = nextMessages.filter((m) => !m.isRead).length;
+    setUnreadCounts((prev) => ({
+      ...prev,
+      [folder]: unread,
+    }));
+  }
+
   // Load messages when folder changes
   useEffect(() => {
     let cancelled = false;
@@ -59,17 +75,26 @@ const MailPage: React.FC = () => {
         setListError(null);
         resetSelection();
 
-        // 🔧 FIX: pass folder as a string, not an object
-        const folderMessages = await fetchMailMessages(activeFolder);
+        const folderMessages = await fetchMailMessages({
+          folder: activeFolder,
+          // NOTE: search + starredOnly could be pushed to the backend later.
+        });
 
         if (!cancelled) {
-          setMessages(folderMessages);
+          setMessages(() => {
+            const next = folderMessages;
+            recalcUnread(next, activeFolder);
+            return next;
+          });
         }
       } catch (err) {
         console.error("Error loading mail messages:", err);
         if (!cancelled) {
           setListError("Unable to load messages.");
-          setMessages([]);
+          setMessages(() => {
+            recalcUnread([], activeFolder);
+            return [];
+          });
         }
       } finally {
         if (!cancelled) {
@@ -131,40 +156,49 @@ const MailPage: React.FC = () => {
 
   async function toggleRead(message: MailMessage, read: boolean) {
     try {
-      // Optimistic update
-      setMessages((prev) =>
-        prev.map((m) =>
+      // Optimistic update + recalc unread for current folder
+      setMessages((prev) => {
+        const next = prev.map((m) =>
           m.id === message.id ? { ...m, isRead: read } : m
-        )
-      );
+        );
+        recalcUnread(next, activeFolder);
+        return next;
+      });
       await updateMailMessage(message.id, { isRead: read });
     } catch (err) {
       console.error("Error updating read state:", err);
-      // Roll back
-      setMessages((prev) =>
-        prev.map((m) =>
+      // Roll back if needed
+      setMessages((prev) => {
+        const next = prev.map((m) =>
           m.id === message.id ? { ...m, isRead: message.isRead } : m
-        )
-      );
+        );
+        recalcUnread(next, activeFolder);
+        return next;
+      });
     }
   }
 
   async function toggleStar(message: MailMessage) {
     const newStar = !message.isStarred;
     try {
-      setMessages((prev) =>
-        prev.map((m) =>
+      setMessages((prev) => {
+        const next = prev.map((m) =>
           m.id === message.id ? { ...m, isStarred: newStar } : m
-        )
-      );
+        );
+        // Stars don't affect unread, but recalc keeps badges in sync after deletes etc.
+        recalcUnread(next, activeFolder);
+        return next;
+      });
       await updateMailMessage(message.id, { isStarred: newStar });
     } catch (err) {
       console.error("Error updating star state:", err);
-      setMessages((prev) =>
-        prev.map((m) =>
+      setMessages((prev) => {
+        const next = prev.map((m) =>
           m.id === message.id ? { ...m, isStarred: message.isStarred } : m
-        )
-      );
+        );
+        recalcUnread(next, activeFolder);
+        return next;
+      });
     }
   }
 
@@ -173,7 +207,11 @@ const MailPage: React.FC = () => {
     if (!confirmed) return;
 
     const previous = messages;
-    setMessages((prev) => prev.filter((m) => m.id !== message.id));
+    setMessages((prev) => {
+      const next = prev.filter((m) => m.id !== message.id);
+      recalcUnread(next, activeFolder);
+      return next;
+    });
     if (selectedId === message.id) {
       resetSelection();
     }
@@ -183,8 +221,87 @@ const MailPage: React.FC = () => {
     } catch (err) {
       console.error("Error deleting mail message:", err);
       // Roll back if it wasn't a 404
-      setMessages(previous);
+      setMessages(() => {
+        recalcUnread(previous, activeFolder);
+        return previous;
+      });
     }
+  }
+
+  async function handleArchive(message: MailMessage) {
+    // Only move if not already archived
+    if (message.folder === "archive") return;
+
+    const previous = messages;
+
+    // Optimistically remove from current list
+    setMessages((prev) => {
+      const next = prev.filter((m) => m.id !== message.id);
+      recalcUnread(next, activeFolder);
+      return next;
+    });
+    if (selectedId === message.id) {
+      resetSelection();
+    }
+
+    try {
+      await updateMailMessage(message.id, { folder: "archive" });
+    } catch (err) {
+      console.error("Error archiving message:", err);
+      // Roll back locally
+      setMessages(() => {
+        recalcUnread(previous, activeFolder);
+        return previous;
+      });
+    }
+  }
+
+  function startReply(message: MailMessage) {
+    const baseSubject = message.subject || "";
+    const lower = baseSubject.toLowerCase();
+    const subject = lower.startsWith("re:")
+      ? baseSubject
+      : baseSubject
+      ? `Re: ${baseSubject}`
+      : "Re:";
+
+    const when = formatDate(message.receivedAt || message.sentAt) || "an earlier date";
+
+    const quoted = message.bodyText || "";
+    const headerLine = `\n\nOn ${when}, ${message.fromAddress} wrote:\n`;
+
+    setComposeTo(message.fromAddress);
+    setComposeSubject(subject);
+    setComposeBody(headerLine + quoted);
+    setSendError(null);
+    setView("compose");
+  }
+
+  function startForward(message: MailMessage) {
+    const baseSubject = message.subject || "";
+    const lower = baseSubject.toLowerCase();
+    const subject = lower.startsWith("fwd:")
+      ? baseSubject
+      : baseSubject
+      ? `Fwd: ${baseSubject}`
+      : "Fwd:";
+
+    const when = formatDate(message.receivedAt || message.sentAt) || "an earlier date";
+
+    const quoted = message.bodyText || "";
+    const headerBlock =
+      `\n\n---------- Forwarded message ----------\n` +
+      `From: ${message.fromAddress}\n` +
+      `To: ${message.toAddress}\n` +
+      (message.ccAddress ? `CC: ${message.ccAddress}\n` : "") +
+      `Date: ${when}\n` +
+      `Subject: ${message.subject || "(No subject)"}\n\n`;
+
+    setComposeTo("");
+    setComposeSubject(subject);
+    setComposeBody(headerBlock + quoted);
+    setSendError(null);
+    setView("compose");
   }
 
   async function handleSend(e: React.FormEvent) {
@@ -211,7 +328,11 @@ const MailPage: React.FC = () => {
 
       // If we're currently viewing "sent", inject the new mail at the top
       if (activeFolder === "sent") {
-        setMessages((prev) => [sent, ...prev]);
+        setMessages((prev) => {
+          const next = [sent, ...prev];
+          recalcUnread(next, activeFolder);
+          return next;
+        });
       }
 
       setComposeTo("");
@@ -224,40 +345,6 @@ const MailPage: React.FC = () => {
     } finally {
       setSending(false);
     }
-  }
-
-  // Start a reply to the selected message
-  function startReply() {
-    if (!selectedMessage) return;
-
-    const original = selectedMessage;
-
-    // To: whoever sent the original
-    setComposeTo(original.fromAddress || "");
-
-    // Subject: add "Re:" if needed
-    const baseSubject = original.subject || "";
-    const subject = /^re:/i.test(baseSubject)
-      ? baseSubject
-      : `Re: ${baseSubject}`;
-    setComposeSubject(subject);
-
-    // Simple quoted body
-    const timestamp = formatDate(original.receivedAt || original.sentAt);
-    const headerLine = timestamp
-      ? `On ${timestamp}, ${original.fromAddress} wrote:\n`
-      : `${original.fromAddress} wrote:\n`;
-
-    const quoted =
-      (original.bodyText || original.bodyHtml || "")
-        .split("\n")
-        .map((line) => `> ${line}`)
-        .join("\n") || "> ";
-
-    setComposeBody(`\n\n${headerLine}${quoted}`);
-
-    setSendError(null);
-    setView("compose");
   }
 
   // ---- Render helpers ----
@@ -276,6 +363,8 @@ const MailPage: React.FC = () => {
       >
         {folders.map((folder) => {
           const isActive = activeFolder === folder;
+          const unread = unreadCounts[folder] ?? 0;
+
           return (
             <button
               key={folder}
@@ -296,9 +385,29 @@ const MailPage: React.FC = () => {
                 color: isActive ? "#ffffff" : "#d4d7ff",
                 fontSize: 12,
                 cursor: "pointer",
+                display: "inline-flex",
+                alignItems: "center",
+                gap: 6,
               }}
             >
-              {folderLabels[folder]}
+              <span>{folderLabels[folder]}</span>
+              {unread > 0 && (
+                <span
+                  style={{
+                    minWidth: 18,
+                    padding: "1px 6px",
+                    borderRadius: 999,
+                    background: isActive
+                      ? "rgba(0,0,0,0.25)"
+                      : "rgba(63,100,255,0.3)",
+                    color: "#ffffff",
+                    fontSize: 11,
+                    textAlign: "center",
+                  }}
+                >
+                  {unread}
+                </span>
+              )}
             </button>
           );
         })}
@@ -328,13 +437,7 @@ const MailPage: React.FC = () => {
         >
           <button
             type="button"
-            onClick={() => {
-              setComposeTo("");
-              setComposeSubject("");
-              setComposeBody("");
-              setSendError(null);
-              setView("compose");
-            }}
+            onClick={() => setView("compose")}
             style={{
               padding: "6px 12px",
               borderRadius: 999,
@@ -588,7 +691,22 @@ const MailPage: React.FC = () => {
           >
             <button
               type="button"
-              onClick={() => startReply()}
+              onClick={() => void handleArchive(msg)}
+              style={{
+                padding: "4px 8px",
+                borderRadius: 999,
+                border: "1px solid rgba(255,255,255,0.18)",
+                background: "transparent",
+                color: "#f5f5f5",
+                fontSize: 11,
+                cursor: "pointer",
+              }}
+            >
+              Archive
+            </button>
+            <button
+              type="button"
+              onClick={() => void startReply(msg)}
               style={{
                 padding: "4px 8px",
                 borderRadius: 999,
@@ -600,6 +718,21 @@ const MailPage: React.FC = () => {
               }}
             >
               Reply
+            </button>
+            <button
+              type="button"
+              onClick={() => void startForward(msg)}
+              style={{
+                padding: "4px 8px",
+                borderRadius: 999,
+                border: "1px solid rgba(255,255,255,0.18)",
+                background: "transparent",
+                color: "#f5f5f5",
+                fontSize: 11,
+                cursor: "pointer",
+              }}
+            >
+              Forward
             </button>
             <button
               type="button"
@@ -649,9 +782,7 @@ const MailPage: React.FC = () => {
           }}
         >
           {msg.bodyHtml ? (
-            <div
-              dangerouslySetInnerHTML={{ __html: msg.bodyHtml }}
-            />
+            <div dangerouslySetInnerHTML={{ __html: msg.bodyHtml }} />
           ) : (
             <pre
               style={{
