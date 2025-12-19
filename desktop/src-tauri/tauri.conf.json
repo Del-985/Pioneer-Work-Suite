@@ -1,8 +1,5 @@
 {
-  "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Pioneer Work Suite",
-  "version": "0.1.0",
-  "identifier": "com.pioneer.suite",
+  "$schema": "https://schema.tauri.app/config/1",
 
   "build": {
     "beforeBuildCommand": "cd ../apps/web && yarn build",
@@ -11,41 +8,49 @@
     "distDir": "../apps/web/dist"
   },
 
-  "app": {
+  "package": {
+    "productName": "Pioneer Work Suite",
+    "version": "0.1.0"
+  },
+
+  "tauri": {
+    "identifier": "com.pioneer.suite",
+
     "windows": [
       {
         "title": "Pioneer Work Suite",
-          "width": 1200,
-          "height": 800,
-          "resizable": true,
-          "fullscreen": false,
-          "hiddenTitle": true,
-          "titleBarStyle": "Overlay"
+        "width": 1200,
+        "height": 800,
+        "resizable": true,
+        "fullscreen": false,
+        "hiddenTitle": true,
+        "titleBarStyle": "Overlay"
       }
     ],
+
     "security": {
       "csp": null
-    }
-  },
+    },
 
-  "bundle": {
-    "active": true,
-    "identifier": "com.pioneer.suite",
-    "targets": [
-      "nsis"
-    ],
-    "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns",
-      "icons/icon.ico"
-    ],
-    "windows": {
-      "wix": null,
-      "nsis": {
-        "installerIcon": "icons/icon.ico",
-        "installMode": "perMachine"
+    "bundle": {
+      "active": true,
+      "identifier": "com.pioneer.suite",
+      "targets": [
+        "nsis"
+      ],
+      "icon": [
+        "icons/32x32.png",
+        "icons/128x128.png",
+        "icons/128x128@2x.png",
+        "icons/icon.icns",
+        "icons/icon.ico"
+      ],
+      "windows": {
+        "wix": null,
+        "nsis": {
+          "installerIcon": "icons/icon.ico",
+          "installMode": "perMachine"
+        }
       }
     }
   }
