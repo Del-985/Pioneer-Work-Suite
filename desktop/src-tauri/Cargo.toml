@@ -1,18 +1,20 @@
 [package]
 name = "pioneer-work-suite"
 version = "0.1.0"
-description = "Pioneer Work Suite Desktop"
+description = "Pioneer Work Suite desktop client"
 authors = ["Del"]
 edition = "2021"
+build = "build.rs"
 
 [dependencies]
-tauri = { version = "1.5", features = ["api-all"] }
+tauri = { version = "1", features = ["shell-open"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 [build-dependencies]
-tauri-build = { version = "1.5", features = [] }
+tauri-build = { version = "1", features = [] }
 
 [features]
+# This is a common Tauri pattern; you can tweak later if needed.
 default = ["custom-protocol"]
 custom-protocol = ["tauri/custom-protocol"]
