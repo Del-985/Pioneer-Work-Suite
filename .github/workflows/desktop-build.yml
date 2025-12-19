@@ -1,9 +1,7 @@
 name: Build Desktop (Tauri)
 
 on:
-  # Manual trigger from the Actions tab
   workflow_dispatch:
-  # Optional: auto-build when desktop/app code changes
   push:
     paths:
       - "desktop/**"
@@ -28,10 +26,16 @@ jobs:
         with:
           toolchain: stable
 
+      # Install deps for the web app so `yarn build` has Vite available
+      - name: Install web app dependencies
+        run: |
+          cd apps/web
+          yarn install --frozen-lockfile
+
+      # Install deps for the desktop wrapper
       - name: Install desktop dependencies
         run: |
           cd desktop
-          corepack enable || echo "corepack already enabled"
           yarn install --frozen-lockfile
 
       - name: Build Tauri desktop app
