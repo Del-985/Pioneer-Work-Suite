@@ -1,16 +1,10 @@
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+// desktop/src-tauri/src/main.rs
 
-use tauri_plugin_updater::Builder as UpdaterBuilder;
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
     tauri::Builder::default()
-        // Prepare the updater plugin (we’ll actually *use* it in a later step)
-        .plugin(
-            UpdaterBuilder::new()
-                // For now we don’t customize anything here; we’ll add callbacks
-                // and proper update endpoints in a later step.
-                .build(),
-        )
+        // If you add custom commands later, they’ll be attached here
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
