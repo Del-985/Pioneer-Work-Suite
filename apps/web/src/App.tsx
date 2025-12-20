@@ -19,9 +19,9 @@ import {
   updateTask,
   deleteTask,
   Task,
-  trySyncTasksIfOnline,
 } from "./api/tasks";
 import { fetchDocuments, Document as Doc } from "./api/documents";
+import UpdateBanner from "./components/UpdateBanner";
 
 // ---- Right-sidebar mode ----
 type SidebarMode = "tasks" | "documents";
@@ -81,7 +81,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         setLoading(true);
         setError(null);
 
-        // Load tasks for summary (offline-aware)
+        // Load tasks for summary
         const tasks = await fetchTasks();
 
         const now = new Date();
@@ -110,7 +110,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           }
         }
 
-        // Load recent documents (still online-only for now)
+        // Load recent documents
         const docs = await fetchDocuments();
         const sortedDocs = [...docs].sort((a, b) => {
           const aTime = new Date(a.updatedAt || a.createdAt).getTime();
@@ -443,23 +443,6 @@ const App: React.FC = () => {
     }
   }
 
-  // ---- Global tasks sync: run once on mount + whenever we go online ----
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-
-    const handleOnline = () => {
-      void trySyncTasksIfOnline();
-    };
-
-    // initial attempt (in case we have queued ops and are already online)
-    void trySyncTasksIfOnline();
-
-    window.addEventListener("online", handleOnline);
-    return () => {
-      window.removeEventListener("online", handleOnline);
-    };
-  }, []);
-
   // ---- Tasks state for right-hand panel ----
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
@@ -698,6 +681,9 @@ const App: React.FC = () => {
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </section>
+
+          {/* Desktop auto-update banner (hidden in browser) */}
+          <UpdateBanner />
         </main>
 
         {/* Right panel */}
