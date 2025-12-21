@@ -24,6 +24,8 @@ import {
 } from "./api/tasks";
 import { fetchDocuments, Document as Doc } from "./api/documents";
 
+import UpdateBanner from "./components/UpdateBanner";
+
 // ---- Right-sidebar mode ----
 type SidebarMode = "tasks" | "documents";
 const SIDEBAR_MODE_KEY = "pioneer-sidebar-mode";
@@ -565,6 +567,10 @@ const App: React.FC = () => {
 
   return (
     <div className="app app-dark">
+      {/* Desktop-only / Tauri-only updater banner.
+          On web, UpdateBanner returns null. */}
+      <UpdateBanner />
+
       {/* Left sidebar */}
       <aside className="sidebar-left">
         <div className="sidebar-logo">
