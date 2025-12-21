@@ -621,6 +621,9 @@ const App: React.FC = () => {
             </p>
           </header>
 
+          {/* Desktop-only (Tauri) update banner – no-op on plain web */}
+          <UpdateBanner />
+
           <section className="workspace-body">
             <Routes>
               <Route path="/login" element={<LoginPage />} />
@@ -681,9 +684,6 @@ const App: React.FC = () => {
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </section>
-
-          {/* Desktop auto-update banner (hidden in browser) */}
-          <UpdateBanner />
         </main>
 
         {/* Right panel */}
