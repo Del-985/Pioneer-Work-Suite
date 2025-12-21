@@ -1,124 +1,153 @@
-// apps/web/src/components/UpdateBanner.tsx
-import React, { useState } from "react";
-
-const isTauriRuntime =
-  typeof window !== "undefined" &&
-  Boolean((window as any).__TAURI_IPC__);
+import React, { useEffect, useState } from "react";
 
 /**
- * Small footer banner that shows a "Check for updates" control
- * when running inside the desktop (Tauri) client.
+ * Runtime check so we don't touch Tauri APIs in the plain web build.
  */
-const UpdateBanner: React.FC = () => {
-  const [status, setStatus] = useState<
-    "idle" | "checking" | "upToDate" | "downloading" | "installed" | "error"
-  >("idle");
-  const [message, setMessage] = useState<string | null>(null);
+function isTauri(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    typeof (window as any).__TAURI__ !== "undefined"
+  );
+}
 
-  if (!isTauriRuntime) {
-    // In the browser, this stays hidden
+type UpdateState =
+  | { status: "idle" }
+  | { status: "checking" }
+  | { status: "available"; version: string | null }
+  | { status: "updating" }
+  | { status: "error"; message: string };
+
+const UpdateBanner: React.FC = () => {
+  const [state, setState] = useState<UpdateState>({ status: "idle" });
+
+  useEffect(() => {
+    if (!isTauri()) return; // Do nothing in the browser
+
+    let cancelled = false;
+
+    async function checkForUpdate() {
+      try {
+        setState({ status: "checking" });
+
+        // Lazy-load the updater API only when we know we're in Tauri
+        const { checkUpdate } = await import("@tauri-apps/api/updater");
+
+        const result = await checkUpdate();
+        if (cancelled) return;
+
+        if (result.shouldUpdate) {
+          setState({
+            status: "available",
+            version: result.manifest?.version ?? null,
+          });
+        } else {
+          setState({ status: "idle" });
+        }
+      } catch (err) {
+        console.error("Update check failed:", err);
+        if (!cancelled) {
+          setState({
+            status: "error",
+            message: "Update check failed",
+          });
+        }
+      }
+    }
+
+    // Initial check on startup
+    void checkForUpdate();
+
+    // Optional: re-check every 4 hours
+    const handle = window.setInterval(checkForUpdate, 4 * 60 * 60 * 1000);
+
+    return () => {
+      cancelled = true;
+      window.clearInterval(handle);
+    };
+  }, []);
+
+  // In a browser build, render nothing.
+  if (!isTauri()) return null;
+
+  // We keep the banner minimal: only show when available or updating or error.
+  if (state.status === "idle" || state.status === "checking") {
     return null;
   }
 
-  async function handleCheck() {
+  async function handleInstall() {
+    if (!isTauri()) return;
+
     try {
-      setStatus("checking");
-      setMessage(null);
-
-      // Lazy-load Tauri updater so the browser build stays happy
-      const {
-        checkUpdate,
-        installUpdate,
-        onUpdaterEvent,
-      } = await import("@tauri-apps/api/updater");
-
-      const unlisten = await onUpdaterEvent((event) => {
-        // event.status is usually: 'PENDING', 'DOWNLOADING', 'DONE', 'ERROR'
-        if (event.status === "DOWNLOADING") {
-          setStatus("downloading");
-          setMessage("Downloading update…");
-        } else if (event.status === "DONE") {
-          setStatus("installed");
-          setMessage("Update downloaded. Restart to apply.");
-        } else if (event.status === "ERROR") {
-          setStatus("error");
-          setMessage("Updater error.");
-        }
-      });
-
-      const { shouldUpdate, manifest } = await checkUpdate();
-
-      if (!shouldUpdate) {
-        setStatus("upToDate");
-        setMessage("You’re on the latest version.");
-        await unlisten();
-        return;
-      }
-
-      const version = manifest?.version ?? "";
-      setMessage(
-        version
-          ? `Updating to version ${version}…`
-          : "Updating to latest version…"
-      );
-
+      const { installUpdate } = await import("@tauri-apps/api/updater");
+      setState({ status: "updating" });
       await installUpdate();
-      await unlisten();
-
-      setStatus("installed");
-      setMessage("Update installed. Restart the app to finish.");
+      // Tauri will typically restart the app after install.
     } catch (err) {
-      console.error("Updater error:", err);
-      setStatus("error");
-      setMessage("Unable to check for updates.");
+      console.error("Update install failed:", err);
+      setState({
+        status: "error",
+        message: "Update failed. Try restarting later.",
+      });
     }
   }
 
-  const buttonLabel =
-    status === "checking"
-      ? "Checking…"
-      : status === "downloading"
-      ? "Updating…"
-      : "Check for updates";
+  const label =
+    state.status === "available"
+      ? state.version
+        ? `A new version (${state.version}) is available`
+        : "A new version is available"
+      : state.status === "updating"
+      ? "Installing update…"
+      : state.message ?? "Update issue";
 
-  const disabled = status === "checking" || status === "downloading";
+  const isUpdating = state.status === "updating";
 
   return (
     <div
       style={{
-        marginTop: 10,
+        marginBottom: 8,
         padding: "6px 10px",
-        borderRadius: 10,
-        border: "1px solid rgba(255, 255, 255, 0.08)",
-        background: "#050713",
+        borderRadius: 999,
+        border: "1px solid rgba(255,255,255,0.16)",
+        background:
+          state.status === "error"
+            ? "rgba(255,118,118,0.18)"
+            : "linear-gradient(90deg, rgba(63,100,255,0.35), rgba(127,61,255,0.45))",
         display: "flex",
         alignItems: "center",
-        gap: 10,
+        justifyContent: "space-between",
+        gap: 8,
         fontSize: 11,
-        color: "#9da2c8",
       }}
     >
-      <span>Desktop client</span>
-      <button
-        type="button"
-        onClick={handleCheck}
-        disabled={disabled}
+      <div
         style={{
-          padding: "4px 10px",
-          borderRadius: 999,
-          border: "none",
-          background: disabled
-            ? "rgba(127, 61, 255, 0.4)"
-            : "linear-gradient(135deg, #3f64ff, #7f3dff)",
-          color: "#ffffff",
-          fontSize: 11,
-          cursor: disabled ? "default" : "pointer",
+          display: "flex",
+          alignItems: "center",
+          gap: 6,
         }}
       >
-        {buttonLabel}
-      </button>
-      {message && (
-        <span style={{ fontSize: 11, color: "#c5c9ff" }}>{message}</span>
+        <span style={{ fontSize: 14 }}>⬆️</span>
+        <span>{label}</span>
+      </div>
+
+      {state.status === "available" && (
+        <button
+          type="button"
+          onClick={handleInstall}
+          disabled={isUpdating}
+          style={{
+            padding: "4px 10px",
+            borderRadius: 999,
+            border: "none",
+            fontSize: 11,
+            cursor: isUpdating ? "default" : "pointer",
+            background: "#ffffff",
+            color: "#141729",
+          }}
+        >
+          Install now
+        </button>
       )}
     </div>
   );
