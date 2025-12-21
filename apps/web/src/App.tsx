@@ -21,7 +21,6 @@ import {
   Task,
 } from "./api/tasks";
 import { fetchDocuments, Document as Doc } from "./api/documents";
-import UpdateBanner from "./components/UpdateBanner";
 
 // ---- Right-sidebar mode ----
 type SidebarMode = "tasks" | "documents";
@@ -620,9 +619,6 @@ const App: React.FC = () => {
               calendar, and mail.
             </p>
           </header>
-
-          {/* Desktop-only (Tauri) update banner – no-op on plain web */}
-          <UpdateBanner />
 
           <section className="workspace-body">
             <Routes>
