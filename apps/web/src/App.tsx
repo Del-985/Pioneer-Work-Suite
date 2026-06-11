@@ -21,6 +21,7 @@ import {
   updateTask,
   deleteTask,
   Task,
+  trySyncTasksIfOnline,
 } from "./api/tasks";
 import { fetchDocuments, Document as Doc } from "./api/documents";
 
@@ -84,7 +85,7 @@ const Dashboard: React.FC<DashboardProps> = ({
         setLoading(true);
         setError(null);
 
-        // Load tasks for summary
+        // Load tasks for summary. This is now offline-aware.
         const tasks = await fetchTasks();
 
         const now = new Date();
@@ -113,7 +114,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           }
         }
 
-        // Load recent documents
+        // Load recent documents. Documents are not offline-hardened yet.
         const docs = await fetchDocuments();
         const sortedDocs = [...docs].sort((a, b) => {
           const aTime = new Date(a.updatedAt || a.createdAt).getTime();
@@ -446,6 +447,26 @@ const App: React.FC = () => {
     }
   }
 
+  // ---- Tasks offline sync: run on mount, when browser comes online, and periodically ----
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    const sync = () => {
+      void trySyncTasksIfOnline();
+    };
+
+    sync();
+
+    window.addEventListener("online", sync);
+
+    const interval = window.setInterval(sync, 60_000);
+
+    return () => {
+      window.removeEventListener("online", sync);
+      window.clearInterval(interval);
+    };
+  }, []);
+
   // ---- Tasks state for right-hand panel ----
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
@@ -470,6 +491,8 @@ const App: React.FC = () => {
       try {
         setTasksLoading(true);
         setTasksError(null);
+
+        // fetchTasks is now offline-aware and will fall back to local cache.
         const loadedTasks = await fetchTasks();
         setTasks(loadedTasks);
       } catch (err) {
@@ -479,7 +502,7 @@ const App: React.FC = () => {
         setTasksLoading(false);
       }
 
-      // Documents
+      // Documents are still online-backed for now.
       try {
         setSidebarDocsLoading(true);
         setSidebarDocsError(null);
@@ -530,7 +553,10 @@ const App: React.FC = () => {
     );
 
     try {
-      await updateTask(task.id, { status: nextStatus });
+      const updated = await updateTask(task.id, { status: nextStatus });
+      setTasks((prev) =>
+        prev.map((t) => (t.id === task.id ? { ...t, ...updated } : t))
+      );
     } catch (err) {
       console.error("Error updating task:", err);
       setTasksError("Unable to update task.");
@@ -538,12 +564,15 @@ const App: React.FC = () => {
   }
 
   async function handleDeleteTask(id: string) {
+    const previousTasks = tasks;
+
     setTasks((prev) => prev.filter((t) => t.id !== id));
 
     try {
       await deleteTask(id);
     } catch (err) {
       console.error("Error deleting task:", err);
+      setTasks(previousTasks);
       setTasksError("Unable to delete task.");
     }
   }
