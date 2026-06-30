@@ -22,8 +22,10 @@ import {
   deleteTask,
   Task,
   trySyncTasksIfOnline,
+  trySyncDocumentsIfOnline
 } from "./api/tasks";
 import { fetchDocuments, Document as Doc } from "./api/documents";
+import { trySyncDocumentsIfOnline } from "./api/documents";
 
 import UpdateBanner from "./components/UpdateBanner";
 
