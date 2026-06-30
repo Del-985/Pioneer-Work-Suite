@@ -7,8 +7,10 @@ type UpdateState =
   | { kind: "available"; version?: string }
   | { kind: "error"; message: string };
 
-const isTauriRuntime =
-  typeof window !== "undefined" && !!(window as any).__TAURI__;
+function isTauriRuntime(): boolean {
+  if (typeof window === "undefined") return false;
+  return !!(window as any).__TAURI__;
+}
 
 const isDev =
   typeof import.meta !== "undefined" && (import.meta as any).env?.DEV;
@@ -17,10 +19,7 @@ const UpdateBanner: React.FC = () => {
   const [state, setState] = useState<UpdateState>({ kind: "hidden" });
 
   useEffect(() => {
-    if (!isTauriRuntime) {
-      // Pure web build – never show anything.
-      return;
-    }
+    if (!isTauriRuntime()) return;
 
     let cancelled = false;
 
@@ -28,15 +27,12 @@ const UpdateBanner: React.FC = () => {
       try {
         setState({ kind: "checking" });
 
-        // Tauri built-in updater API
         const { checkUpdate } = await import("@tauri-apps/api/updater");
-
         const { shouldUpdate, manifest } = await checkUpdate();
 
         if (cancelled) return;
 
         if (!shouldUpdate) {
-          // No update available – stay hidden to keep UI clean.
           setState({ kind: "hidden" });
           return;
         }
@@ -50,13 +46,12 @@ const UpdateBanner: React.FC = () => {
 
         if (cancelled) return;
 
-        // In dev, surface a visible error so you can verify wiring.
         if (isDev) {
           setState({
             kind: "error",
             message:
               err?.message ||
-              "Updater is disabled or not configured. Check tauri.conf.json.",
+              "Updater is unavailable or not configured.",
           });
         } else {
           setState({ kind: "hidden" });
@@ -71,11 +66,7 @@ const UpdateBanner: React.FC = () => {
     };
   }, []);
 
-  if (!isTauriRuntime) {
-    // Browser: no banner
-    return null;
-  }
-
+  if (!isTauriRuntime()) return null;
   if (state.kind === "hidden") return null;
   if (state.kind === "error" && !isDev) return null;
 
@@ -83,59 +74,73 @@ const UpdateBanner: React.FC = () => {
     try {
       const { installUpdate } = await import("@tauri-apps/api/updater");
       await installUpdate();
-      // Tauri will restart the app after this resolves.
     } catch (err) {
       console.error("[UpdateBanner] install error:", err);
     }
   }
 
+  let message = "Checking for updates…";
+
+  if (state.kind === "available") {
+    message = `Update available${
+      state.version ? ` — v${state.version}` : ""
+    }`;
+  }
+
+  if (state.kind === "error") {
+    message = `Updater error: ${state.message}`;
+  }
+
+  const isError = state.kind === "error";
+
   return (
     <div
       style={{
-        width: "100%",
-        padding: "6px 12px",
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        height: 38,
+        minHeight: 38,
+        maxHeight: 38,
         boxSizing: "border-box",
-        background:
-          state.kind === "error"
-            ? "rgba(255,118,118,0.2)"
-            : "linear-gradient(135deg, #3f64ff, #7f3dff)",
-        borderBottom: "1px solid rgba(255,255,255,0.2)",
-        color: "#ffffff",
-        fontSize: 12,
+        padding: "0 12px",
         display: "flex",
         alignItems: "center",
         justifyContent: "space-between",
-        gap: 8,
-        zIndex: 50,
+        gap: 10,
+        overflow: "hidden",
+        zIndex: 9999,
+        background: isError
+          ? "rgba(140, 45, 55, 0.96)"
+          : "linear-gradient(135deg, #3f64ff, #7f3dff)",
+        borderBottom: "1px solid rgba(255,255,255,0.18)",
+        boxShadow: "0 2px 10px rgba(0,0,0,0.35)",
+        color: "#ffffff",
+        fontSize: 12,
       }}
     >
-      <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
-        {state.kind === "checking" && <span>Checking for updates…</span>}
-
-        {state.kind === "available" && (
-          <span>
-            A new version
-            {state.version ? ` (${state.version})` : ""} is available.
-          </span>
-        )}
-
-        {state.kind === "error" && (
-          <>
-            <span>Updater error (dev only).</span>
-            <span style={{ opacity: 0.8 }}>{state.message}</span>
-          </>
-        )}
-      </div>
+      <span
+        style={{
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          minWidth: 0,
+        }}
+      >
+        {message}
+      </span>
 
       {state.kind === "available" && (
         <button
           type="button"
           onClick={handleInstall}
           style={{
-            padding: "4px 10px",
+            flexShrink: 0,
+            padding: "5px 10px",
             borderRadius: 999,
             border: "none",
-            background: "rgba(0,0,0,0.25)",
+            background: "rgba(0,0,0,0.3)",
             color: "#ffffff",
             cursor: "pointer",
             fontSize: 11,
@@ -147,22 +152,19 @@ const UpdateBanner: React.FC = () => {
         </button>
       )}
 
-      {state.kind === "checking" && (
-        <span style={{ fontSize: 11, opacity: 0.8 }}>…</span>
-      )}
-
       {state.kind === "error" && (
         <button
           type="button"
           onClick={() => setState({ kind: "hidden" })}
           style={{
-            padding: "2px 6px",
+            flexShrink: 0,
+            padding: "4px 8px",
             borderRadius: 999,
             border: "none",
-            background: "rgba(0,0,0,0.3)",
+            background: "rgba(0,0,0,0.28)",
             color: "#ffffff",
             cursor: "pointer",
-            fontSize: 10,
+            fontSize: 11,
           }}
         >
           Hide
