@@ -1,906 +1,1006 @@
-// apps/web/src/pages/DocumentsPage.tsx
-import React, {
-  useCallback,
-  useEffect,
-  useMemo,
-  useState,
-} from "react";
-import ReactQuill from "react-quill";
-import "react-quill/dist/quill.snow.css";
+// apps/web/src/App.tsx
+import React, { useEffect, useState } from "react";
+import {
+  Link,
+  Navigate,
+  Route,
+  Routes,
+  useNavigate,
+} from "react-router-dom";
+
+import LoginPage from "./pages/LoginPage";
+import RegisterPage from "./pages/RegisterPage";
+import TasksPage from "./pages/TasksPage";
+import DocumentsPage from "./pages/DocumentsPage";
+import CalendarPage from "./pages/CalendarPage";
+import MailPage from "./pages/MailPage";
 
 import {
+  createTask,
+  deleteTask,
+  fetchTasks,
+  Task,
+  trySyncTasksIfOnline,
+  updateTask,
+} from "./api/tasks";
+
+import {
+  Document as SuiteDocument,
   fetchDocuments,
-  createDocument,
-  updateDocument,
-  deleteDocument,
-  Document,
-} from "../api/documents";
+  trySyncDocumentsIfOnline,
+} from "./api/documents";
 
-const LAST_DOC_KEY = "suite:lastDocumentId";
+import UpdateBanner from "./components/UpdateBanner";
 
-const DocumentsPage: React.FC = () => {
-  // List
-  const [documents, setDocuments] = useState<Document[]>([]);
-  const [listLoading, setListLoading] = useState(false);
-  const [listError, setListError] = useState<string | null>(null);
+type SidebarMode = "tasks" | "documents";
 
-  // Selected doc
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [editTitle, setEditTitle] = useState("");
-  const [editContent, setEditContent] = useState("");
+const SIDEBAR_MODE_KEY = "pioneer-sidebar-mode";
 
-  // Save state
-  const [isSaving, setIsSaving] = useState(false);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
-  const [hasLocalChanges, setHasLocalChanges] = useState(false);
-
-  // Create / delete
-  const [creating, setCreating] = useState(false);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
-
-  // Word count
-  const [wordCount, setWordCount] = useState(0);
-
-  // Quill refs
-  const quillRef = React.useRef<any>(null);
-  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
-
-  const selectedDoc =
-    selectedId != null
-      ? documents.find((d) => d.id === selectedId) || null
-      : null;
-
-  const hasSelection = !!selectedDoc;
-
-  // ----- Quill config -----
-
-  const handleImageFileChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const file = e.target.files?.[0];
-      if (!file) return;
-
-      const reader = new FileReader();
-
-      reader.onload = (event) => {
-        const base64 = event.target?.result;
-        if (!base64 || typeof base64 !== "string") return;
-
-        const editor = quillRef.current?.getEditor?.();
-        if (!editor) return;
-
-        const range = editor.getSelection(true);
-        const index = range ? range.index : editor.getLength();
-
-        editor.insertEmbed(index, "image", base64, "user");
-        editor.setSelection(index + 1);
-      };
-
-      reader.readAsDataURL(file);
-    },
-    []
+function hasAuthToken(): boolean {
+  return (
+    typeof window !== "undefined" &&
+    Boolean(window.localStorage.getItem("token"))
   );
+}
 
-  const quillModules = useMemo(
-    () => ({
-      toolbar: {
-        container: [
-          [{ header: [1, 2, false] }],
-          [{ font: [] }, { size: [] }],
-          ["bold", "italic", "underline", "strike"],
-          [{ list: "ordered" }, { list: "bullet" }],
-          ["link", "image"],
-          ["undo", "redo"],
-        ],
-        handlers: {
-          undo: () => {
-            const editor = quillRef.current?.getEditor?.();
-            if (editor?.history) {
-              editor.history.undo();
-            }
-          },
-          redo: () => {
-            const editor = quillRef.current?.getEditor?.();
-            if (editor?.history) {
-              editor.history.redo();
-            }
-          },
-          image: () => {
-            const input = fileInputRef.current;
-            if (!input) return;
-
-            input.value = "";
-            input.click();
-          },
-        },
-      },
-      history: {
-        delay: 500,
-        maxStack: 100,
-        userOnly: true,
-      },
-    }),
-    []
-  );
-
-  const quillFormats = useMemo(
-    () => [
-      "header",
-      "font",
-      "size",
-      "bold",
-      "italic",
-      "underline",
-      "strike",
-      "list",
-      "bullet",
-      "link",
-      "image",
-    ],
-    []
-  );
-
-  // ----- Helpers -----
-
-  function countWordsFromHtml(html: string): number {
-    if (!html) return 0;
-    if (typeof document === "undefined") return 0;
-
-    const div = document.createElement("div");
-    div.innerHTML = html;
-
-    const text = (div.textContent || div.innerText || "").trim();
-    if (!text) return 0;
-
-    return text.split(/\s+/).filter(Boolean).length;
+function loadInitialSidebarMode(): SidebarMode {
+  if (typeof window === "undefined") {
+    return "tasks";
   }
 
-  function getUpdatedLabel(doc: Document): string {
-    const raw = doc.updatedAt || doc.createdAt;
-    if (!raw) return "Just now";
+  return window.localStorage.getItem(SIDEBAR_MODE_KEY) === "documents"
+    ? "documents"
+    : "tasks";
+}
 
-    const d = new Date(raw);
-    if (isNaN(d.getTime())) return "Just now";
-
-    return d.toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-    });
+function formatDocumentDate(raw: string | undefined): string {
+  if (!raw) {
+    return "";
   }
 
-  function formatShortDate(raw: string | undefined | null): string {
-    if (!raw) return "";
+  const date = new Date(raw);
 
-    const d = new Date(raw);
-    if (isNaN(d.getTime())) return "";
-
-    return d.toLocaleDateString(undefined, {
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
+  if (Number.isNaN(date.getTime())) {
+    return "";
   }
 
-  function extractPlain(html: string | undefined | null): string {
-    if (!html) return "";
-    if (typeof document === "undefined") return html;
+  return date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
+}
 
-    const tempDiv = document.createElement("div");
-    tempDiv.innerHTML = html;
-
-    return (tempDiv.textContent || tempDiv.innerText || "").trim();
+const RequireAuth: React.FC<{ children: React.ReactElement }> = ({
+  children,
+}) => {
+  if (!hasAuthToken()) {
+    return <Navigate to="/login" replace />;
   }
 
-  function rememberLastDoc(id: string | null) {
-    if (typeof window === "undefined") return;
+  return children;
+};
 
-    if (!id) {
-      window.localStorage.removeItem(LAST_DOC_KEY);
-    } else {
-      window.localStorage.setItem(LAST_DOC_KEY, id);
-    }
-  }
+interface DashboardProps {
+  sidebarMode: SidebarMode;
+  onSidebarModeChange: (mode: SidebarMode) => void;
+}
 
-  function getRememberedLastDocId(): string | null {
-    if (typeof window === "undefined") return null;
+const Dashboard: React.FC<DashboardProps> = ({
+  sidebarMode,
+  onSidebarModeChange,
+}) => {
+  const navigate = useNavigate();
 
-    try {
-      return window.localStorage.getItem(LAST_DOC_KEY);
-    } catch {
-      return null;
-    }
-  }
+  const userName =
+    typeof window !== "undefined"
+      ? window.localStorage.getItem("userName") || "Student"
+      : "Student";
 
-  // ----- Load documents once, and select last opened if present -----
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  const [todayCount, setTodayCount] = useState(0);
+  const [overdueCount, setOverdueCount] = useState(0);
+  const [completedCount, setCompletedCount] = useState(0);
+
+  const [recentDocuments, setRecentDocuments] = useState<SuiteDocument[]>([]);
 
   useEffect(() => {
-    (async () => {
-      setListLoading(true);
-      setListError(null);
+    let cancelled = false;
+
+    async function loadDashboard() {
+      setLoading(true);
+      setLoadError(null);
 
       try {
-        const docs = await fetchDocuments();
-        setDocuments(docs);
+        const [tasks, documents] = await Promise.all([
+          fetchTasks(),
+          fetchDocuments(),
+        ]);
 
-        if (docs.length > 0) {
-          const rememberedId = getRememberedLastDocId();
+        const now = new Date();
+        const todayKey = now.toISOString().slice(0, 10);
 
-          let initial = docs[0];
+        let today = 0;
+        let overdue = 0;
+        let completed = 0;
 
-          if (rememberedId) {
-            const match = docs.find((d) => d.id === rememberedId);
-            if (match) {
-              initial = match;
-            }
+        for (const task of tasks) {
+          if (task.status === "done") {
+            completed += 1;
           }
 
-          setSelectedId(initial.id);
-          setEditTitle(initial.title);
-          setEditContent(initial.content || "");
-          setLastSavedAt(initial.updatedAt || initial.createdAt || null);
-          setHasLocalChanges(false);
-          setWordCount(countWordsFromHtml(initial.content || ""));
+          if (!task.dueDate) {
+            continue;
+          }
+
+          const dueDate = new Date(task.dueDate);
+
+          if (Number.isNaN(dueDate.getTime())) {
+            continue;
+          }
+
+          const dueKey = dueDate.toISOString().slice(0, 10);
+
+          if (dueKey === todayKey) {
+            today += 1;
+          } else if (dueDate < now && task.status !== "done") {
+            overdue += 1;
+          }
         }
-      } catch (err) {
-        console.error("Error loading documents:", err);
-        setListError("Failed to load documents.");
+
+        const sortedDocuments = [...documents].sort((a, b) => {
+          const aTime = new Date(a.updatedAt || a.createdAt).getTime();
+          const bTime = new Date(b.updatedAt || b.createdAt).getTime();
+
+          return bTime - aTime;
+        });
+
+        if (!cancelled) {
+          setTodayCount(today);
+          setOverdueCount(overdue);
+          setCompletedCount(completed);
+          setRecentDocuments(sortedDocuments.slice(0, 3));
+        }
+      } catch (error) {
+        console.error("Unable to load dashboard:", error);
+
+        if (!cancelled) {
+          setLoadError("Unable to load dashboard data.");
+        }
       } finally {
-        setListLoading(false);
-      }
-    })();
-  }, []);
-
-  // Persist last selected id
-  useEffect(() => {
-    if (selectedId) {
-      rememberLastDoc(selectedId);
-    }
-  }, [selectedId]);
-
-  // Update word count when editor changes
-  useEffect(() => {
-    if (!hasSelection) {
-      setWordCount(0);
-      return;
-    }
-
-    setWordCount(countWordsFromHtml(editContent));
-  }, [editContent, hasSelection]);
-
-  // ----- Save helpers -----
-
-  async function saveCurrentDocument() {
-    if (!selectedDoc || !selectedDoc.id) {
-      setSaveError("No document selected to save.");
-      return;
-    }
-
-    setIsSaving(true);
-    setSaveError(null);
-
-    const targetId = selectedDoc.id;
-    const currentTitle = editTitle;
-    const currentContent = editContent;
-
-    try {
-      const updated = await updateDocument(targetId, {
-        title: currentTitle,
-        content: currentContent,
-      });
-
-      setDocuments((prev) =>
-        prev.map((d) => (d.id === updated.id ? updated : d))
-      );
-
-      setLastSavedAt(updated.updatedAt || updated.createdAt || null);
-      setHasLocalChanges(false);
-    } catch (err) {
-      console.error("Error saving document:", err);
-      setSaveError("Save failed.");
-    } finally {
-      setIsSaving(false);
-    }
-  }
-
-  // Debounced autosave
-  useEffect(() => {
-    if (!hasSelection) return;
-    if (!hasLocalChanges) return;
-    if (!selectedDoc || !selectedDoc.id) return;
-
-    const timeout = window.setTimeout(() => {
-      void saveCurrentDocument();
-    }, 3000);
-
-    return () => window.clearTimeout(timeout);
-  }, [
-    editTitle,
-    editContent,
-    hasLocalChanges,
-    hasSelection,
-    selectedDoc?.id,
-  ]);
-
-  // Keyboard shortcuts: Ctrl/Cmd+S for save, Ctrl/Cmd+Alt+1/2/0 for headings
-  useEffect(() => {
-    function handleKeydown(e: KeyboardEvent) {
-      if (!hasSelection) return;
-
-      const isMac =
-        typeof navigator !== "undefined" &&
-        navigator.platform.toUpperCase().indexOf("MAC") >= 0;
-
-      const key = e.key.toLowerCase();
-
-      const isSaveCombo =
-        ((isMac && e.metaKey) || (!isMac && e.ctrlKey)) &&
-        !e.altKey &&
-        !e.shiftKey &&
-        key === "s";
-
-      if (isSaveCombo) {
-        e.preventDefault();
-
-        if (!isSaving) {
-          void saveCurrentDocument();
-        }
-
-        return;
-      }
-
-      const editor = quillRef.current?.getEditor?.();
-      if (!editor) return;
-
-      const headingCombo =
-        ((isMac && e.metaKey) || (!isMac && e.ctrlKey)) && e.altKey;
-
-      if (headingCombo) {
-        if (key === "1") {
-          e.preventDefault();
-          editor.format("header", 1);
-        } else if (key === "2") {
-          e.preventDefault();
-          editor.format("header", 2);
-        } else if (key === "0") {
-          e.preventDefault();
-          editor.format("header", false);
+        if (!cancelled) {
+          setLoading(false);
         }
       }
     }
 
-    window.addEventListener("keydown", handleKeydown);
+    void loadDashboard();
 
     return () => {
-      window.removeEventListener("keydown", handleKeydown);
+      cancelled = true;
     };
-  }, [hasSelection, isSaving, selectedDoc, editTitle, editContent]);
-
-  // ----- UI handlers -----
-
-  async function handleSelect(id: string) {
-    const doc = documents.find((d) => d.id === id);
-
-    setSelectedId(id);
-
-    if (doc) {
-      setEditTitle(doc.title);
-      setEditContent(doc.content || "");
-      setLastSavedAt(doc.updatedAt || doc.createdAt || null);
-      setHasLocalChanges(false);
-      setSaveError(null);
-      setWordCount(countWordsFromHtml(doc.content || ""));
-    } else {
-      setEditTitle("");
-      setEditContent("");
-      setLastSavedAt(null);
-      setHasLocalChanges(false);
-      setWordCount(0);
-    }
-  }
-
-  async function handleCreateNew() {
-    setCreating(true);
-    setSaveError(null);
-
-    try {
-      const created = await createDocument("Untitled document", "");
-
-      if (!created || !created.id) {
-        setSaveError("Unable to create document.");
-        return;
-      }
-
-      setDocuments((prev) => [created, ...prev]);
-      setSelectedId(created.id);
-      setEditTitle(created.title);
-      setEditContent(created.content || "");
-      setLastSavedAt(created.updatedAt || created.createdAt || null);
-      setHasLocalChanges(false);
-      setWordCount(0);
-    } catch (err) {
-      console.error("Error creating document:", err);
-      setSaveError("Unable to create document.");
-    } finally {
-      setCreating(false);
-    }
-  }
-
-  async function handleManualSave() {
-    await saveCurrentDocument();
-  }
-
-  async function handleDelete(id: string) {
-    const doc = documents.find((d) => d.id === id);
-
-    let titleEmpty = true;
-    let contentEmpty = true;
-
-    if (selectedDoc && selectedDoc.id === id) {
-      titleEmpty = !editTitle || editTitle.trim().length === 0;
-      contentEmpty = extractPlain(editContent).length === 0;
-    } else if (doc) {
-      titleEmpty = !doc.title || doc.title.trim().length === 0;
-      contentEmpty = extractPlain(doc.content).length === 0;
-    }
-
-    if (!titleEmpty || !contentEmpty) {
-      const confirmed = window.confirm(
-        "This document has content. Are you sure you want to delete it?"
-      );
-
-      if (!confirmed) return;
-    }
-
-    setDeletingId(id);
-    setSaveError(null);
-
-    const previous = documents;
-    const remaining = documents.filter((d) => d.id !== id);
-
-    setDocuments(remaining);
-
-    if (selectedDoc && selectedDoc.id === id) {
-      if (remaining.length > 0) {
-        const first = remaining[0];
-
-        setSelectedId(first.id);
-        setEditTitle(first.title);
-        setEditContent(first.content || "");
-        setLastSavedAt(first.updatedAt || first.createdAt || null);
-        setHasLocalChanges(false);
-        setWordCount(countWordsFromHtml(first.content || ""));
-      } else {
-        setSelectedId(null);
-        setEditTitle("");
-        setEditContent("");
-        setLastSavedAt(null);
-        setHasLocalChanges(false);
-        setWordCount(0);
-      }
-    }
-
-    try {
-      await deleteDocument(id);
-    } catch (err: any) {
-      console.error("Error deleting document:", err);
-
-      const status = err?.response?.status;
-
-      if (!status || status !== 404) {
-        setDocuments(previous);
-        setSaveError("Unable to delete document.");
-      }
-    } finally {
-      setDeletingId(null);
-    }
-  }
-
-  function renderSaveStatus() {
-    if (!hasSelection) return null;
-
-    if (isSaving) {
-      return (
-        <span style={{ fontSize: 12, color: "#9da2c8" }}>
-          Saving…
-        </span>
-      );
-    }
-
-    if (saveError) {
-      return (
-        <span style={{ fontSize: 12, color: "#ff7b88" }}>
-          {saveError}
-        </span>
-      );
-    }
-
-    if (hasLocalChanges) {
-      return (
-        <span style={{ fontSize: 12, color: "#f0c36a" }}>
-          Unsaved changes…
-        </span>
-      );
-    }
-
-    if (lastSavedAt) {
-      const d = new Date(lastSavedAt);
-
-      if (!isNaN(d.getTime())) {
-        return (
-          <span style={{ fontSize: 12, color: "#6f7598" }}>
-            Saved at{" "}
-            {d.toLocaleTimeString([], {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </span>
-        );
-      }
-    }
-
-    return null;
-  }
-
-  // ----- Render -----
-
-  const createdLabel = selectedDoc
-    ? formatShortDate(selectedDoc.createdAt)
-    : "";
-
-  const updatedLabel = selectedDoc
-    ? formatShortDate(selectedDoc.updatedAt || selectedDoc.createdAt)
-    : "";
+  }, []);
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: 16,
-        height: "100%",
-      }}
-    >
-      {/* Documents list card */}
+    <div className="workspace-placeholder">
+      <h2>Welcome, {userName}</h2>
+      <p>
+        This is your student workspace. Track tasks, write documents, and keep
+        your right sidebar focused on the information you use most.
+      </p>
+
       <div
         style={{
           display: "flex",
-          flexDirection: "column",
-          borderRadius: 12,
-          border: "1px solid rgba(255,255,255,0.08)",
-          background: "#050713",
-          overflow: "hidden",
+          flexWrap: "wrap",
+          gap: 12,
+          marginTop: 16,
+        }}
+      >
+        <button
+          type="button"
+          onClick={() => navigate("/tasks")}
+          style={{
+            flex: "1 1 130px",
+            minWidth: 130,
+            padding: "10px 12px",
+            borderRadius: 10,
+            border: "1px solid rgba(255,255,255,0.08)",
+            background:
+              "radial-gradient(circle at top, rgba(63,100,255,0.35), #050713)",
+            color: "#f5f5f5",
+            cursor: "pointer",
+            textAlign: "left",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 11,
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+              color: "#c7ceff",
+              marginBottom: 4,
+            }}
+          >
+            Today
+          </div>
+          <div style={{ fontSize: 22, fontWeight: 600 }}>{todayCount}</div>
+          <div style={{ fontSize: 11, color: "#aab0dd", marginTop: 2 }}>
+            tasks due today
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => navigate("/tasks")}
+          style={{
+            flex: "1 1 130px",
+            minWidth: 130,
+            padding: "10px 12px",
+            borderRadius: 10,
+            border: "1px solid rgba(255,255,255,0.08)",
+            background:
+              "radial-gradient(circle at top, rgba(255,118,118,0.3), #050713)",
+            color: "#f5f5f5",
+            cursor: "pointer",
+            textAlign: "left",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 11,
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+              color: "#ffc0c4",
+              marginBottom: 4,
+            }}
+          >
+            Overdue
+          </div>
+          <div style={{ fontSize: 22, fontWeight: 600 }}>{overdueCount}</div>
+          <div style={{ fontSize: 11, color: "#f2a3a6", marginTop: 2 }}>
+            tasks past due
+          </div>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => navigate("/tasks")}
+          style={{
+            flex: "1 1 130px",
+            minWidth: 130,
+            padding: "10px 12px",
+            borderRadius: 10,
+            border: "1px solid rgba(255,255,255,0.08)",
+            background:
+              "radial-gradient(circle at top, rgba(127,61,255,0.35), #050713)",
+            color: "#f5f5f5",
+            cursor: "pointer",
+            textAlign: "left",
+          }}
+        >
+          <div
+            style={{
+              fontSize: 11,
+              textTransform: "uppercase",
+              letterSpacing: "0.08em",
+              color: "#e0c9ff",
+              marginBottom: 4,
+            }}
+          >
+            Completed
+          </div>
+          <div style={{ fontSize: 22, fontWeight: 600 }}>
+            {completedCount}
+          </div>
+          <div style={{ fontSize: 11, color: "#cdb3ff", marginTop: 2 }}>
+            tasks finished
+          </div>
+        </button>
+      </div>
+
+      <div
+        style={{
+          display: "flex",
+          flexWrap: "wrap",
+          gap: 16,
+          marginTop: 18,
         }}
       >
         <div
           style={{
+            flex: "2 1 220px",
+            minWidth: 220,
             padding: "10px 12px",
-            borderBottom: "1px solid rgba(255,255,255,0.06)",
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "space-between",
-            gap: 8,
+            borderRadius: 10,
+            border: "1px solid rgba(255,255,255,0.08)",
+            background: "#050713",
           }}
         >
-          <div>
-            <h2
-              style={{
-                margin: 0,
-                fontSize: 14,
-                fontWeight: 500,
-              }}
-            >
-              Documents
-            </h2>
-
-            {listLoading ? (
-              <p
-                style={{
-                  margin: 0,
-                  marginTop: 2,
-                  fontSize: 11,
-                  color: "#9da2c8",
-                }}
-              >
-                Loading…
-              </p>
-            ) : listError ? (
-              <p
-                style={{
-                  margin: 0,
-                  marginTop: 2,
-                  fontSize: 11,
-                  color: "#ff7b88",
-                }}
-              >
-                {listError}
-              </p>
-            ) : (
-              <p
-                style={{
-                  margin: 0,
-                  marginTop: 2,
-                  fontSize: 11,
-                  color: "#6f7598",
-                }}
-              >
-                {documents.length} total
-              </p>
-            )}
-          </div>
-
-          <button
-            type="button"
-            onClick={handleCreateNew}
-            disabled={creating}
+          <div
             style={{
-              padding: "6px 10px",
-              borderRadius: 999,
-              border: "none",
-              cursor: creating ? "default" : "pointer",
-              background: creating
-                ? "rgba(127,61,255,0.6)"
-                : "linear-gradient(135deg, #3f64ff, #7f3dff)",
-              color: "#ffffff",
-              fontSize: 12,
-              fontWeight: 500,
-              whiteSpace: "nowrap",
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 6,
             }}
           >
-            {creating ? "Creating…" : "New"}
-          </button>
-        </div>
+            <span style={{ fontSize: 13, fontWeight: 500 }}>
+              Recent documents
+            </span>
 
-        <div
-          style={{
-            maxHeight: 260,
-            overflowY: "auto",
-            padding: "6px 0",
-          }}
-        >
-          {documents.length === 0 && !listLoading && !listError && (
-            <p
+            <Link
+              to="/documents"
               style={{
-                padding: "8px 12px",
-                fontSize: 12,
-                color: "#9da2c8",
+                fontSize: 11,
+                color: "#aeb7ff",
+                textDecoration: "underline",
               }}
             >
-              No documents yet. Create your first one above.
+              Open all
+            </Link>
+          </div>
+
+          {loading && (
+            <p style={{ fontSize: 12, color: "#9da2c8", margin: 0 }}>
+              Loading…
             </p>
           )}
 
-          {documents.map((doc) => {
-            const isActive = selectedDoc && doc.id === selectedDoc.id;
-            const isDeleting = deletingId === doc.id;
-
-            return (
-              <div
-                key={doc.id}
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  paddingRight: 8,
-                }}
-              >
-                <button
-                  type="button"
-                  onClick={() => handleSelect(doc.id)}
-                  style={{
-                    flex: 1,
-                    textAlign: "left",
-                    padding: "8px 12px",
-                    border: "none",
-                    borderLeft: isActive
-                      ? "3px solid #7f3dff"
-                      : "3px solid transparent",
-                    background: isActive
-                      ? "rgba(127,61,255,0.15)"
-                      : "transparent",
-                    cursor: "pointer",
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 2,
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: 13,
-                      fontWeight: isActive ? 500 : 400,
-                      color: "#f5f5f5",
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
-                    {doc.title || "Untitled document"}
-                  </span>
-
-                  <span
-                    style={{
-                      fontSize: 11,
-                      color: "#6f7598",
-                    }}
-                  >
-                    Updated {getUpdatedLabel(doc)}
-                  </span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleDelete(doc.id)}
-                  disabled={isDeleting}
-                  style={{
-                    all: "unset",
-                    cursor: isDeleting ? "default" : "pointer",
-                    fontSize: 11,
-                    opacity: 0.75,
-                    padding: "0 4px",
-                  }}
-                  aria-label="Delete document"
-                >
-                  {isDeleting ? "…" : "✕"}
-                </button>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Editor card */}
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          borderRadius: 12,
-          border: "1px solid rgba(255,255,255,0.08)",
-          background: "#05070a",
-          padding: 12,
-          minHeight: 260,
-        }}
-      >
-        {!hasSelection ? (
-          <div className="workspace-placeholder">
-            <h2>Select or create a document</h2>
-            <p>
-              Pick a document from the list above, or create a new one to start
-              writing.
+          {loadError && (
+            <p style={{ fontSize: 12, color: "#ff7b88", margin: 0 }}>
+              {loadError}
             </p>
-          </div>
-        ) : (
-          <>
-            <div
+          )}
+
+          {!loading && !loadError && recentDocuments.length === 0 && (
+            <p style={{ fontSize: 12, color: "#9da2c8", margin: 0 }}>
+              No documents yet. Create your first one on the Documents page.
+            </p>
+          )}
+
+          {!loading && !loadError && recentDocuments.length > 0 && (
+            <ul
               style={{
-                marginBottom: 8,
+                listStyle: "none",
+                margin: 0,
+                padding: 0,
                 display: "flex",
                 flexDirection: "column",
                 gap: 4,
               }}
             >
-              <input
-                type="text"
-                value={editTitle}
-                onChange={(e) => {
-                  setEditTitle(e.target.value);
-                  setHasLocalChanges(true);
-                  setSaveError(null);
-                }}
-                placeholder="Document title"
-                style={{
-                  padding: "8px 10px",
-                  borderRadius: 8,
-                  border: "1px solid rgba(255,255,255,0.16)",
-                  background: "#050713",
-                  color: "#f5f5f5",
-                  fontSize: 14,
-                  fontWeight: 500,
-                }}
-              />
-
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 8,
-                  marginTop: 2,
-                }}
-              >
-                <div
+              {recentDocuments.map((document) => (
+                <li
+                  key={document.id}
                   style={{
                     display: "flex",
-                    flexDirection: "column",
-                    gap: 2,
+                    justifyContent: "space-between",
+                    gap: 8,
+                    padding: "4px 0",
                   }}
                 >
-                  <div>{renderSaveStatus()}</div>
+                  <span
+                    style={{
+                      fontSize: 13,
+                      whiteSpace: "nowrap",
+                      overflow: "hidden",
+                      textOverflow: "ellipsis",
+                    }}
+                  >
+                    {document.title || "Untitled document"}
+                  </span>
 
                   <span
                     style={{
                       fontSize: 11,
                       color: "#6f7598",
+                      flexShrink: 0,
                     }}
                   >
-                    {wordCount} word{wordCount === 1 ? "" : "s"}
+                    {formatDocumentDate(
+                      document.updatedAt || document.createdAt
+                    )}
                   </span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
 
-                  {createdLabel && (
-                    <span
-                      style={{
-                        fontSize: 11,
-                        color: "#6f7598",
-                      }}
-                    >
-                      Created {createdLabel}
-                      {updatedLabel && updatedLabel !== createdLabel
-                        ? ` · Updated ${updatedLabel}`
-                        : ""}
-                    </span>
-                  )}
-                </div>
+        <div
+          style={{
+            flex: "1 1 180px",
+            minWidth: 180,
+            padding: "10px 12px",
+            borderRadius: 10,
+            border: "1px solid rgba(255,255,255,0.08)",
+            background: "#050713",
+            display: "flex",
+            flexDirection: "column",
+            gap: 8,
+          }}
+        >
+          <span style={{ fontSize: 13, fontWeight: 500 }}>
+            Right panel content
+          </span>
 
-                <button
-                  type="button"
-                  onClick={handleManualSave}
-                  disabled={isSaving}
-                  style={{
-                    padding: "4px 8px",
-                    borderRadius: 999,
-                    border: "none",
-                    fontSize: 11,
-                    cursor: isSaving ? "default" : "pointer",
-                    background: "rgba(127,61,255,0.2)",
-                    color: "#c6b3ff",
-                    whiteSpace: "nowrap",
-                  }}
-                >
-                  {isSaving ? "Saving…" : "Save now"}
-                </button>
-              </div>
-            </div>
+          <p
+            style={{
+              margin: 0,
+              fontSize: 11,
+              color: "#9da2c8",
+            }}
+          >
+            Choose what you want to see in the right sidebar while you work.
+          </p>
 
-            <div
-              className="doc-editor"
-              style={{
-                flex: 1,
-                minHeight: 200,
-                display: "flex",
-                flexDirection: "column",
-              }}
-            >
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                style={{ display: "none" }}
-                onChange={handleImageFileChange}
-              />
-
-              <ReactQuill
-                ref={quillRef}
-                value={editContent}
-                onChange={(html) => {
-                  setEditContent(html);
-                  setHasLocalChanges(true);
-                  setSaveError(null);
-                }}
-                placeholder="Start writing your document here..."
-                theme="snow"
-                modules={quillModules}
-                formats={quillFormats}
-                style={{
-                  flex: 1,
-                  minHeight: 180,
-                  background: "#050713",
-                  color: "#f5f5f5",
-                }}
-              />
-            </div>
-          </>
-        )}
+          <select
+            value={sidebarMode}
+            onChange={(event) =>
+              onSidebarModeChange(
+                event.target.value === "documents" ? "documents" : "tasks"
+              )
+            }
+            style={{
+              marginTop: 4,
+              padding: "6px 10px",
+              borderRadius: 999,
+              border: "1px solid rgba(255,255,255,0.18)",
+              background: "#05070a",
+              color: "#f5f5f5",
+              fontSize: 12,
+            }}
+          >
+            <option value="tasks">Tasks</option>
+            <option value="documents">Documents</option>
+          </select>
+        </div>
       </div>
     </div>
   );
 };
 
-export default DocumentsPage;
+const App: React.FC = () => {
+  const navigate = useNavigate();
+
+  const [isTodoOpen, setIsTodoOpen] = useState(false);
+  const [sidebarMode, setSidebarMode] = useState<SidebarMode>(
+    loadInitialSidebarMode
+  );
+
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [tasksLoading, setTasksLoading] = useState(false);
+  const [tasksError, setTasksError] = useState<string | null>(null);
+  const [newTaskTitle, setNewTaskTitle] = useState("");
+
+  const [sidebarDocuments, setSidebarDocuments] = useState<SuiteDocument[]>(
+    []
+  );
+  const [sidebarDocumentsLoading, setSidebarDocumentsLoading] = useState(false);
+  const [sidebarDocumentsError, setSidebarDocumentsError] = useState<
+    string | null
+  >(null);
+
+  const authenticated = hasAuthToken();
+
+  function handleSidebarModeChange(mode: SidebarMode) {
+    setSidebarMode(mode);
+
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(SIDEBAR_MODE_KEY, mode);
+    }
+  }
+
+  useEffect(() => {
+    if (!authenticated || typeof window === "undefined") {
+      return;
+    }
+
+    let disposed = false;
+
+    const sync = () => {
+      if (disposed) {
+        return;
+      }
+
+      void trySyncTasksIfOnline();
+      void trySyncDocumentsIfOnline();
+    };
+
+    sync();
+
+    window.addEventListener("online", sync);
+
+    const interval = window.setInterval(sync, 60_000);
+
+    return () => {
+      disposed = true;
+      window.removeEventListener("online", sync);
+      window.clearInterval(interval);
+    };
+  }, [authenticated]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadSidebarData() {
+      if (!authenticated) {
+        setTasks([]);
+        setSidebarDocuments([]);
+        setTasksError(null);
+        setSidebarDocumentsError(null);
+        return;
+      }
+
+      setTasksLoading(true);
+      setSidebarDocumentsLoading(true);
+      setTasksError(null);
+      setSidebarDocumentsError(null);
+
+      const [taskResult, documentResult] = await Promise.allSettled([
+        fetchTasks(),
+        fetchDocuments(),
+      ]);
+
+      if (cancelled) {
+        return;
+      }
+
+      if (taskResult.status === "fulfilled") {
+        setTasks(taskResult.value);
+      } else {
+        console.error("Unable to load sidebar tasks:", taskResult.reason);
+        setTasksError("Unable to load tasks.");
+      }
+
+      if (documentResult.status === "fulfilled") {
+        setSidebarDocuments(documentResult.value);
+      } else {
+        console.error(
+          "Unable to load sidebar documents:",
+          documentResult.reason
+        );
+        setSidebarDocumentsError("Unable to load documents.");
+      }
+
+      setTasksLoading(false);
+      setSidebarDocumentsLoading(false);
+    }
+
+    void loadSidebarData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authenticated]);
+
+  async function handleAddTask(event: React.FormEvent) {
+    event.preventDefault();
+
+    const title = newTaskTitle.trim();
+
+    if (!title) {
+      return;
+    }
+
+    setTasksError(null);
+
+    try {
+      const created = await createTask(title);
+
+      setTasks((current) => [
+        created,
+        ...current.filter((task) => task.id !== created.id),
+      ]);
+
+      setNewTaskTitle("");
+    } catch (error) {
+      console.error("Unable to create task:", error);
+      setTasksError("Unable to create task.");
+    }
+  }
+
+  async function handleToggleTask(task: Task) {
+    const nextStatus: Task["status"] =
+      task.status === "done" ? "todo" : "done";
+
+    setTasks((current) =>
+      current.map((entry) =>
+        entry.id === task.id ? { ...entry, status: nextStatus } : entry
+      )
+    );
+
+    setTasksError(null);
+
+    try {
+      const updated = await updateTask(task.id, {
+        status: nextStatus,
+      });
+
+      setTasks((current) =>
+        current.map((entry) =>
+          entry.id === task.id ? { ...entry, ...updated } : entry
+        )
+      );
+    } catch (error) {
+      console.error("Unable to update task:", error);
+      setTasksError("Unable to update task.");
+    }
+  }
+
+  async function handleDeleteTask(id: string) {
+    const previousTasks = tasks;
+
+    setTasks((current) => current.filter((task) => task.id !== id));
+    setTasksError(null);
+
+    try {
+      await deleteTask(id);
+    } catch (error) {
+      console.error("Unable to delete task:", error);
+      setTasks(previousTasks);
+      setTasksError("Unable to delete task.");
+    }
+  }
+
+  function handleLogout() {
+    if (typeof window !== "undefined") {
+      window.localStorage.removeItem("token");
+      window.localStorage.removeItem("userName");
+    }
+
+    setTasks([]);
+    setSidebarDocuments([]);
+    setIsTodoOpen(false);
+
+    navigate("/login", { replace: true });
+  }
+
+  return (
+    <div className="app app-dark">
+      <UpdateBanner />
+
+      <aside className="sidebar-left">
+        <div className="sidebar-logo">
+          <span className="app-name">Pioneer Work Suite</span>
+          <span className="app-tagline">Student</span>
+        </div>
+
+        <nav className="sidebar-nav">
+          <Link className="nav-item" to="/dashboard">
+            Dashboard
+          </Link>
+          <Link className="nav-item" to="/documents">
+            Documents
+          </Link>
+          <Link className="nav-item" to="/tasks">
+            Tasks
+          </Link>
+          <Link className="nav-item" to="/calendar">
+            Calendar
+          </Link>
+          <Link className="nav-item" to="/mail">
+            Mail
+          </Link>
+        </nav>
+
+        {authenticated && (
+          <button
+            type="button"
+            onClick={handleLogout}
+            style={{
+              marginTop: "auto",
+              padding: "6px 10px",
+              borderRadius: 999,
+              border: "1px solid rgba(255,255,255,0.18)",
+              background: "transparent",
+              color: "#f5f5f5",
+              fontSize: 12,
+              cursor: "pointer",
+              alignSelf: "stretch",
+            }}
+          >
+            Log out
+          </button>
+        )}
+      </aside>
+
+      <div className="main-layout">
+        <main className="workspace">
+          <header className="workspace-header">
+            <h1>Student Workspace</h1>
+            <p className="workspace-subtitle">
+              Sign in, register, and access your dashboard, documents, tasks,
+              calendar, and mail.
+            </p>
+          </header>
+
+          <section className="workspace-body">
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
+              <Route path="/register" element={<RegisterPage />} />
+
+              <Route
+                path="/dashboard"
+                element={
+                  <RequireAuth>
+                    <Dashboard
+                      sidebarMode={sidebarMode}
+                      onSidebarModeChange={handleSidebarModeChange}
+                    />
+                  </RequireAuth>
+                }
+              />
+
+              <Route
+                path="/documents"
+                element={
+                  <RequireAuth>
+                    <DocumentsPage />
+                  </RequireAuth>
+                }
+              />
+
+              <Route
+                path="/tasks"
+                element={
+                  <RequireAuth>
+                    <TasksPage />
+                  </RequireAuth>
+                }
+              />
+
+              <Route
+                path="/calendar"
+                element={
+                  <RequireAuth>
+                    <CalendarPage />
+                  </RequireAuth>
+                }
+              />
+
+              <Route
+                path="/mail"
+                element={
+                  <RequireAuth>
+                    <MailPage />
+                  </RequireAuth>
+                }
+              />
+
+              <Route
+                path="/"
+                element={
+                  authenticated ? (
+                    <Navigate to="/dashboard" replace />
+                  ) : (
+                    <Navigate to="/login" replace />
+                  )
+                }
+              />
+
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </section>
+        </main>
+
+        <aside
+          className={
+            "sidebar-right" +
+            (isTodoOpen ? " sidebar-right-open" : " sidebar-right-collapsed")
+          }
+        >
+          <div className="todo-header">
+            <button
+              className="todo-toggle"
+              type="button"
+              onClick={() => setIsTodoOpen((open) => !open)}
+            >
+              {isTodoOpen ? "➜" : "⬅"}
+            </button>
+
+            {isTodoOpen && (
+              <h2 className="todo-title">
+                {sidebarMode === "tasks" ? "Tasks" : "Documents"}
+              </h2>
+            )}
+          </div>
+
+          {isTodoOpen && (
+            <div className="todo-body">
+              {!authenticated ? (
+                <ul className="todo-list">
+                  <li>Register a student account</li>
+                  <li>Log in with your new account</li>
+                  <li>Use the workspace after signing in</li>
+                </ul>
+              ) : sidebarMode === "tasks" ? (
+                <>
+                  <form
+                    onSubmit={handleAddTask}
+                    style={{
+                      display: "flex",
+                      gap: 6,
+                      marginBottom: 10,
+                    }}
+                  >
+                    <input
+                      type="text"
+                      value={newTaskTitle}
+                      onChange={(event) => setNewTaskTitle(event.target.value)}
+                      placeholder="Add a task..."
+                      style={{
+                        flex: 1,
+                        padding: "6px 8px",
+                        borderRadius: 999,
+                        border: "1px solid rgba(255,255,255,0.18)",
+                        background: "#05070a",
+                        color: "#f5f5f5",
+                        fontSize: 12,
+                      }}
+                    />
+
+                    <button
+                      type="submit"
+                      style={{
+                        padding: "6px 10px",
+                        borderRadius: 999,
+                        border: "none",
+                        fontSize: 12,
+                        cursor: "pointer",
+                        background:
+                          "linear-gradient(135deg, #3f64ff, #7f3dff)",
+                        color: "#ffffff",
+                      }}
+                    >
+                      +
+                    </button>
+                  </form>
+
+                  {tasksLoading && (
+                    <p style={{ fontSize: 12, color: "#9da2c8" }}>
+                      Loading tasks…
+                    </p>
+                  )}
+
+                  {tasksError && (
+                    <p style={{ fontSize: 12, color: "#ff7b88" }}>
+                      {tasksError}
+                    </p>
+                  )}
+
+                  {!tasksLoading && !tasksError && tasks.length === 0 && (
+                    <p style={{ fontSize: 12, color: "#9da2c8" }}>
+                      No tasks yet. Add your first one above.
+                    </p>
+                  )}
+
+                  <ul className="todo-list">
+                    {tasks.map((task) => (
+                      <li
+                        key={task.id}
+                        style={{
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "space-between",
+                          gap: 8,
+                        }}
+                      >
+                        <label
+                          style={{
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                            cursor: "pointer",
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={task.status === "done"}
+                            onChange={() => void handleToggleTask(task)}
+                          />
+
+                          <span
+                            style={{
+                              fontSize: 13,
+                              textDecoration:
+                                task.status === "done"
+                                  ? "line-through"
+                                  : "none",
+                              color:
+                                task.status === "done"
+                                  ? "#6f7598"
+                                  : "#f5f5f5",
+                            }}
+                          >
+                            {task.title}
+                          </span>
+                        </label>
+
+                        <button
+                          type="button"
+                          onClick={() => void handleDeleteTask(task.id)}
+                          style={{
+                            all: "unset",
+                            cursor: "pointer",
+                            fontSize: 11,
+                            opacity: 0.7,
+                          }}
+                          aria-label={`Delete ${task.title}`}
+                        >
+                          ✕
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : (
+                <>
+                  {sidebarDocumentsLoading && (
+                    <p style={{ fontSize: 12, color: "#9da2c8" }}>
+                      Loading documents…
+                    </p>
+                  )}
+
+                  {sidebarDocumentsError && (
+                    <p style={{ fontSize: 12, color: "#ff7b88" }}>
+                      {sidebarDocumentsError}
+                    </p>
+                  )}
+
+                  {!sidebarDocumentsLoading &&
+                    !sidebarDocumentsError &&
+                    sidebarDocuments.length === 0 && (
+                      <p style={{ fontSize: 12, color: "#9da2c8" }}>
+                        No documents yet. Create one from the Documents page.
+                      </p>
+                    )}
+
+                  <ul className="todo-list">
+                    {sidebarDocuments.map((document) => (
+                      <li
+                        key={document.id}
+                        style={{
+                          padding: "4px 2px",
+                          fontSize: 12,
+                          whiteSpace: "nowrap",
+                          overflow: "hidden",
+                          textOverflow: "ellipsis",
+                        }}
+                      >
+                        {document.title || "Untitled document"}
+                      </li>
+                    ))}
+                  </ul>
+
+                  <div
+                    style={{
+                      marginTop: 8,
+                      display: "flex",
+                      justifyContent: "flex-end",
+                    }}
+                  >
+                    <Link
+                      to="/documents"
+                      style={{
+                        fontSize: 11,
+                        color: "#aeb7ff",
+                        textDecoration: "underline",
+                      }}
+                    >
+                      Open Documents
+                    </Link>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </aside>
+      </div>
+    </div>
+  );
+};
+
+export default App;
