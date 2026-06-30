@@ -22,10 +22,13 @@ import {
   deleteTask,
   Task,
   trySyncTasksIfOnline,
-  trySyncDocumentsIfOnline
 } from "./api/tasks";
-import { fetchDocuments, Document as Doc } from "./api/documents";
-import { trySyncDocumentsIfOnline } from "./api/documents";
+
+import {
+  fetchDocuments,
+  Document as Doc,
+  trySyncDocumentsIfOnline,
+} from "./api/documents";
 
 import UpdateBanner from "./components/UpdateBanner";
 
@@ -116,7 +119,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           }
         }
 
-        // Load recent documents. Documents are not offline-hardened yet.
+        // Load recent documents. This is now offline-aware.
         const docs = await fetchDocuments();
         const sortedDocs = [...docs].sort((a, b) => {
           const aTime = new Date(a.updatedAt || a.createdAt).getTime();
@@ -449,12 +452,13 @@ const App: React.FC = () => {
     }
   }
 
-  // ---- Tasks offline sync: run on mount, when browser comes online, and periodically ----
+  // ---- Offline sync: run on mount, when browser comes online, and periodically ----
   useEffect(() => {
     if (typeof window === "undefined") return;
 
     const sync = () => {
       void trySyncTasksIfOnline();
+      void trySyncDocumentsIfOnline();
     };
 
     sync();
@@ -489,12 +493,11 @@ const App: React.FC = () => {
     }
 
     (async () => {
-      // Tasks
+      // Tasks are offline-aware and fall back to local cache.
       try {
         setTasksLoading(true);
         setTasksError(null);
 
-        // fetchTasks is now offline-aware and will fall back to local cache.
         const loadedTasks = await fetchTasks();
         setTasks(loadedTasks);
       } catch (err) {
@@ -504,10 +507,11 @@ const App: React.FC = () => {
         setTasksLoading(false);
       }
 
-      // Documents are still online-backed for now.
+      // Documents are offline-aware and fall back to local cache.
       try {
         setSidebarDocsLoading(true);
         setSidebarDocsError(null);
+
         const docs = await fetchDocuments();
         setSidebarDocs(docs);
       } catch (err) {
