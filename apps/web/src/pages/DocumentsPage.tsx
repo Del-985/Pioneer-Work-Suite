@@ -1,5 +1,11 @@
 // apps/web/src/pages/DocumentsPage.tsx
-import React, { useEffect, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
 import {
@@ -37,8 +43,8 @@ const DocumentsPage: React.FC = () => {
   const [wordCount, setWordCount] = useState(0);
 
   // Quill refs
-  const quillRef = React.useRef<any>(null);
-  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const quillRef = useRef<any>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   const selectedDoc =
     selectedId != null
@@ -47,55 +53,92 @@ const DocumentsPage: React.FC = () => {
   const hasSelection = !!selectedDoc;
 
   // ----- Quill config -----
-  const quillModules = {
-    toolbar: {
-      container: [
-        [{ header: [1, 2, false] }],
-        [{ font: [] }, { size: [] }],
-        ["bold", "italic", "underline", "strike"],
-        [{ list: "ordered" }, { list: "bullet" }],
-        ["link", "image"],
-        ["undo", "redo"],
-      ],
-      handlers: {
-        undo: () => {
-          const editor = quillRef.current?.getEditor?.();
-          if (editor && editor.history) editor.history.undo();
-        },
-        redo: () => {
-          const editor = quillRef.current?.getEditor?.();
-          if (editor && editor.history) editor.history.redo();
-        },
-        image: () => {
-          // Use a real hidden input instead of creating one dynamically.
-          const input = fileInputRef.current;
-          if (!input) return;
-          // Reset so selecting the same file twice still fires change
-          input.value = "";
-          input.click();
+  // These must keep stable object references. Re-creating them on each keystroke
+  // can make ReactQuill reinitialize and drop editor focus.
+  const handleImageFileChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+
+      reader.onload = (loadEvent) => {
+        const base64 = loadEvent.target?.result;
+        if (!base64 || typeof base64 !== "string") return;
+
+        const editor = quillRef.current?.getEditor?.();
+        if (!editor) return;
+
+        const range = editor.getSelection(true);
+        const index = range ? range.index : editor.getLength();
+
+        editor.insertEmbed(index, "image", base64, "user");
+        editor.setSelection(index + 1);
+      };
+
+      reader.readAsDataURL(file);
+    },
+    []
+  );
+
+  const quillModules = useMemo(
+    () => ({
+      toolbar: {
+        container: [
+          [{ header: [1, 2, false] }],
+          [{ font: [] }, { size: [] }],
+          ["bold", "italic", "underline", "strike"],
+          [{ list: "ordered" }, { list: "bullet" }],
+          ["link", "image"],
+          ["undo", "redo"],
+        ],
+        handlers: {
+          undo: () => {
+            const editor = quillRef.current?.getEditor?.();
+            if (editor?.history) {
+              editor.history.undo();
+            }
+          },
+          redo: () => {
+            const editor = quillRef.current?.getEditor?.();
+            if (editor?.history) {
+              editor.history.redo();
+            }
+          },
+          image: () => {
+            const input = fileInputRef.current;
+            if (!input) return;
+
+            input.value = "";
+            input.click();
+          },
         },
       },
-    },
-    history: {
-      delay: 500,
-      maxStack: 100,
-      userOnly: true,
-    },
-  };
+      history: {
+        delay: 500,
+        maxStack: 100,
+        userOnly: true,
+      },
+    }),
+    []
+  );
 
-  const quillFormats = [
-    "header",
-    "font",
-    "size",
-    "bold",
-    "italic",
-    "underline",
-    "strike",
-    "list",
-    "bullet",
-    "link",
-    "image",
-  ];
+  const quillFormats = useMemo(
+    () => [
+      "header",
+      "font",
+      "size",
+      "bold",
+      "italic",
+      "underline",
+      "strike",
+      "list",
+      "bullet",
+      "link",
+      "image",
+    ],
+    []
+  );
 
   // ----- Helpers -----
   function countWordsFromHtml(html: string): number {
@@ -155,29 +198,6 @@ const DocumentsPage: React.FC = () => {
     } catch {
       return null;
     }
-  }
-
-  // Handle file -> base64 -> insert image into Quill
-  function handleImageFileChange(
-    e: React.ChangeEvent<HTMLInputElement>
-  ) {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64 = event.target?.result;
-      if (!base64 || typeof base64 !== "string") return;
-
-      const editor = quillRef.current?.getEditor?.();
-      if (!editor) return;
-
-      const range = editor.getSelection(true);
-      const index = range ? range.index : editor.getLength();
-      editor.insertEmbed(index, "image", base64, "user");
-      editor.setSelection(index + 1);
-    };
-    reader.readAsDataURL(file);
   }
 
   // ----- Load documents once, and select last opened if present -----
@@ -804,8 +824,11 @@ const DocumentsPage: React.FC = () => {
               />
 
               <ReactQuill
+                // Uncontrolled while typing. It remounts only when the selected
+                // document changes, preventing the one-character editor collapse.
+                key={selectedId ?? "no-document"}
                 ref={quillRef}
-                value={editContent}
+                defaultValue={editContent}
                 onChange={(html) => {
                   setEditContent(html);
                   setHasLocalChanges(true);
