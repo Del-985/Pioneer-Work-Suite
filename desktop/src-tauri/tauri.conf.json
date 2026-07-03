@@ -36,7 +36,6 @@
     "bundle": {
       "active": true,
       "identifier": "com.pioneer.suite",
-      "createUpdaterArtifacts": true,
       "targets": [
         "nsis"
       ],
