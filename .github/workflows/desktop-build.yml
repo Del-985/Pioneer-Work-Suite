@@ -40,6 +40,25 @@ jobs:
         shell: pwsh
         run: yarn install --frozen-lockfile
 
+      - name: Inspect Tauri configuration
+        shell: pwsh
+        run: |
+          Write-Host "Repository root:"
+          Get-Location
+
+          Write-Host "`nTauri configs found:"
+          Get-ChildItem -Path . -Recurse -Filter tauri.conf.json |
+            Select-Object -ExpandProperty FullName
+
+          Write-Host "`nDesktop config:"
+          Get-Content ./desktop/src-tauri/tauri.conf.json
+
+          Write-Host "`nDesktop package:"
+          Get-Content ./desktop/package.json
+
+          Write-Host "`nDesktop Cargo manifest:"
+          Get-Content ./desktop/src-tauri/Cargo.toml
+
       - name: Build and publish signed Windows release
         uses: tauri-apps/tauri-action@v1
         env:
