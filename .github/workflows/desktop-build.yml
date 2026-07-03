@@ -47,7 +47,7 @@ jobs:
           TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
-          projectPath: desktop
+          projectPath: ./desktop
           tauriScript: yarn tauri
           tagName: v__VERSION__
           releaseName: Pioneer Work Suite v__VERSION__
