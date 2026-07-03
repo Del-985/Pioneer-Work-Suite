@@ -11,15 +11,23 @@
     "version": "0.1.0"
   },
   "tauri": {
+    "updater": {
+      "active": true,
+      "dialog": false,
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDVCRUZCMEEwRDdGNDNFNjgKUldSb1B2VFhvTER2VzU4L1JVUVRUYmM1dGdjR0VCK3JEMWNLSzlGNGlKbC9TU3prdjRMTEpXUEwK",
+      "endpoints": [
+        "https://github.com/Del-985/Pioneer-Work-Suite/releases/latest/download/latest.json"
+      ]
+    },
     "windows": [
       {
         "title": "Pioneer Work Suite",
-          "width": 1200,
-          "height": 800,
-          "resizable": true,
-          "fullscreen": false,
-          "hiddenTitle": true,
-          "titleBarStyle": "Overlay"
+        "width": 1200,
+        "height": 800,
+        "resizable": true,
+        "fullscreen": false,
+        "hiddenTitle": true,
+        "titleBarStyle": "Overlay"
       }
     ],
     "security": {
