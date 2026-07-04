@@ -31,17 +31,18 @@ import {
 } from "./api/documents";
 
 import UpdateBanner from "./components/UpdateBanner";
+import {
+  disconnectCloudSession,
+  getWorkspaceName,
+  hasCloudSession,
+  hasWorkspaceAccess,
+} from "./api/session";
 
 type SidebarMode = "tasks" | "documents";
 
 const SIDEBAR_MODE_KEY = "pioneer-sidebar-mode";
+const APP_VERSION = "0.1.2";
 
-function hasAuthToken(): boolean {
-  return (
-    typeof window !== "undefined" &&
-    Boolean(window.localStorage.getItem("token"))
-  );
-}
 
 function loadInitialSidebarMode(): SidebarMode {
   if (typeof window === "undefined") {
@@ -73,7 +74,7 @@ function formatDocumentDate(raw: string | undefined): string {
 const RequireAuth: React.FC<{ children: React.ReactElement }> = ({
   children,
 }) => {
-  if (!hasAuthToken()) {
+  if (!hasWorkspaceAccess()) {
     return <Navigate to="/login" replace />;
   }
 
@@ -91,10 +92,7 @@ const Dashboard: React.FC<DashboardProps> = ({
 }) => {
   const navigate = useNavigate();
 
-  const userName =
-    typeof window !== "undefined"
-      ? window.localStorage.getItem("userName") || "Student"
-      : "Student";
+  const userName = getWorkspaceName();
 
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -483,7 +481,8 @@ const App: React.FC = () => {
     string | null
   >(null);
 
-  const authenticated = hasAuthToken();
+  const workspaceAccessible = hasWorkspaceAccess();
+  const cloudConnected = hasCloudSession();
 
   function handleSidebarModeChange(mode: SidebarMode) {
     setSidebarMode(mode);
@@ -494,7 +493,7 @@ const App: React.FC = () => {
   }
 
   useEffect(() => {
-    if (!authenticated || typeof window === "undefined") {
+    if (!cloudConnected || typeof window === "undefined") {
       return;
     }
 
@@ -520,13 +519,13 @@ const App: React.FC = () => {
       window.removeEventListener("online", sync);
       window.clearInterval(interval);
     };
-  }, [authenticated]);
+  }, [cloudConnected]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function loadSidebarData() {
-      if (!authenticated) {
+      if (!workspaceAccessible) {
         setTasks([]);
         setSidebarDocuments([]);
         setTasksError(null);
@@ -574,7 +573,7 @@ const App: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [authenticated]);
+  }, [workspaceAccessible, cloudConnected]);
 
   async function handleAddTask(event: React.FormEvent) {
     event.preventDefault();
@@ -645,17 +644,11 @@ const App: React.FC = () => {
     }
   }
 
-  function handleLogout() {
-    if (typeof window !== "undefined") {
-      window.localStorage.removeItem("token");
-      window.localStorage.removeItem("userName");
-    }
+  function handleDisconnectCloud() {
+    disconnectCloudSession();
 
-    setTasks([]);
-    setSidebarDocuments([]);
     setIsTodoOpen(false);
-
-    navigate("/login", { replace: true });
+    navigate("/dashboard", { replace: true });
   }
 
   return (
@@ -686,25 +679,29 @@ const App: React.FC = () => {
           </Link>
         </nav>
 
-        {authenticated && (
-          <button
-            type="button"
-            onClick={handleLogout}
-            style={{
-              marginTop: "auto",
-              padding: "6px 10px",
-              borderRadius: 999,
-              border: "1px solid rgba(255,255,255,0.18)",
-              background: "transparent",
-              color: "#f5f5f5",
-              fontSize: 12,
-              cursor: "pointer",
-              alignSelf: "stretch",
-            }}
-          >
-            Log out
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => {
+            if (cloudConnected) {
+              handleDisconnectCloud();
+            } else {
+              navigate("/login");
+            }
+          }}
+          style={{
+            marginTop: "auto",
+            padding: "6px 10px",
+            borderRadius: 999,
+            border: "1px solid rgba(255,255,255,0.18)",
+            background: "transparent",
+            color: "#f5f5f5",
+            fontSize: 12,
+            cursor: "pointer",
+            alignSelf: "stretch",
+          }}
+        >
+          {cloudConnected ? "Disconnect cloud" : "Connect cloud"}
+        </button>
       </aside>
 
       <div className="main-layout">
@@ -712,8 +709,8 @@ const App: React.FC = () => {
           <header className="workspace-header">
             <h1>Student Workspace</h1>
             <p className="workspace-subtitle">
-              Sign in, register, and access your dashboard, documents, tasks,
-              calendar, and mail.
+              Work locally by default. Connect a cloud account when you want
+              to sync across devices.
             </p>
           </header>
 
@@ -773,7 +770,7 @@ const App: React.FC = () => {
               <Route
                 path="/"
                 element={
-                  authenticated ? (
+                  workspaceAccessible ? (
                     <Navigate to="/dashboard" replace />
                   ) : (
                     <Navigate to="/login" replace />
@@ -810,7 +807,7 @@ const App: React.FC = () => {
 
           {isTodoOpen && (
             <div className="todo-body">
-              {!authenticated ? (
+              {!workspaceAccessible ? (
                 <ul className="todo-list">
                   <li>Register a student account</li>
                   <li>Log in with your new account</li>
@@ -999,6 +996,26 @@ const App: React.FC = () => {
           )}
         </aside>
       </div>
+
+      <span
+        aria-label={`Pioneer Work Suite version ${APP_VERSION}`}
+        style={{
+          position: "fixed",
+          right: 10,
+          bottom: 8,
+          zIndex: 10000,
+          padding: "3px 7px",
+          borderRadius: 999,
+          background: "rgba(5, 7, 19, 0.82)",
+          border: "1px solid rgba(255,255,255,0.12)",
+          color: "#8d94bd",
+          fontSize: 10,
+          lineHeight: 1,
+          pointerEvents: "none",
+        }}
+      >
+        v{APP_VERSION}
+      </span>
     </div>
   );
 };
