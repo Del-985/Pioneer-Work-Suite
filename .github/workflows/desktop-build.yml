@@ -59,12 +59,31 @@ jobs:
           Write-Host "`nDesktop Cargo manifest:"
           Get-Content ./desktop/src-tauri/Cargo.toml
 
+      - name: Verify updater signing inputs
+        shell: pwsh
+        env:
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:TAURI_PRIVATE_KEY)) {
+            throw "TAURI_PRIVATE_KEY is empty. Check the TAURI_SIGNING_PRIVATE_KEY Actions secret."
+          }
+
+          Write-Host "TAURI_PRIVATE_KEY is present."
+          Write-Host "Private key character count: $($env:TAURI_PRIVATE_KEY.Length)"
+
+          if ([string]::IsNullOrWhiteSpace($env:TAURI_KEY_PASSWORD)) {
+            Write-Host "TAURI_KEY_PASSWORD is empty. This is valid only if the key was created without a password."
+          } else {
+            Write-Host "TAURI_KEY_PASSWORD is present."
+          }
+
       - name: Build and publish signed Windows release
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          TAURI_PRIVATE_KEY: ${{ env.TAURI_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ${{ env.TAURI_KEY_PASSWORD }}
         with:
           projectPath: ./desktop
           tauriScript: yarn tauri
