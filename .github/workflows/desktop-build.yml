@@ -82,11 +82,12 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAURI_PRIVATE_KEY: ${{ env.TAURI_PRIVATE_KEY }}
-          TAURI_KEY_PASSWORD: ${{ env.TAURI_KEY_PASSWORD }}
+          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           projectPath: ./desktop
           tauriScript: yarn tauri
+          args: --verbose
           tagName: v__VERSION__
           releaseName: Pioneer Work Suite v__VERSION__
           releaseBody: Desktop release with updater support.
@@ -94,3 +95,14 @@ jobs:
           prerelease: false
           includeUpdaterJson: true
           updaterJsonPreferNsis: true
+
+      - name: Inspect built updater files
+        if: always()
+        shell: pwsh
+        run: |
+          Write-Host "All bundle files found:"
+          Get-ChildItem `
+            ./desktop/src-tauri/target/release/bundle `
+            -Recurse `
+            -File |
+            Select-Object FullName, Length
