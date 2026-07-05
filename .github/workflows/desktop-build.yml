@@ -40,43 +40,40 @@ jobs:
         shell: pwsh
         run: yarn install --frozen-lockfile
 
-      - name: Inspect Tauri configuration
+      - name: Synchronize release version
+        shell: pwsh
+        run: node ./scripts/sync-version.mjs
+
+      - name: Verify synchronized version
         shell: pwsh
         run: |
-          Write-Host "Repository root:"
-          Get-Location
+          Write-Host "Web package version:"
+          Get-Content ./apps/web/package.json | Select-String '"version"'
 
-          Write-Host "`nTauri configs found:"
-          Get-ChildItem -Path . -Recurse -Filter tauri.conf.json |
-            Select-Object -ExpandProperty FullName
+          Write-Host "`nDesktop package version:"
+          Get-Content ./desktop/package.json | Select-String '"version"'
 
-          Write-Host "`nDesktop config:"
-          Get-Content ./desktop/src-tauri/tauri.conf.json
+          Write-Host "`nCargo package version:"
+          Get-Content ./desktop/src-tauri/Cargo.toml | Select-String '^version\s*='
 
-          Write-Host "`nDesktop package:"
-          Get-Content ./desktop/package.json
-
-          Write-Host "`nDesktop Cargo manifest:"
-          Get-Content ./desktop/src-tauri/Cargo.toml
+          Write-Host "`nTauri package version:"
+          Get-Content ./desktop/src-tauri/tauri.conf.json | Select-String '"version"'
 
       - name: Verify updater signing inputs
         shell: pwsh
-        env:
-          TAURI_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
-          TAURI_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         run: |
           if ([string]::IsNullOrWhiteSpace($env:TAURI_PRIVATE_KEY)) {
-            throw "TAURI_PRIVATE_KEY is empty. Check the TAURI_SIGNING_PRIVATE_KEY Actions secret."
+            throw "TAURI_PRIVATE_KEY is empty. Check TAURI_SIGNING_PRIVATE_KEY."
           }
 
           Write-Host "TAURI_PRIVATE_KEY is present."
           Write-Host "Private key character count: $($env:TAURI_PRIVATE_KEY.Length)"
 
           if ([string]::IsNullOrWhiteSpace($env:TAURI_KEY_PASSWORD)) {
-            Write-Host "TAURI_KEY_PASSWORD is empty. This is valid only if the key was created without a password."
-          } else {
-            Write-Host "TAURI_KEY_PASSWORD is present."
+            throw "TAURI_KEY_PASSWORD is empty. Check TAURI_SIGNING_PRIVATE_KEY_PASSWORD."
           }
+
+          Write-Host "TAURI_KEY_PASSWORD is present."
 
       - name: Build and publish signed Windows release
         uses: tauri-apps/tauri-action@v0
