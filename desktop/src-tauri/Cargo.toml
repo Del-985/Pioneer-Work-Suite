@@ -1,6 +1,6 @@
 [package]
 name = "pioneer-work-suite"
-version = "0.1.1"
+version = "0.1.2"
 description = "Pioneer Work Suite desktop client"
 authors = ["Del"]
 edition = "2021"
