@@ -1,6 +1,7 @@
 // apps/web/src/api/documents.ts
 import { http } from "./http";
 import { hasCloudSession } from "./session";
+import { SYNC_STATE_EVENT } from "./tasks";
 
 export interface Document {
   id: string;
@@ -57,6 +58,12 @@ function hasStorage(): boolean {
   return hasWindow() && !!window.localStorage;
 }
 
+function notifySyncStateChanged(): void {
+  if (hasWindow()) {
+    window.dispatchEvent(new Event(SYNC_STATE_EVENT));
+  }
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -107,12 +114,6 @@ function isProbablyOfflineError(err: any): boolean {
 
   const status = err?.response?.status;
 
-  /*
-   * 401/403 are treated as local-mode-safe failures because a stale or
-   * disconnected cloud session must never block local documents.
-   *
-   * 500–504 cover Render sleeping/unavailable states.
-   */
   if (typeof status === "number") {
     return (
       status === 401 ||
@@ -273,6 +274,8 @@ function writeQueue(queue: DocumentOp[]): void {
     window.localStorage.setItem(DOCUMENTS_QUEUE_KEY, JSON.stringify(queue));
   } catch {
     // Local storage failures are non-fatal.
+  } finally {
+    notifySyncStateChanged();
   }
 }
 
@@ -310,10 +313,6 @@ function enqueueUpdate(id: string, patch: DocumentPatch): void {
     (operation) => operation.kind === "create" && operation.tempId === id
   );
 
-  /*
-   * Documents created only on this device do not need a separate update
-   * operation. Keep the queued create payload current instead.
-   */
   if (createIndex !== -1) {
     const create = queue[createIndex] as CreateDocumentOp;
 
@@ -330,7 +329,11 @@ function enqueueUpdate(id: string, patch: DocumentPatch): void {
     return;
   }
 
-  if (queue.some((operation) => operation.kind === "delete" && operation.id === id)) {
+  if (
+    queue.some(
+      (operation) => operation.kind === "delete" && operation.id === id
+    )
+  ) {
     return;
   }
 
@@ -409,10 +412,6 @@ async function createDocumentOnlineOnly(
   title: string,
   content: string
 ): Promise<Document> {
-  /*
-   * The current backend creates blank documents even if content is included
-   * in POST. Follow with PUT so a synced local document keeps its content.
-   */
   const { data } = await http.post("/documents", { title });
 
   let created = normalizeDocument(data?.document ?? data);
@@ -454,17 +453,19 @@ export async function fetchDocuments(): Promise<Document[]> {
 
     const pendingUpdates = new Set(
       queue
-        .filter((operation): operation is UpdateDocumentOp => {
-          return operation.kind === "update";
-        })
+        .filter(
+          (operation): operation is UpdateDocumentOp =>
+            operation.kind === "update"
+        )
         .map((operation) => operation.id)
     );
 
     const pendingDeletes = new Set(
       queue
-        .filter((operation): operation is DeleteDocumentOp => {
-          return operation.kind === "delete";
-        })
+        .filter(
+          (operation): operation is DeleteDocumentOp =>
+            operation.kind === "delete"
+        )
         .map((operation) => operation.id)
     );
 
@@ -476,10 +477,6 @@ export async function fetchDocuments(): Promise<Document[]> {
       }
     }
 
-    /*
-     * Preserve unsynced local changes over a cloud response. This avoids a
-     * stale cloud fetch overwriting edits made while disconnected.
-     */
     for (const localDocument of local) {
       if (
         isOfflineId(localDocument.id) ||
@@ -579,7 +576,6 @@ export async function updateDocument(
     updatedAt: nowIso(),
   });
 
-  // Always save locally before attempting cloud work.
   mergeDocumentIntoCache(optimistic);
 
   if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
@@ -662,10 +658,6 @@ export async function syncOfflineDocumentQueue(): Promise<void> {
           mergeDocumentIntoCache(created);
         }
 
-        /*
-         * Remap later operations in this same queue after the cloud assigns
-         * a real document ID.
-         */
         for (
           let laterIndex = index + 1;
           laterIndex < queue.length;
