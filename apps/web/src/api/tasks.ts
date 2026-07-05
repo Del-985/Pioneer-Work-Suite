@@ -1,5 +1,6 @@
 // apps/web/src/api/tasks.ts
 import { http } from "./http";
+import { hasCloudSession } from "./session";
 
 export type TaskStatus = "todo" | "in_progress" | "done" | string;
 
@@ -51,233 +52,422 @@ interface DeleteOp {
 
 type TaskOp = CreateOp | UpdateOp | DeleteOp;
 
-// ---------- helpers ----------
-
-function safeHasWindow(): boolean {
+function hasWindow(): boolean {
   return typeof window !== "undefined";
 }
 
-function safeHasLocalStorage(): boolean {
-  return safeHasWindow() && !!window.localStorage;
+function hasStorage(): boolean {
+  return hasWindow() && !!window.localStorage;
+}
+
+function isOfflineTaskId(id: string): boolean {
+  return id.startsWith("offline-task-");
+}
+
+function makeOfflineTaskId(): string {
+  return `offline-task-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2)}`;
 }
 
 function readTasksCache(): Task[] {
-  if (!safeHasLocalStorage()) return [];
+  if (!hasStorage()) {
+    return [];
+  }
+
   try {
     const raw = window.localStorage.getItem(TASKS_CACHE_KEY);
-    if (!raw) return [];
+
+    if (!raw) {
+      return [];
+    }
+
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed as Task[];
+
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed.map(normalizeTask);
   } catch {
     return [];
   }
 }
 
 function writeTasksCache(tasks: Task[]): void {
-  if (!safeHasLocalStorage()) return;
+  if (!hasStorage()) {
+    return;
+  }
+
   try {
     window.localStorage.setItem(TASKS_CACHE_KEY, JSON.stringify(tasks));
   } catch {
-    // ignore
+    // Ignore storage failures for now.
   }
 }
 
 function readQueue(): TaskOp[] {
-  if (!safeHasLocalStorage()) return [];
+  if (!hasStorage()) {
+    return [];
+  }
+
   try {
     const raw = window.localStorage.getItem(TASKS_QUEUE_KEY);
-    if (!raw) return [];
+
+    if (!raw) {
+      return [];
+    }
+
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed as TaskOp[];
+
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+
+    return parsed.filter((op) => {
+      return (
+        op &&
+        typeof op === "object" &&
+        (op.kind === "create" || op.kind === "update" || op.kind === "delete")
+      );
+    }) as TaskOp[];
   } catch {
     return [];
   }
 }
 
-function writeQueue(ops: TaskOp[]): void {
-  if (!safeHasLocalStorage()) return;
+function writeQueue(queue: TaskOp[]): void {
+  if (!hasStorage()) {
+    return;
+  }
+
   try {
-    window.localStorage.setItem(TASKS_QUEUE_KEY, JSON.stringify(ops));
+    window.localStorage.setItem(TASKS_QUEUE_KEY, JSON.stringify(queue));
   } catch {
-    // ignore
+    // Ignore storage failures for now.
   }
 }
 
-function enqueue(op: TaskOp) {
-  const current = readQueue();
-  current.push(op);
-  writeQueue(current);
+function normalizeTask(raw: any): Task {
+  return {
+    id: String(raw?.id ?? makeOfflineTaskId()),
+    title: String(raw?.title ?? ""),
+    status: (raw?.status ?? "todo") as TaskStatus,
+    priority: raw?.priority ?? "normal",
+    dueDate: raw?.dueDate ? String(raw.dueDate) : null,
+    createdAt: raw?.createdAt
+      ? String(raw.createdAt)
+      : new Date().toISOString(),
+  };
 }
 
-function isProbablyOfflineError(err: any): boolean {
-  if (!safeHasWindow()) return false;
+function mergeTaskIntoCache(task: Task): void {
+  const normalized = normalizeTask(task);
+  const tasks = readTasksCache();
+  const index = tasks.findIndex((entry) => entry.id === normalized.id);
 
-  // Hard offline from browser
-  if (navigator && navigator.onLine === false) return true;
+  if (index === -1) {
+    tasks.unshift(normalized);
+  } else {
+    tasks[index] = {
+      ...tasks[index],
+      ...normalized,
+    };
+  }
 
-  // Axios-style network error (no response)
-  if (err && typeof err === "object") {
-    const anyErr = err as any;
-    if (anyErr.isAxiosError && !anyErr.response) return true;
-    if (typeof anyErr.code === "string" && anyErr.code === "ERR_NETWORK") {
-      return true;
-    }
-    if (
-      typeof anyErr.message === "string" &&
-      anyErr.message.toLowerCase().includes("network")
-    ) {
-      return true;
-    }
+  writeTasksCache(tasks);
+}
+
+function removeTaskFromCache(id: string): void {
+  writeTasksCache(readTasksCache().filter((task) => task.id !== id));
+}
+
+function isProbablyOfflineError(error: any): boolean {
+  if (!hasWindow()) {
+    return false;
+  }
+
+  if (navigator.onLine === false) {
+    return true;
+  }
+
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const status = error?.response?.status;
+
+  if (typeof status === "number") {
+    return (
+      status === 401 ||
+      status === 403 ||
+      status === 500 ||
+      status === 502 ||
+      status === 503 ||
+      status === 504
+    );
+  }
+
+  if (error.isAxiosError && !error.response) {
+    return true;
+  }
+
+  if (
+    typeof error.code === "string" &&
+    (error.code === "ERR_NETWORK" || error.code === "ECONNABORTED")
+  ) {
+    return true;
+  }
+
+  if (typeof error.message === "string") {
+    const message = error.message.toLowerCase();
+
+    return (
+      message.includes("network") ||
+      message.includes("failed to fetch") ||
+      message.includes("timeout") ||
+      message.includes("service unavailable")
+    );
   }
 
   return false;
 }
 
-// update cache utilities
+function enqueueCreate(task: Task): void {
+  const queue = readQueue();
 
-function mergeTaskIntoCache(task: Task) {
-  const tasks = readTasksCache();
-  const idx = tasks.findIndex((t) => t.id === task.id);
-  if (idx === -1) {
-    tasks.unshift(task);
-  } else {
-    tasks[idx] = { ...tasks[idx], ...task };
+  queue.push({
+    kind: "create",
+    tempId: task.id,
+    payload: {
+      title: task.title,
+      status: task.status,
+      priority: task.priority ?? "normal",
+      dueDate: task.dueDate ?? null,
+    },
+    timestamp: Date.now(),
+  });
+
+  writeQueue(queue);
+}
+
+function enqueueUpdate(id: string, patch: TaskPatch): void {
+  const queue = readQueue();
+
+  const createIndex = queue.findIndex(
+    (op) => op.kind === "create" && op.tempId === id
+  );
+
+  // A task created locally has no server ID yet. Fold edits into its create op.
+  if (createIndex !== -1) {
+    const create = queue[createIndex] as CreateOp;
+
+    queue[createIndex] = {
+      ...create,
+      payload: {
+        ...create.payload,
+        ...patch,
+      },
+      timestamp: Date.now(),
+    };
+
+    writeQueue(queue);
+    return;
   }
-  writeTasksCache(tasks);
+
+  if (queue.some((op) => op.kind === "delete" && op.id === id)) {
+    return;
+  }
+
+  const updateIndex = queue.findIndex(
+    (op) => op.kind === "update" && op.id === id
+  );
+
+  if (updateIndex !== -1) {
+    const existing = queue[updateIndex] as UpdateOp;
+
+    queue[updateIndex] = {
+      ...existing,
+      patch: {
+        ...existing.patch,
+        ...patch,
+      },
+      timestamp: Date.now(),
+    };
+  } else {
+    queue.push({
+      kind: "update",
+      id,
+      patch,
+      timestamp: Date.now(),
+    });
+  }
+
+  writeQueue(queue);
 }
 
-function removeTaskFromCache(id: string) {
-  const tasks = readTasksCache();
-  const next = tasks.filter((t) => t.id !== id);
-  writeTasksCache(next);
-}
+function enqueueDelete(id: string): void {
+  const queue = readQueue().filter((op) => {
+    if (op.kind === "create" && op.tempId === id) {
+      return false;
+    }
 
-// Normalization to keep TS happy and UI robust
-function normalizeTask(raw: any): Task {
-  const t: Task = {
-    id: String(raw.id),
-    title: String(raw.title ?? ""),
-    status: (raw.status ?? "todo") as TaskStatus,
-    priority: raw.priority ?? null,
-    dueDate: raw.dueDate ? String(raw.dueDate) : null,
-    createdAt: raw.createdAt ? String(raw.createdAt) : undefined,
-  };
-  return t;
-}
+    if (op.kind === "update" && op.id === id) {
+      return false;
+    }
 
-// ---------- ONLINE-ONLY fetch (internal) ----------
+    if (op.kind === "delete" && op.id === id) {
+      return false;
+    }
+
+    return true;
+  });
+
+  // A task that only exists locally does not need a future server delete.
+  if (!isOfflineTaskId(id)) {
+    queue.push({
+      kind: "delete",
+      id,
+      timestamp: Date.now(),
+    });
+  }
+
+  writeQueue(queue);
+}
 
 async function fetchTasksOnlineOnly(): Promise<Task[]> {
   const { data } = await http.get<any>("/tasks");
 
-  let rawTasks: any[] = [];
-  if (Array.isArray(data)) {
-    rawTasks = data;
-  } else if (data && Array.isArray(data.tasks)) {
-    rawTasks = data.tasks;
-  }
+  const rawTasks = Array.isArray(data)
+    ? data
+    : data && Array.isArray(data.tasks)
+      ? data.tasks
+      : [];
 
-  const tasks = rawTasks.map(normalizeTask);
-  writeTasksCache(tasks);
-  return tasks;
+  return rawTasks.map(normalizeTask);
 }
 
-// ---------- PUBLIC API (offline-aware) ----------
+async function createTaskOnlineOnly(
+  payload: CreateOp["payload"]
+): Promise<Task> {
+  const { data } = await http.post<any>("/tasks", payload);
+
+  return normalizeTask(data?.task ?? data);
+}
+
+async function updateTaskOnlineOnly(
+  id: string,
+  patch: TaskPatch
+): Promise<Task> {
+  // Backend uses PUT /tasks/:id, not PATCH.
+  const { data } = await http.put<any>(`/tasks/${id}`, patch);
+
+  return normalizeTask(data?.task ?? data);
+}
+
+async function deleteTaskOnlineOnly(id: string): Promise<void> {
+  await http.delete(`/tasks/${id}`);
+}
 
 export async function fetchTasks(): Promise<Task[]> {
-  // If clearly offline, just return cache
-  if (safeHasWindow() && navigator.onLine === false) {
+  if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
     return readTasksCache();
   }
 
   try {
-    return await fetchTasksOnlineOnly();
-  } catch (err) {
-    if (isProbablyOfflineError(err)) {
-      // Use whatever we have locally
+    const remoteTasks = await fetchTasksOnlineOnly();
+    const localTasks = readTasksCache();
+    const queue = readQueue();
+
+    const pendingUpdates = new Set(
+      queue
+        .filter((op): op is UpdateOp => op.kind === "update")
+        .map((op) => op.id)
+    );
+
+    const pendingDeletes = new Set(
+      queue
+        .filter((op): op is DeleteOp => op.kind === "delete")
+        .map((op) => op.id)
+    );
+
+    const merged = new Map<string, Task>();
+
+    for (const task of remoteTasks) {
+      if (!pendingDeletes.has(task.id)) {
+        merged.set(task.id, task);
+      }
+    }
+
+    // Preserve local-only tasks and unsynced edits.
+    for (const task of localTasks) {
+      if (
+        isOfflineTaskId(task.id) ||
+        pendingUpdates.has(task.id) ||
+        pendingDeletes.has(task.id)
+      ) {
+        if (!pendingDeletes.has(task.id)) {
+          merged.set(task.id, task);
+        }
+      }
+    }
+
+    const tasks = [...merged.values()];
+    writeTasksCache(tasks);
+
+    return tasks;
+  } catch (error) {
+    if (isProbablyOfflineError(error)) {
       return readTasksCache();
     }
-    throw err;
+
+    throw error;
   }
 }
 
-// Existing signature: createTask(title: string)
 export async function createTask(title: string): Promise<Task> {
-  const basePayload = {
-    title,
-  };
+  const finalTitle = title.trim();
 
-  // If clearly offline, synthesize local task + queue op
-  if (safeHasWindow() && navigator.onLine === false) {
-    const tempId = `offline-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
-    const offlineTask: Task = {
-      id: tempId,
-      title,
-      status: "todo",
-      priority: "normal",
-      dueDate: null,
-      createdAt: new Date().toISOString(),
-    };
-
-    mergeTaskIntoCache(offlineTask);
-
-    const op: CreateOp = {
-      kind: "create",
-      tempId,
-      payload: {
-        title,
-        status: "todo",
-        priority: "normal",
-        dueDate: null,
-      },
-      timestamp: Date.now(),
-    };
-    enqueue(op);
-
-    return offlineTask;
+  if (!finalTitle) {
+    throw new Error("Task title is required.");
   }
 
-  // Try online; on network failure, fall back to offline behaviour
+  const localTask: Task = {
+    id: makeOfflineTaskId(),
+    title: finalTitle,
+    status: "todo",
+    priority: "normal",
+    dueDate: null,
+    createdAt: new Date().toISOString(),
+  };
+
+  if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
+    mergeTaskIntoCache(localTask);
+    enqueueCreate(localTask);
+
+    return localTask;
+  }
+
   try {
-    const { data } = await http.post<any>("/tasks", basePayload);
-    const task = normalizeTask(data.task ?? data);
-    mergeTaskIntoCache(task);
-    return task;
-  } catch (err) {
-    if (!isProbablyOfflineError(err)) {
-      throw err;
-    }
-
-    const tempId = `offline-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-
-    const offlineTask: Task = {
-      id: tempId,
-      title,
+    const created = await createTaskOnlineOnly({
+      title: finalTitle,
       status: "todo",
       priority: "normal",
       dueDate: null,
-      createdAt: new Date().toISOString(),
-    };
+    });
 
-    mergeTaskIntoCache(offlineTask);
+    mergeTaskIntoCache(created);
 
-    const op: CreateOp = {
-      kind: "create",
-      tempId,
-      payload: {
-        title,
-        status: "todo",
-        priority: "normal",
-        dueDate: null,
-      },
-      timestamp: Date.now(),
-    };
-    enqueue(op);
+    return created;
+  } catch (error) {
+    if (!isProbablyOfflineError(error)) {
+      throw error;
+    }
 
-    return offlineTask;
+    mergeTaskIntoCache(localTask);
+    enqueueCreate(localTask);
+
+    return localTask;
   }
 }
 
@@ -285,163 +475,153 @@ export async function updateTask(
   id: string,
   patch: TaskPatch
 ): Promise<Task> {
-  // If clearly offline, update cache + queue and return synthetic
-  if (safeHasWindow() && navigator.onLine === false) {
-    const tasks = readTasksCache();
-    const existing = tasks.find((t) => t.id === id);
-    const merged: Task = existing
-      ? { ...existing, ...patch }
-      : {
-          id,
-          title: patch.title ?? "",
-          status: patch.status ?? "todo",
-          priority: patch.priority ?? "normal",
-          dueDate: patch.dueDate ?? null,
-          createdAt: existing?.createdAt ?? new Date().toISOString(),
-        };
+  const existing = readTasksCache().find((task) => task.id === id);
 
-    mergeTaskIntoCache(merged);
-
-    const op: UpdateOp = {
-      kind: "update",
+  const optimistic: Task = normalizeTask({
+    ...(existing ?? {
       id,
-      patch,
-      timestamp: Date.now(),
-    };
-    enqueue(op);
+      title: "",
+      status: "todo",
+      priority: "normal",
+      dueDate: null,
+      createdAt: new Date().toISOString(),
+    }),
+    ...patch,
+  });
 
-    return merged;
+  mergeTaskIntoCache(optimistic);
+
+  if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
+    enqueueUpdate(id, patch);
+
+    return optimistic;
   }
 
   try {
-    const { data } = await http.patch<any>(`/tasks/${id}`, patch);
-    const task = normalizeTask(data.task ?? data);
-    mergeTaskIntoCache(task);
-    return task;
-  } catch (err) {
-    if (!isProbablyOfflineError(err)) {
-      throw err;
+    const updated = await updateTaskOnlineOnly(id, patch);
+
+    mergeTaskIntoCache(updated);
+
+    return updated;
+  } catch (error) {
+    if (!isProbablyOfflineError(error)) {
+      throw error;
     }
 
-    const tasks = readTasksCache();
-    const existing = tasks.find((t) => t.id === id);
-    const merged: Task = existing
-      ? { ...existing, ...patch }
-      : {
-          id,
-          title: patch.title ?? "",
-          status: patch.status ?? "todo",
-          priority: patch.priority ?? "normal",
-          dueDate: patch.dueDate ?? null,
-          createdAt: existing?.createdAt ?? new Date().toISOString(),
-        };
+    enqueueUpdate(id, patch);
 
-    mergeTaskIntoCache(merged);
-
-    const op: UpdateOp = {
-      kind: "update",
-      id,
-      patch,
-      timestamp: Date.now(),
-    };
-    enqueue(op);
-
-    return merged;
+    return optimistic;
   }
 }
 
 export async function deleteTask(id: string): Promise<void> {
-  // Always optimistically remove from cache
   removeTaskFromCache(id);
 
-  if (safeHasWindow() && navigator.onLine === false) {
-    const op: DeleteOp = {
-      kind: "delete",
-      id,
-      timestamp: Date.now(),
-    };
-    enqueue(op);
+  if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
+    enqueueDelete(id);
+
     return;
   }
 
   try {
-    await http.delete(`/tasks/${id}`);
-  } catch (err) {
-    if (!isProbablyOfflineError(err)) {
-      throw err;
+    await deleteTaskOnlineOnly(id);
+  } catch (error: any) {
+    if (error?.response?.status === 404) {
+      return;
     }
 
-    const op: DeleteOp = {
-      kind: "delete",
-      id,
-      timestamp: Date.now(),
-    };
-    enqueue(op);
+    if (!isProbablyOfflineError(error)) {
+      throw error;
+    }
+
+    enqueueDelete(id);
   }
 }
-
-// ---------- SYNC HELPERS (for App.tsx) ----------
 
 export async function syncOfflineTaskQueue(): Promise<void> {
-  if (!safeHasWindow()) return;
-  if (navigator.onLine === false) return;
+  if (!hasWindow() || !hasCloudSession() || navigator.onLine === false) {
+    return;
+  }
 
-  let queue = readQueue();
-  if (queue.length === 0) return;
+  const queue = readQueue();
 
-  const newQueue: TaskOp[] = [];
+  if (queue.length === 0) {
+    return;
+  }
 
-  for (const op of queue) {
+  const remaining: TaskOp[] = [];
+
+  for (let index = 0; index < queue.length; index += 1) {
+    const operation = queue[index];
+
     try {
-      if (op.kind === "create") {
-        const { tempId, payload } = op;
-        const { data } = await http.post<any>("/tasks", payload);
-        const serverTask = normalizeTask(data.task ?? data);
+      if (operation.kind === "create") {
+        const created = await createTaskOnlineOnly(operation.payload);
 
-        // Replace tempId in cache
-        const tasks = readTasksCache();
-        const idx = tasks.findIndex((t) => t.id === tempId);
-        if (idx !== -1) {
-          tasks[idx] = serverTask;
-          writeTasksCache(tasks);
+        const cached = readTasksCache();
+        const cachedIndex = cached.findIndex(
+          (task) => task.id === operation.tempId
+        );
+
+        if (cachedIndex !== -1) {
+          cached[cachedIndex] = created;
+          writeTasksCache(cached);
         } else {
-          mergeTaskIntoCache(serverTask);
+          mergeTaskIntoCache(created);
         }
-      } else if (op.kind === "update") {
-        const { id, patch } = op;
-        const { data } = await http.patch<any>(`/tasks/${id}`, patch);
-        const serverTask = normalizeTask(data.task ?? data);
-        mergeTaskIntoCache(serverTask);
-      } else if (op.kind === "delete") {
-        const { id } = op;
-        await http.delete(`/tasks/${id}`);
-        removeTaskFromCache(id);
+
+        continue;
       }
-      // success: do not keep in newQueue
-    } catch (err) {
-      // If still offline mid-loop or server unhappy, keep this op for later
-      newQueue.push(op);
+
+      if (operation.kind === "update") {
+        if (isOfflineTaskId(operation.id)) {
+          remaining.push(operation);
+          continue;
+        }
+
+        const updated = await updateTaskOnlineOnly(
+          operation.id,
+          operation.patch
+        );
+
+        mergeTaskIntoCache(updated);
+        continue;
+      }
+
+      if (operation.kind === "delete") {
+        if (isOfflineTaskId(operation.id)) {
+          removeTaskFromCache(operation.id);
+          continue;
+        }
+
+        await deleteTaskOnlineOnly(operation.id);
+        removeTaskFromCache(operation.id);
+      }
+    } catch (error) {
+      if (isProbablyOfflineError(error)) {
+        remaining.push(operation, ...queue.slice(index + 1));
+        writeQueue(remaining);
+        return;
+      }
+
+      console.error("[Task sync] operation failed:", operation, error);
+      remaining.push(operation);
     }
   }
 
-  writeQueue(newQueue);
+  writeQueue(remaining);
 
-  // Refresh cache from server if we're still online
   try {
-    if (navigator.onLine) {
-      const tasks = await fetchTasksOnlineOnly();
-      writeTasksCache(tasks);
-    }
+    await fetchTasks();
   } catch {
-    // ignore
+    // Cache remains usable until a later successful sync.
   }
 }
 
-/**
- * Convenience function: call this on app mount + on "online" events.
- */
 export async function trySyncTasksIfOnline(): Promise<void> {
-  if (!safeHasWindow()) return;
-  if (!navigator.onLine) return;
+  if (!hasWindow() || !hasCloudSession() || !navigator.onLine) {
+    return;
+  }
+
   await syncOfflineTaskQueue();
 }
