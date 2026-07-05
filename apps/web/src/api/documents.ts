@@ -1,5 +1,6 @@
 // apps/web/src/api/documents.ts
 import { http } from "./http";
+import { hasCloudSession } from "./session";
 
 export interface Document {
   id: string;
@@ -86,12 +87,15 @@ function sortDocuments(documents: Document[]): Document[] {
   return [...documents].sort((a, b) => {
     const aTime = new Date(a.updatedAt || a.createdAt).getTime();
     const bTime = new Date(b.updatedAt || b.createdAt).getTime();
+
     return bTime - aTime;
   });
 }
 
 function isProbablyOfflineError(err: any): boolean {
-  if (!hasWindow()) return false;
+  if (!hasWindow()) {
+    return false;
+  }
 
   if (typeof navigator !== "undefined" && navigator.onLine === false) {
     return true;
@@ -103,9 +107,21 @@ function isProbablyOfflineError(err: any): boolean {
 
   const status = err?.response?.status;
 
-  // Treat sleeping/unavailable backend responses as offline-capable mode.
+  /*
+   * 401/403 are treated as local-mode-safe failures because a stale or
+   * disconnected cloud session must never block local documents.
+   *
+   * 500–504 cover Render sleeping/unavailable states.
+   */
   if (typeof status === "number") {
-    return status === 500 || status === 502 || status === 503 || status === 504;
+    return (
+      status === 401 ||
+      status === 403 ||
+      status === 500 ||
+      status === 502 ||
+      status === 503 ||
+      status === 504
+    );
   }
 
   if (err.isAxiosError && !err.response) {
@@ -136,21 +152,27 @@ function isProbablyOfflineError(err: any): boolean {
 // ---------- Local cache ----------
 
 function readDocumentsCache(): Document[] {
-  if (!hasStorage()) return [];
+  if (!hasStorage()) {
+    return [];
+  }
 
   try {
     const current = window.localStorage.getItem(DOCUMENTS_CACHE_KEY);
     const legacy = window.localStorage.getItem(LEGACY_CACHE_KEY);
     const raw = current || legacy;
 
-    if (!raw) return [];
+    if (!raw) {
+      return [];
+    }
 
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
+
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
 
     const documents = sortDocuments(parsed.map(normalizeDocument));
 
-    // One-time migration from the older cache key.
     if (!current && legacy) {
       writeDocumentsCache(documents);
     }
@@ -162,7 +184,9 @@ function readDocumentsCache(): Document[] {
 }
 
 function writeDocumentsCache(documents: Document[]): void {
-  if (!hasStorage()) return;
+  if (!hasStorage()) {
+    return;
+  }
 
   try {
     window.localStorage.setItem(
@@ -170,13 +194,14 @@ function writeDocumentsCache(documents: Document[]): void {
       JSON.stringify(sortDocuments(documents))
     );
   } catch {
-    // Ignore quota/private-mode failures.
+    // Local storage quota/private-mode failures are non-fatal.
   }
 }
 
-function mergeDocumentIntoCache(doc: Document): void {
-  const normalized = normalizeDocument(doc);
+function mergeDocumentIntoCache(document: Document): void {
+  const normalized = normalizeDocument(document);
   const documents = readDocumentsCache();
+
   const index = documents.findIndex((entry) => entry.id === normalized.id);
 
   if (index === -1) {
@@ -202,17 +227,24 @@ export function getCachedDocuments(): Document[] {
 // ---------- Sync queue ----------
 
 function readQueue(): DocumentOp[] {
-  if (!hasStorage()) return [];
+  if (!hasStorage()) {
+    return [];
+  }
 
   try {
     const current = window.localStorage.getItem(DOCUMENTS_QUEUE_KEY);
     const legacy = window.localStorage.getItem(LEGACY_QUEUE_KEY);
     const raw = current || legacy;
 
-    if (!raw) return [];
+    if (!raw) {
+      return [];
+    }
 
     const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
+
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
 
     const queue = parsed.filter((op) => {
       return (
@@ -233,12 +265,14 @@ function readQueue(): DocumentOp[] {
 }
 
 function writeQueue(queue: DocumentOp[]): void {
-  if (!hasStorage()) return;
+  if (!hasStorage()) {
+    return;
+  }
 
   try {
     window.localStorage.setItem(DOCUMENTS_QUEUE_KEY, JSON.stringify(queue));
   } catch {
-    // Ignore local storage failures.
+    // Local storage failures are non-fatal.
   }
 }
 
@@ -249,28 +283,37 @@ export function getPendingDocumentSyncCount(): number {
 export function hasPendingDocumentSync(id?: string): boolean {
   const queue = readQueue();
 
-  if (!id) return queue.length > 0;
+  if (!id) {
+    return queue.length > 0;
+  }
 
-  return queue.some((op) => {
-    if (op.kind === "create") return op.tempId === id;
-    return op.id === id;
+  return queue.some((operation) => {
+    if (operation.kind === "create") {
+      return operation.tempId === id;
+    }
+
+    return operation.id === id;
   });
 }
 
-function enqueueCreate(op: CreateDocumentOp): void {
+function enqueueCreate(operation: CreateDocumentOp): void {
   const queue = readQueue();
-  queue.push(op);
+
+  queue.push(operation);
   writeQueue(queue);
 }
 
 function enqueueUpdate(id: string, patch: DocumentPatch): void {
   const queue = readQueue();
 
-  // Update an offline-created document by modifying its queued create payload.
   const createIndex = queue.findIndex(
-    (op) => op.kind === "create" && op.tempId === id
+    (operation) => operation.kind === "create" && operation.tempId === id
   );
 
+  /*
+   * Documents created only on this device do not need a separate update
+   * operation. Keep the queued create payload current instead.
+   */
   if (createIndex !== -1) {
     const create = queue[createIndex] as CreateDocumentOp;
 
@@ -287,14 +330,12 @@ function enqueueUpdate(id: string, patch: DocumentPatch): void {
     return;
   }
 
-  // No need to update something already queued for deletion.
-  if (queue.some((op) => op.kind === "delete" && op.id === id)) {
+  if (queue.some((operation) => operation.kind === "delete" && operation.id === id)) {
     return;
   }
 
-  // Collapse repeated edits into one pending update.
   const updateIndex = queue.findIndex(
-    (op) => op.kind === "update" && op.id === id
+    (operation) => operation.kind === "update" && operation.id === id
   );
 
   if (updateIndex !== -1) {
@@ -321,28 +362,34 @@ function enqueueUpdate(id: string, patch: DocumentPatch): void {
 }
 
 function enqueueDelete(id: string): void {
-  const queue = readQueue();
+  const queue = readQueue().filter((operation) => {
+    if (operation.kind === "create" && operation.tempId === id) {
+      return false;
+    }
 
-  const cleanedQueue = queue.filter((op) => {
-    if (op.kind === "create" && op.tempId === id) return false;
-    if (op.kind === "update" && op.id === id) return false;
-    if (op.kind === "delete" && op.id === id) return false;
+    if (operation.kind === "update" && operation.id === id) {
+      return false;
+    }
+
+    if (operation.kind === "delete" && operation.id === id) {
+      return false;
+    }
+
     return true;
   });
 
-  // Offline-only document never existed server-side, so no delete needs syncing.
   if (!isOfflineId(id)) {
-    cleanedQueue.push({
+    queue.push({
       kind: "delete",
       id,
       timestamp: Date.now(),
     });
   }
 
-  writeQueue(cleanedQueue);
+  writeQueue(queue);
 }
 
-// ---------- Online-only API ----------
+// ---------- Cloud-only API ----------
 
 async function fetchDocumentsOnlineOnly(): Promise<Document[]> {
   const { data } = await http.get("/documents");
@@ -362,12 +409,14 @@ async function createDocumentOnlineOnly(
   title: string,
   content: string
 ): Promise<Document> {
-  // Current backend creates documents with empty content, even if content is sent.
+  /*
+   * The current backend creates blank documents even if content is included
+   * in POST. Follow with PUT so a synced local document keeps its content.
+   */
   const { data } = await http.post("/documents", { title });
 
   let created = normalizeDocument(data?.document ?? data);
 
-  // Immediately follow with PUT so content survives a sync/create.
   if (content) {
     created = await updateDocumentOnlineOnly(created.id, {
       title,
@@ -383,6 +432,7 @@ async function updateDocumentOnlineOnly(
   updates: DocumentPatch
 ): Promise<Document> {
   const { data } = await http.put(`/documents/${id}`, updates);
+
   return normalizeDocument(data?.document ?? data);
 }
 
@@ -393,7 +443,7 @@ async function deleteDocumentOnlineOnly(id: string): Promise<void> {
 // ---------- Public API ----------
 
 export async function fetchDocuments(): Promise<Document[]> {
-  if (hasWindow() && navigator.onLine === false) {
+  if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
     return readDocumentsCache();
   }
 
@@ -404,46 +454,54 @@ export async function fetchDocuments(): Promise<Document[]> {
 
     const pendingUpdates = new Set(
       queue
-        .filter((op): op is UpdateDocumentOp => op.kind === "update")
-        .map((op) => op.id)
+        .filter((operation): operation is UpdateDocumentOp => {
+          return operation.kind === "update";
+        })
+        .map((operation) => operation.id)
     );
 
     const pendingDeletes = new Set(
       queue
-        .filter((op): op is DeleteDocumentOp => op.kind === "delete")
-        .map((op) => op.id)
+        .filter((operation): operation is DeleteDocumentOp => {
+          return operation.kind === "delete";
+        })
+        .map((operation) => operation.id)
     );
 
     const merged = new Map<string, Document>();
 
-    for (const doc of remote) {
-      if (!pendingDeletes.has(doc.id)) {
-        merged.set(doc.id, doc);
+    for (const document of remote) {
+      if (!pendingDeletes.has(document.id)) {
+        merged.set(document.id, document);
       }
     }
 
-    // Preserve unsynced edits and offline-created docs over remote responses.
-    for (const localDoc of local) {
+    /*
+     * Preserve unsynced local changes over a cloud response. This avoids a
+     * stale cloud fetch overwriting edits made while disconnected.
+     */
+    for (const localDocument of local) {
       if (
-        isOfflineId(localDoc.id) ||
-        pendingUpdates.has(localDoc.id) ||
-        pendingDeletes.has(localDoc.id)
+        isOfflineId(localDocument.id) ||
+        pendingUpdates.has(localDocument.id) ||
+        pendingDeletes.has(localDocument.id)
       ) {
-        if (!pendingDeletes.has(localDoc.id)) {
-          merged.set(localDoc.id, localDoc);
+        if (!pendingDeletes.has(localDocument.id)) {
+          merged.set(localDocument.id, localDocument);
         }
       }
     }
 
     const documents = sortDocuments([...merged.values()]);
+
     writeDocumentsCache(documents);
     return documents;
-  } catch (err) {
-    if (isProbablyOfflineError(err)) {
+  } catch (error) {
+    if (isProbablyOfflineError(error)) {
       return readDocumentsCache();
     }
 
-    throw err;
+    throw error;
   }
 }
 
@@ -454,15 +512,15 @@ export async function createDocument(
   const finalTitle = title.trim() || "Untitled document";
   const finalContent = content || "";
 
-  if (hasWindow() && navigator.onLine === false) {
-    const localDocument: Document = {
-      id: makeOfflineId(),
-      title: finalTitle,
-      content: finalContent,
-      createdAt: nowIso(),
-      updatedAt: nowIso(),
-    };
+  const localDocument: Document = {
+    id: makeOfflineId(),
+    title: finalTitle,
+    content: finalContent,
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+  };
 
+  if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
     mergeDocumentIntoCache(localDocument);
 
     enqueueCreate({
@@ -480,20 +538,13 @@ export async function createDocument(
 
   try {
     const created = await createDocumentOnlineOnly(finalTitle, finalContent);
+
     mergeDocumentIntoCache(created);
     return created;
-  } catch (err) {
-    if (!isProbablyOfflineError(err)) {
-      throw err;
+  } catch (error) {
+    if (!isProbablyOfflineError(error)) {
+      throw error;
     }
-
-    const localDocument: Document = {
-      id: makeOfflineId(),
-      title: finalTitle,
-      content: finalContent,
-      createdAt: nowIso(),
-      updatedAt: nowIso(),
-    };
 
     mergeDocumentIntoCache(localDocument);
 
@@ -515,7 +566,7 @@ export async function updateDocument(
   id: string,
   updates: DocumentPatch
 ): Promise<Document> {
-  const current = readDocumentsCache().find((doc) => doc.id === id);
+  const current = readDocumentsCache().find((document) => document.id === id);
 
   const optimistic = normalizeDocument({
     ...(current ?? {
@@ -528,21 +579,22 @@ export async function updateDocument(
     updatedAt: nowIso(),
   });
 
-  // Local save happens immediately, before backend work begins.
+  // Always save locally before attempting cloud work.
   mergeDocumentIntoCache(optimistic);
 
-  if (hasWindow() && navigator.onLine === false) {
+  if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
     enqueueUpdate(id, updates);
     return optimistic;
   }
 
   try {
     const updated = await updateDocumentOnlineOnly(id, updates);
+
     mergeDocumentIntoCache(updated);
     return updated;
-  } catch (err) {
-    if (!isProbablyOfflineError(err)) {
-      throw err;
+  } catch (error) {
+    if (!isProbablyOfflineError(error)) {
+      throw error;
     }
 
     enqueueUpdate(id, updates);
@@ -553,21 +605,20 @@ export async function updateDocument(
 export async function deleteDocument(id: string): Promise<void> {
   removeDocumentFromCache(id);
 
-  if (hasWindow() && navigator.onLine === false) {
+  if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
     enqueueDelete(id);
     return;
   }
 
   try {
     await deleteDocumentOnlineOnly(id);
-  } catch (err: any) {
-    // Already absent remotely; local removal remains correct.
-    if (err?.response?.status === 404) {
+  } catch (error: any) {
+    if (error?.response?.status === 404) {
       return;
     }
 
-    if (!isProbablyOfflineError(err)) {
-      throw err;
+    if (!isProbablyOfflineError(error)) {
+      throw error;
     }
 
     enqueueDelete(id);
@@ -577,25 +628,32 @@ export async function deleteDocument(id: string): Promise<void> {
 // ---------- Queue sync ----------
 
 export async function syncOfflineDocumentQueue(): Promise<void> {
-  if (!hasWindow() || navigator.onLine === false) return;
+  if (!hasWindow() || !hasCloudSession() || navigator.onLine === false) {
+    return;
+  }
 
   const queue = readQueue();
-  if (queue.length === 0) return;
+
+  if (queue.length === 0) {
+    return;
+  }
 
   const remaining: DocumentOp[] = [];
 
-  for (let index = 0; index < queue.length; index++) {
-    const op = queue[index];
+  for (let index = 0; index < queue.length; index += 1) {
+    const operation = queue[index];
 
     try {
-      if (op.kind === "create") {
+      if (operation.kind === "create") {
         const created = await createDocumentOnlineOnly(
-          op.payload.title,
-          op.payload.content
+          operation.payload.title,
+          operation.payload.content
         );
 
         const cached = readDocumentsCache();
-        const cachedIndex = cached.findIndex((doc) => doc.id === op.tempId);
+        const cachedIndex = cached.findIndex(
+          (document) => document.id === operation.tempId
+        );
 
         if (cachedIndex !== -1) {
           cached[cachedIndex] = created;
@@ -604,15 +662,22 @@ export async function syncOfflineDocumentQueue(): Promise<void> {
           mergeDocumentIntoCache(created);
         }
 
-        // Remap later pending operations if needed.
-        for (let laterIndex = index + 1; laterIndex < queue.length; laterIndex++) {
+        /*
+         * Remap later operations in this same queue after the cloud assigns
+         * a real document ID.
+         */
+        for (
+          let laterIndex = index + 1;
+          laterIndex < queue.length;
+          laterIndex += 1
+        ) {
           const later = queue[laterIndex];
 
-          if (later.kind === "update" && later.id === op.tempId) {
+          if (later.kind === "update" && later.id === operation.tempId) {
             later.id = created.id;
           }
 
-          if (later.kind === "delete" && later.id === op.tempId) {
+          if (later.kind === "delete" && later.id === operation.tempId) {
             later.id = created.id;
           }
         }
@@ -620,37 +685,39 @@ export async function syncOfflineDocumentQueue(): Promise<void> {
         continue;
       }
 
-      if (op.kind === "update") {
-        if (isOfflineId(op.id)) {
-          remaining.push(op);
+      if (operation.kind === "update") {
+        if (isOfflineId(operation.id)) {
+          remaining.push(operation);
           continue;
         }
 
-        const updated = await updateDocumentOnlineOnly(op.id, op.patch);
+        const updated = await updateDocumentOnlineOnly(
+          operation.id,
+          operation.patch
+        );
+
         mergeDocumentIntoCache(updated);
         continue;
       }
 
-      if (op.kind === "delete") {
-        if (isOfflineId(op.id)) {
-          removeDocumentFromCache(op.id);
+      if (operation.kind === "delete") {
+        if (isOfflineId(operation.id)) {
+          removeDocumentFromCache(operation.id);
           continue;
         }
 
-        await deleteDocumentOnlineOnly(op.id);
-        removeDocumentFromCache(op.id);
+        await deleteDocumentOnlineOnly(operation.id);
+        removeDocumentFromCache(operation.id);
       }
-    } catch (err) {
-      if (isProbablyOfflineError(err)) {
-        // Backend still unavailable. Preserve this operation and all later work.
-        remaining.push(op, ...queue.slice(index + 1));
+    } catch (error) {
+      if (isProbablyOfflineError(error)) {
+        remaining.push(operation, ...queue.slice(index + 1));
         writeQueue(remaining);
         return;
       }
 
-      // Keep a failed non-network operation so no user work disappears.
-      console.error("[Document sync] operation failed:", op, err);
-      remaining.push(op);
+      console.error("[Document sync] operation failed:", operation, error);
+      remaining.push(operation);
     }
   }
 
@@ -659,11 +726,14 @@ export async function syncOfflineDocumentQueue(): Promise<void> {
   try {
     await fetchDocuments();
   } catch {
-    // Local cache is still the source of truth until next successful sync.
+    // Local cache remains usable until a later successful sync.
   }
 }
 
 export async function trySyncDocumentsIfOnline(): Promise<void> {
-  if (!hasWindow() || !navigator.onLine) return;
+  if (!hasWindow() || !hasCloudSession() || !navigator.onLine) {
+    return;
+  }
+
   await syncOfflineDocumentQueue();
 }
