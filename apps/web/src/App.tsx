@@ -41,7 +41,7 @@ import {
 type SidebarMode = "tasks" | "documents";
 
 const SIDEBAR_MODE_KEY = "pioneer-sidebar-mode";
-const APP_VERSION = "0.1.2";
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || "0.0.0";
 
 
 function loadInitialSidebarMode(): SidebarMode {
