@@ -23,6 +23,8 @@ export interface TaskPatch {
 const TASKS_CACHE_KEY = "pioneer.tasks.cache.v1";
 const TASKS_QUEUE_KEY = "pioneer.tasks.queue.v1";
 
+export const SYNC_STATE_EVENT = "pioneer:sync-state-changed";
+
 type TaskOpKind = "create" | "update" | "delete";
 
 interface CreateOp {
@@ -58,6 +60,12 @@ function hasWindow(): boolean {
 
 function hasStorage(): boolean {
   return hasWindow() && !!window.localStorage;
+}
+
+function notifySyncStateChanged(): void {
+  if (hasWindow()) {
+    window.dispatchEvent(new Event(SYNC_STATE_EVENT));
+  }
 }
 
 function isOfflineTaskId(id: string): boolean {
@@ -145,7 +153,13 @@ function writeQueue(queue: TaskOp[]): void {
     window.localStorage.setItem(TASKS_QUEUE_KEY, JSON.stringify(queue));
   } catch {
     // Ignore storage failures for now.
+  } finally {
+    notifySyncStateChanged();
   }
+}
+
+export function getPendingTaskSyncCount(): number {
+  return readQueue().length;
 }
 
 function normalizeTask(raw: any): Task {
@@ -258,7 +272,6 @@ function enqueueUpdate(id: string, patch: TaskPatch): void {
     (op) => op.kind === "create" && op.tempId === id
   );
 
-  // A task created locally has no server ID yet. Fold edits into its create op.
   if (createIndex !== -1) {
     const create = queue[createIndex] as CreateOp;
 
@@ -323,7 +336,6 @@ function enqueueDelete(id: string): void {
     return true;
   });
 
-  // A task that only exists locally does not need a future server delete.
   if (!isOfflineTaskId(id)) {
     queue.push({
       kind: "delete",
@@ -359,7 +371,6 @@ async function updateTaskOnlineOnly(
   id: string,
   patch: TaskPatch
 ): Promise<Task> {
-  // Backend uses PUT /tasks/:id, not PATCH.
   const { data } = await http.put<any>(`/tasks/${id}`, patch);
 
   return normalizeTask(data?.task ?? data);
@@ -399,7 +410,6 @@ export async function fetchTasks(): Promise<Task[]> {
       }
     }
 
-    // Preserve local-only tasks and unsynced edits.
     for (const task of localTasks) {
       if (
         isOfflineTaskId(task.id) ||
@@ -413,8 +423,8 @@ export async function fetchTasks(): Promise<Task[]> {
     }
 
     const tasks = [...merged.values()];
-    writeTasksCache(tasks);
 
+    writeTasksCache(tasks);
     return tasks;
   } catch (error) {
     if (isProbablyOfflineError(error)) {
@@ -457,7 +467,6 @@ export async function createTask(title: string): Promise<Task> {
     });
 
     mergeTaskIntoCache(created);
-
     return created;
   } catch (error) {
     if (!isProbablyOfflineError(error)) {
@@ -501,7 +510,6 @@ export async function updateTask(
     const updated = await updateTaskOnlineOnly(id, patch);
 
     mergeTaskIntoCache(updated);
-
     return updated;
   } catch (error) {
     if (!isProbablyOfflineError(error)) {
@@ -509,7 +517,6 @@ export async function updateTask(
     }
 
     enqueueUpdate(id, patch);
-
     return optimistic;
   }
 }
@@ -519,7 +526,6 @@ export async function deleteTask(id: string): Promise<void> {
 
   if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
     enqueueDelete(id);
-
     return;
   }
 
