@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import path from "node:path";
-import process from "node:process";
+import { fileURLToPath } from "node:url";
 
-const root = process.cwd();
-
+const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
+const root = path.resolve(scriptDirectory, "..");
 const envPath = path.join(root, "apps", "web", ".env");
 const webPackagePath = path.join(root, "apps", "web", "package.json");
 const desktopPackagePath = path.join(root, "desktop", "package.json");
