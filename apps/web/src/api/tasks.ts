@@ -1,6 +1,13 @@
 // apps/web/src/api/tasks.ts
 import { http } from "./http";
 import { hasCloudSession } from "./session";
+import {
+  migrateLegacyLocalStorage,
+  readStoredTaskQueue,
+  readStoredTasks,
+  writeStoredTaskQueue,
+  writeStoredTasks,
+} from "./storage";
 
 export type TaskStatus = "todo" | "in_progress" | "done" | string;
 
@@ -19,9 +26,6 @@ export interface TaskPatch {
   priority?: string | null;
   dueDate?: string | null;
 }
-
-const TASKS_CACHE_KEY = "pioneer.tasks.cache.v1";
-const TASKS_QUEUE_KEY = "pioneer.tasks.queue.v1";
 
 export const SYNC_STATE_EVENT = "pioneer:sync-state-changed";
 
@@ -54,18 +58,28 @@ interface DeleteOp {
 
 type TaskOp = CreateOp | UpdateOp | DeleteOp;
 
+let storageInitialization: Promise<void> | null = null;
+let pendingTaskSyncCount = 0;
+
 function hasWindow(): boolean {
   return typeof window !== "undefined";
-}
-
-function hasStorage(): boolean {
-  return hasWindow() && !!window.localStorage;
 }
 
 function notifySyncStateChanged(): void {
   if (hasWindow()) {
     window.dispatchEvent(new Event(SYNC_STATE_EVENT));
   }
+}
+
+async function ensureTaskStorageReady(): Promise<void> {
+  if (!storageInitialization) {
+    storageInitialization = (async () => {
+      await migrateLegacyLocalStorage();
+      await refreshPendingTaskSyncCount();
+    })();
+  }
+
+  await storageInitialization;
 }
 
 function isOfflineTaskId(id: string): boolean {
@@ -76,90 +90,6 @@ function makeOfflineTaskId(): string {
   return `offline-task-${Date.now()}-${Math.random()
     .toString(36)
     .slice(2)}`;
-}
-
-function readTasksCache(): Task[] {
-  if (!hasStorage()) {
-    return [];
-  }
-
-  try {
-    const raw = window.localStorage.getItem(TASKS_CACHE_KEY);
-
-    if (!raw) {
-      return [];
-    }
-
-    const parsed = JSON.parse(raw);
-
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    return parsed.map(normalizeTask);
-  } catch {
-    return [];
-  }
-}
-
-function writeTasksCache(tasks: Task[]): void {
-  if (!hasStorage()) {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(TASKS_CACHE_KEY, JSON.stringify(tasks));
-  } catch {
-    // Ignore storage failures for now.
-  }
-}
-
-function readQueue(): TaskOp[] {
-  if (!hasStorage()) {
-    return [];
-  }
-
-  try {
-    const raw = window.localStorage.getItem(TASKS_QUEUE_KEY);
-
-    if (!raw) {
-      return [];
-    }
-
-    const parsed = JSON.parse(raw);
-
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    return parsed.filter((op) => {
-      return (
-        op &&
-        typeof op === "object" &&
-        (op.kind === "create" || op.kind === "update" || op.kind === "delete")
-      );
-    }) as TaskOp[];
-  } catch {
-    return [];
-  }
-}
-
-function writeQueue(queue: TaskOp[]): void {
-  if (!hasStorage()) {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(TASKS_QUEUE_KEY, JSON.stringify(queue));
-  } catch {
-    // Ignore storage failures for now.
-  } finally {
-    notifySyncStateChanged();
-  }
-}
-
-export function getPendingTaskSyncCount(): number {
-  return readQueue().length;
 }
 
 function normalizeTask(raw: any): Task {
@@ -175,9 +105,57 @@ function normalizeTask(raw: any): Task {
   };
 }
 
-function mergeTaskIntoCache(task: Task): void {
+async function readTasksCache(): Promise<Task[]> {
+  await ensureTaskStorageReady();
+
+  const tasks = await readStoredTasks<Task>();
+  return tasks.map(normalizeTask);
+}
+
+async function writeTasksCache(tasks: Task[]): Promise<void> {
+  await ensureTaskStorageReady();
+  await writeStoredTasks(tasks.map(normalizeTask));
+}
+
+async function readQueue(): Promise<TaskOp[]> {
+  await ensureTaskStorageReady();
+
+  const queue = await readStoredTaskQueue<TaskOp>();
+
+  return queue.filter((operation) => {
+    return (
+      operation &&
+      typeof operation === "object" &&
+      (operation.kind === "create" ||
+        operation.kind === "update" ||
+        operation.kind === "delete")
+    );
+  });
+}
+
+async function writeQueue(queue: TaskOp[]): Promise<void> {
+  await ensureTaskStorageReady();
+  await writeStoredTaskQueue(queue);
+
+  pendingTaskSyncCount = queue.length;
+  notifySyncStateChanged();
+}
+
+export function getPendingTaskSyncCount(): number {
+  return pendingTaskSyncCount;
+}
+
+export async function refreshPendingTaskSyncCount(): Promise<number> {
+  const queue = await readStoredTaskQueue<TaskOp>();
+
+  pendingTaskSyncCount = queue.length;
+  return pendingTaskSyncCount;
+}
+
+async function mergeTaskIntoCache(task: Task): Promise<void> {
   const normalized = normalizeTask(task);
-  const tasks = readTasksCache();
+  const tasks = await readTasksCache();
+
   const index = tasks.findIndex((entry) => entry.id === normalized.id);
 
   if (index === -1) {
@@ -189,11 +167,12 @@ function mergeTaskIntoCache(task: Task): void {
     };
   }
 
-  writeTasksCache(tasks);
+  await writeTasksCache(tasks);
 }
 
-function removeTaskFromCache(id: string): void {
-  writeTasksCache(readTasksCache().filter((task) => task.id !== id));
+async function removeTaskFromCache(id: string): Promise<void> {
+  const tasks = await readTasksCache();
+  await writeTasksCache(tasks.filter((task) => task.id !== id));
 }
 
 function isProbablyOfflineError(error: any): boolean {
@@ -247,8 +226,8 @@ function isProbablyOfflineError(error: any): boolean {
   return false;
 }
 
-function enqueueCreate(task: Task): void {
-  const queue = readQueue();
+async function enqueueCreate(task: Task): Promise<void> {
+  const queue = await readQueue();
 
   queue.push({
     kind: "create",
@@ -262,16 +241,23 @@ function enqueueCreate(task: Task): void {
     timestamp: Date.now(),
   });
 
-  writeQueue(queue);
+  await writeQueue(queue);
 }
 
-function enqueueUpdate(id: string, patch: TaskPatch): void {
-  const queue = readQueue();
+async function enqueueUpdate(
+  id: string,
+  patch: TaskPatch
+): Promise<void> {
+  const queue = await readQueue();
 
   const createIndex = queue.findIndex(
-    (op) => op.kind === "create" && op.tempId === id
+    (operation) => operation.kind === "create" && operation.tempId === id
   );
 
+  /*
+   * A locally created task does not have a cloud ID yet. Keep its queued
+   * create operation current instead of creating a separate update.
+   */
   if (createIndex !== -1) {
     const create = queue[createIndex] as CreateOp;
 
@@ -284,16 +270,20 @@ function enqueueUpdate(id: string, patch: TaskPatch): void {
       timestamp: Date.now(),
     };
 
-    writeQueue(queue);
+    await writeQueue(queue);
     return;
   }
 
-  if (queue.some((op) => op.kind === "delete" && op.id === id)) {
+  if (
+    queue.some(
+      (operation) => operation.kind === "delete" && operation.id === id
+    )
+  ) {
     return;
   }
 
   const updateIndex = queue.findIndex(
-    (op) => op.kind === "update" && op.id === id
+    (operation) => operation.kind === "update" && operation.id === id
   );
 
   if (updateIndex !== -1) {
@@ -316,26 +306,30 @@ function enqueueUpdate(id: string, patch: TaskPatch): void {
     });
   }
 
-  writeQueue(queue);
+  await writeQueue(queue);
 }
 
-function enqueueDelete(id: string): void {
-  const queue = readQueue().filter((op) => {
-    if (op.kind === "create" && op.tempId === id) {
+async function enqueueDelete(id: string): Promise<void> {
+  const queue = (await readQueue()).filter((operation) => {
+    if (operation.kind === "create" && operation.tempId === id) {
       return false;
     }
 
-    if (op.kind === "update" && op.id === id) {
+    if (operation.kind === "update" && operation.id === id) {
       return false;
     }
 
-    if (op.kind === "delete" && op.id === id) {
+    if (operation.kind === "delete" && operation.id === id) {
       return false;
     }
 
     return true;
   });
 
+  /*
+   * An offline-only task was never sent to the cloud, so it does not need
+   * a future delete operation.
+   */
   if (!isOfflineTaskId(id)) {
     queue.push({
       kind: "delete",
@@ -344,7 +338,7 @@ function enqueueDelete(id: string): void {
     });
   }
 
-  writeQueue(queue);
+  await writeQueue(queue);
 }
 
 async function fetchTasksOnlineOnly(): Promise<Task[]> {
@@ -381,25 +375,31 @@ async function deleteTaskOnlineOnly(id: string): Promise<void> {
 }
 
 export async function fetchTasks(): Promise<Task[]> {
+  await ensureTaskStorageReady();
+
   if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
     return readTasksCache();
   }
 
   try {
     const remoteTasks = await fetchTasksOnlineOnly();
-    const localTasks = readTasksCache();
-    const queue = readQueue();
+    const localTasks = await readTasksCache();
+    const queue = await readQueue();
 
     const pendingUpdates = new Set(
       queue
-        .filter((op): op is UpdateOp => op.kind === "update")
-        .map((op) => op.id)
+        .filter((operation): operation is UpdateOp => {
+          return operation.kind === "update";
+        })
+        .map((operation) => operation.id)
     );
 
     const pendingDeletes = new Set(
       queue
-        .filter((op): op is DeleteOp => op.kind === "delete")
-        .map((op) => op.id)
+        .filter((operation): operation is DeleteOp => {
+          return operation.kind === "delete";
+        })
+        .map((operation) => operation.id)
     );
 
     const merged = new Map<string, Task>();
@@ -410,6 +410,10 @@ export async function fetchTasks(): Promise<Task[]> {
       }
     }
 
+    /*
+     * Local queued work wins over a stale cloud response so disconnected
+     * edits cannot be overwritten during a refresh.
+     */
     for (const task of localTasks) {
       if (
         isOfflineTaskId(task.id) ||
@@ -424,7 +428,7 @@ export async function fetchTasks(): Promise<Task[]> {
 
     const tasks = [...merged.values()];
 
-    writeTasksCache(tasks);
+    await writeTasksCache(tasks);
     return tasks;
   } catch (error) {
     if (isProbablyOfflineError(error)) {
@@ -436,6 +440,8 @@ export async function fetchTasks(): Promise<Task[]> {
 }
 
 export async function createTask(title: string): Promise<Task> {
+  await ensureTaskStorageReady();
+
   const finalTitle = title.trim();
 
   if (!finalTitle) {
@@ -452,8 +458,8 @@ export async function createTask(title: string): Promise<Task> {
   };
 
   if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
-    mergeTaskIntoCache(localTask);
-    enqueueCreate(localTask);
+    await mergeTaskIntoCache(localTask);
+    await enqueueCreate(localTask);
 
     return localTask;
   }
@@ -466,15 +472,15 @@ export async function createTask(title: string): Promise<Task> {
       dueDate: null,
     });
 
-    mergeTaskIntoCache(created);
+    await mergeTaskIntoCache(created);
     return created;
   } catch (error) {
     if (!isProbablyOfflineError(error)) {
       throw error;
     }
 
-    mergeTaskIntoCache(localTask);
-    enqueueCreate(localTask);
+    await mergeTaskIntoCache(localTask);
+    await enqueueCreate(localTask);
 
     return localTask;
   }
@@ -484,9 +490,11 @@ export async function updateTask(
   id: string,
   patch: TaskPatch
 ): Promise<Task> {
-  const existing = readTasksCache().find((task) => task.id === id);
+  await ensureTaskStorageReady();
 
-  const optimistic: Task = normalizeTask({
+  const existing = (await readTasksCache()).find((task) => task.id === id);
+
+  const optimistic = normalizeTask({
     ...(existing ?? {
       id,
       title: "",
@@ -498,34 +506,34 @@ export async function updateTask(
     ...patch,
   });
 
-  mergeTaskIntoCache(optimistic);
+  await mergeTaskIntoCache(optimistic);
 
   if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
-    enqueueUpdate(id, patch);
-
+    await enqueueUpdate(id, patch);
     return optimistic;
   }
 
   try {
     const updated = await updateTaskOnlineOnly(id, patch);
 
-    mergeTaskIntoCache(updated);
+    await mergeTaskIntoCache(updated);
     return updated;
   } catch (error) {
     if (!isProbablyOfflineError(error)) {
       throw error;
     }
 
-    enqueueUpdate(id, patch);
+    await enqueueUpdate(id, patch);
     return optimistic;
   }
 }
 
 export async function deleteTask(id: string): Promise<void> {
-  removeTaskFromCache(id);
+  await ensureTaskStorageReady();
+  await removeTaskFromCache(id);
 
   if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
-    enqueueDelete(id);
+    await enqueueDelete(id);
     return;
   }
 
@@ -540,16 +548,18 @@ export async function deleteTask(id: string): Promise<void> {
       throw error;
     }
 
-    enqueueDelete(id);
+    await enqueueDelete(id);
   }
 }
 
 export async function syncOfflineTaskQueue(): Promise<void> {
+  await ensureTaskStorageReady();
+
   if (!hasWindow() || !hasCloudSession() || navigator.onLine === false) {
     return;
   }
 
-  const queue = readQueue();
+  const queue = await readQueue();
 
   if (queue.length === 0) {
     return;
@@ -564,16 +574,36 @@ export async function syncOfflineTaskQueue(): Promise<void> {
       if (operation.kind === "create") {
         const created = await createTaskOnlineOnly(operation.payload);
 
-        const cached = readTasksCache();
+        const cached = await readTasksCache();
         const cachedIndex = cached.findIndex(
           (task) => task.id === operation.tempId
         );
 
         if (cachedIndex !== -1) {
           cached[cachedIndex] = created;
-          writeTasksCache(cached);
+          await writeTasksCache(cached);
         } else {
-          mergeTaskIntoCache(created);
+          await mergeTaskIntoCache(created);
+        }
+
+        /*
+         * Future-proof remapping in case an update/delete follows a queued
+         * create operation for the old temporary ID.
+         */
+        for (
+          let laterIndex = index + 1;
+          laterIndex < queue.length;
+          laterIndex += 1
+        ) {
+          const later = queue[laterIndex];
+
+          if (later.kind === "update" && later.id === operation.tempId) {
+            later.id = created.id;
+          }
+
+          if (later.kind === "delete" && later.id === operation.tempId) {
+            later.id = created.id;
+          }
         }
 
         continue;
@@ -590,23 +620,23 @@ export async function syncOfflineTaskQueue(): Promise<void> {
           operation.patch
         );
 
-        mergeTaskIntoCache(updated);
+        await mergeTaskIntoCache(updated);
         continue;
       }
 
       if (operation.kind === "delete") {
         if (isOfflineTaskId(operation.id)) {
-          removeTaskFromCache(operation.id);
+          await removeTaskFromCache(operation.id);
           continue;
         }
 
         await deleteTaskOnlineOnly(operation.id);
-        removeTaskFromCache(operation.id);
+        await removeTaskFromCache(operation.id);
       }
     } catch (error) {
       if (isProbablyOfflineError(error)) {
         remaining.push(operation, ...queue.slice(index + 1));
-        writeQueue(remaining);
+        await writeQueue(remaining);
         return;
       }
 
@@ -615,16 +645,18 @@ export async function syncOfflineTaskQueue(): Promise<void> {
     }
   }
 
-  writeQueue(remaining);
+  await writeQueue(remaining);
 
   try {
     await fetchTasks();
   } catch {
-    // Cache remains usable until a later successful sync.
+    // Local IndexedDB data remains available until a later successful sync.
   }
 }
 
 export async function trySyncTasksIfOnline(): Promise<void> {
+  await ensureTaskStorageReady();
+
   if (!hasWindow() || !hasCloudSession() || !navigator.onLine) {
     return;
   }
