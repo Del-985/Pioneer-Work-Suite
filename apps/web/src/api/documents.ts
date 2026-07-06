@@ -2,6 +2,13 @@
 import { http } from "./http";
 import { hasCloudSession } from "./session";
 import { SYNC_STATE_EVENT } from "./tasks";
+import {
+  migrateLegacyLocalStorage,
+  readStoredDocumentQueue,
+  readStoredDocuments,
+  writeStoredDocumentQueue,
+  writeStoredDocuments,
+} from "./storage";
 
 export interface Document {
   id: string;
@@ -15,12 +22,6 @@ export interface DocumentPatch {
   title?: string;
   content?: string;
 }
-
-const DOCUMENTS_CACHE_KEY = "pioneer.documents.cache.v2";
-const DOCUMENTS_QUEUE_KEY = "pioneer.documents.queue.v2";
-
-const LEGACY_CACHE_KEY = "pioneer.documents.cache.v1";
-const LEGACY_QUEUE_KEY = "pioneer.documents.queue.v1";
 
 interface CreateDocumentOp {
   kind: "create";
@@ -50,12 +51,12 @@ type DocumentOp =
   | UpdateDocumentOp
   | DeleteDocumentOp;
 
+let storageInitialization: Promise<void> | null = null;
+let cachedDocuments: Document[] = [];
+let pendingDocumentSyncCount = 0;
+
 function hasWindow(): boolean {
   return typeof window !== "undefined";
-}
-
-function hasStorage(): boolean {
-  return hasWindow() && !!window.localStorage;
 }
 
 function notifySyncStateChanged(): void {
@@ -99,7 +100,22 @@ function sortDocuments(documents: Document[]): Document[] {
   });
 }
 
-function isProbablyOfflineError(err: any): boolean {
+async function ensureDocumentStorageReady(): Promise<void> {
+  if (!storageInitialization) {
+    storageInitialization = (async () => {
+      await migrateLegacyLocalStorage();
+
+      const storedDocuments = await readStoredDocuments<Document>();
+      cachedDocuments = sortDocuments(storedDocuments.map(normalizeDocument));
+
+      await refreshPendingDocumentSyncCount();
+    })();
+  }
+
+  await storageInitialization;
+}
+
+function isProbablyOfflineError(error: any): boolean {
   if (!hasWindow()) {
     return false;
   }
@@ -108,11 +124,11 @@ function isProbablyOfflineError(err: any): boolean {
     return true;
   }
 
-  if (!err || typeof err !== "object") {
+  if (!error || typeof error !== "object") {
     return false;
   }
 
-  const status = err?.response?.status;
+  const status = error?.response?.status;
 
   if (typeof status === "number") {
     return (
@@ -125,19 +141,19 @@ function isProbablyOfflineError(err: any): boolean {
     );
   }
 
-  if (err.isAxiosError && !err.response) {
+  if (error.isAxiosError && !error.response) {
     return true;
   }
 
   if (
-    typeof err.code === "string" &&
-    (err.code === "ERR_NETWORK" || err.code === "ECONNABORTED")
+    typeof error.code === "string" &&
+    (error.code === "ERR_NETWORK" || error.code === "ECONNABORTED")
   ) {
     return true;
   }
 
-  if (typeof err.message === "string") {
-    const message = err.message.toLowerCase();
+  if (typeof error.message === "string") {
+    const message = error.message.toLowerCase();
 
     return (
       message.includes("network") ||
@@ -150,58 +166,28 @@ function isProbablyOfflineError(err: any): boolean {
   return false;
 }
 
-// ---------- Local cache ----------
+// ---------- IndexedDB cache ----------
 
-function readDocumentsCache(): Document[] {
-  if (!hasStorage()) {
-    return [];
-  }
+async function readDocumentsCache(): Promise<Document[]> {
+  await ensureDocumentStorageReady();
 
-  try {
-    const current = window.localStorage.getItem(DOCUMENTS_CACHE_KEY);
-    const legacy = window.localStorage.getItem(LEGACY_CACHE_KEY);
-    const raw = current || legacy;
+  const storedDocuments = await readStoredDocuments<Document>();
+  cachedDocuments = sortDocuments(storedDocuments.map(normalizeDocument));
 
-    if (!raw) {
-      return [];
-    }
-
-    const parsed = JSON.parse(raw);
-
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    const documents = sortDocuments(parsed.map(normalizeDocument));
-
-    if (!current && legacy) {
-      writeDocumentsCache(documents);
-    }
-
-    return documents;
-  } catch {
-    return [];
-  }
+  return [...cachedDocuments];
 }
 
-function writeDocumentsCache(documents: Document[]): void {
-  if (!hasStorage()) {
-    return;
-  }
+async function writeDocumentsCache(documents: Document[]): Promise<void> {
+  const normalized = sortDocuments(documents.map(normalizeDocument));
 
-  try {
-    window.localStorage.setItem(
-      DOCUMENTS_CACHE_KEY,
-      JSON.stringify(sortDocuments(documents))
-    );
-  } catch {
-    // Local storage quota/private-mode failures are non-fatal.
-  }
+  await writeStoredDocuments(normalized);
+
+  cachedDocuments = normalized;
 }
 
-function mergeDocumentIntoCache(document: Document): void {
+async function mergeDocumentIntoCache(document: Document): Promise<void> {
   const normalized = normalizeDocument(document);
-  const documents = readDocumentsCache();
+  const documents = await readDocumentsCache();
 
   const index = documents.findIndex((entry) => entry.id === normalized.id);
 
@@ -214,105 +200,92 @@ function mergeDocumentIntoCache(document: Document): void {
     };
   }
 
-  writeDocumentsCache(documents);
+  await writeDocumentsCache(documents);
 }
 
-function removeDocumentFromCache(id: string): void {
-  writeDocumentsCache(readDocumentsCache().filter((doc) => doc.id !== id));
+async function removeDocumentFromCache(id: string): Promise<void> {
+  const documents = await readDocumentsCache();
+
+  await writeDocumentsCache(
+    documents.filter((document) => document.id !== id)
+  );
 }
 
+/*
+ * Kept synchronous for compatibility with existing UI code.
+ * It returns the in-memory IndexedDB cache after initialization.
+ */
 export function getCachedDocuments(): Document[] {
-  return readDocumentsCache();
+  return [...cachedDocuments];
 }
 
-// ---------- Sync queue ----------
+// ---------- IndexedDB queue ----------
 
-function readQueue(): DocumentOp[] {
-  if (!hasStorage()) {
-    return [];
-  }
+async function readQueue(): Promise<DocumentOp[]> {
+  await ensureDocumentStorageReady();
 
-  try {
-    const current = window.localStorage.getItem(DOCUMENTS_QUEUE_KEY);
-    const legacy = window.localStorage.getItem(LEGACY_QUEUE_KEY);
-    const raw = current || legacy;
+  const queue = await readStoredDocumentQueue<DocumentOp>();
 
-    if (!raw) {
-      return [];
-    }
-
-    const parsed = JSON.parse(raw);
-
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
-
-    const queue = parsed.filter((op) => {
-      return (
-        op &&
-        typeof op === "object" &&
-        (op.kind === "create" || op.kind === "update" || op.kind === "delete")
-      );
-    }) as DocumentOp[];
-
-    if (!current && legacy) {
-      writeQueue(queue);
-    }
-
-    return queue;
-  } catch {
-    return [];
-  }
-}
-
-function writeQueue(queue: DocumentOp[]): void {
-  if (!hasStorage()) {
-    return;
-  }
-
-  try {
-    window.localStorage.setItem(DOCUMENTS_QUEUE_KEY, JSON.stringify(queue));
-  } catch {
-    // Local storage failures are non-fatal.
-  } finally {
-    notifySyncStateChanged();
-  }
-}
-
-export function getPendingDocumentSyncCount(): number {
-  return readQueue().length;
-}
-
-export function hasPendingDocumentSync(id?: string): boolean {
-  const queue = readQueue();
-
-  if (!id) {
-    return queue.length > 0;
-  }
-
-  return queue.some((operation) => {
-    if (operation.kind === "create") {
-      return operation.tempId === id;
-    }
-
-    return operation.id === id;
+  return queue.filter((operation) => {
+    return (
+      operation &&
+      typeof operation === "object" &&
+      (operation.kind === "create" ||
+        operation.kind === "update" ||
+        operation.kind === "delete")
+    );
   });
 }
 
-function enqueueCreate(operation: CreateDocumentOp): void {
-  const queue = readQueue();
+async function writeQueue(queue: DocumentOp[]): Promise<void> {
+  await writeStoredDocumentQueue(queue);
 
-  queue.push(operation);
-  writeQueue(queue);
+  pendingDocumentSyncCount = queue.length;
+  notifySyncStateChanged();
 }
 
-function enqueueUpdate(id: string, patch: DocumentPatch): void {
-  const queue = readQueue();
+export function getPendingDocumentSyncCount(): number {
+  return pendingDocumentSyncCount;
+}
+
+export async function refreshPendingDocumentSyncCount(): Promise<number> {
+  const queue = await readStoredDocumentQueue<DocumentOp>();
+
+  pendingDocumentSyncCount = queue.length;
+
+  return pendingDocumentSyncCount;
+}
+
+export function hasPendingDocumentSync(id?: string): boolean {
+  if (!id) {
+    return pendingDocumentSyncCount > 0;
+  }
+
+  return false;
+}
+
+async function enqueueCreate(operation: CreateDocumentOp): Promise<void> {
+  const queue = await readQueue();
+
+  queue.push(operation);
+
+  await writeQueue(queue);
+}
+
+async function enqueueUpdate(
+  id: string,
+  patch: DocumentPatch
+): Promise<void> {
+  const queue = await readQueue();
 
   const createIndex = queue.findIndex(
     (operation) => operation.kind === "create" && operation.tempId === id
   );
 
+  /*
+   * For a document that has never reached the cloud, keep the original
+   * queued create request current instead of adding a separate update.
+   */
   if (createIndex !== -1) {
     const create = queue[createIndex] as CreateDocumentOp;
 
@@ -325,7 +298,7 @@ function enqueueUpdate(id: string, patch: DocumentPatch): void {
       timestamp: Date.now(),
     };
 
-    writeQueue(queue);
+    await writeQueue(queue);
     return;
   }
 
@@ -361,11 +334,11 @@ function enqueueUpdate(id: string, patch: DocumentPatch): void {
     });
   }
 
-  writeQueue(queue);
+  await writeQueue(queue);
 }
 
-function enqueueDelete(id: string): void {
-  const queue = readQueue().filter((operation) => {
+async function enqueueDelete(id: string): Promise<void> {
+  const queue = (await readQueue()).filter((operation) => {
     if (operation.kind === "create" && operation.tempId === id) {
       return false;
     }
@@ -381,6 +354,10 @@ function enqueueDelete(id: string): void {
     return true;
   });
 
+  /*
+   * A document created only on this device never existed remotely,
+   * so deleting it does not need a cloud queue entry.
+   */
   if (!isOfflineId(id)) {
     queue.push({
       kind: "delete",
@@ -389,7 +366,7 @@ function enqueueDelete(id: string): void {
     });
   }
 
-  writeQueue(queue);
+  await writeQueue(queue);
 }
 
 // ---------- Cloud-only API ----------
@@ -397,13 +374,11 @@ function enqueueDelete(id: string): void {
 async function fetchDocumentsOnlineOnly(): Promise<Document[]> {
   const { data } = await http.get("/documents");
 
-  let rawDocuments: any[] = [];
-
-  if (Array.isArray(data)) {
-    rawDocuments = data;
-  } else if (data && Array.isArray(data.documents)) {
-    rawDocuments = data.documents;
-  }
+  const rawDocuments = Array.isArray(data)
+    ? data
+    : data && Array.isArray(data.documents)
+      ? data.documents
+      : [];
 
   return sortDocuments(rawDocuments.map(normalizeDocument));
 }
@@ -412,6 +387,10 @@ async function createDocumentOnlineOnly(
   title: string,
   content: string
 ): Promise<Document> {
+  /*
+   * Current backend POST creates an empty document, even if content is sent.
+   * Follow up with PUT so the synced document receives its initial content.
+   */
   const { data } = await http.post("/documents", { title });
 
   let created = normalizeDocument(data?.document ?? data);
@@ -442,14 +421,16 @@ async function deleteDocumentOnlineOnly(id: string): Promise<void> {
 // ---------- Public API ----------
 
 export async function fetchDocuments(): Promise<Document[]> {
+  await ensureDocumentStorageReady();
+
   if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
     return readDocumentsCache();
   }
 
   try {
-    const remote = await fetchDocumentsOnlineOnly();
-    const local = readDocumentsCache();
-    const queue = readQueue();
+    const remoteDocuments = await fetchDocumentsOnlineOnly();
+    const localDocuments = await readDocumentsCache();
+    const queue = await readQueue();
 
     const pendingUpdates = new Set(
       queue
@@ -471,13 +452,17 @@ export async function fetchDocuments(): Promise<Document[]> {
 
     const merged = new Map<string, Document>();
 
-    for (const document of remote) {
+    for (const document of remoteDocuments) {
       if (!pendingDeletes.has(document.id)) {
         merged.set(document.id, document);
       }
     }
 
-    for (const localDocument of local) {
+    /*
+     * Keep local queued changes over remote records so a stale cloud response
+     * cannot overwrite offline work.
+     */
+    for (const localDocument of localDocuments) {
       if (
         isOfflineId(localDocument.id) ||
         pendingUpdates.has(localDocument.id) ||
@@ -491,7 +476,8 @@ export async function fetchDocuments(): Promise<Document[]> {
 
     const documents = sortDocuments([...merged.values()]);
 
-    writeDocumentsCache(documents);
+    await writeDocumentsCache(documents);
+
     return documents;
   } catch (error) {
     if (isProbablyOfflineError(error)) {
@@ -506,6 +492,8 @@ export async function createDocument(
   title: string,
   content: string = ""
 ): Promise<Document> {
+  await ensureDocumentStorageReady();
+
   const finalTitle = title.trim() || "Untitled document";
   const finalContent = content || "";
 
@@ -518,9 +506,9 @@ export async function createDocument(
   };
 
   if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
-    mergeDocumentIntoCache(localDocument);
+    await mergeDocumentIntoCache(localDocument);
 
-    enqueueCreate({
+    await enqueueCreate({
       kind: "create",
       tempId: localDocument.id,
       payload: {
@@ -536,16 +524,17 @@ export async function createDocument(
   try {
     const created = await createDocumentOnlineOnly(finalTitle, finalContent);
 
-    mergeDocumentIntoCache(created);
+    await mergeDocumentIntoCache(created);
+
     return created;
   } catch (error) {
     if (!isProbablyOfflineError(error)) {
       throw error;
     }
 
-    mergeDocumentIntoCache(localDocument);
+    await mergeDocumentIntoCache(localDocument);
 
-    enqueueCreate({
+    await enqueueCreate({
       kind: "create",
       tempId: localDocument.id,
       payload: {
@@ -563,7 +552,11 @@ export async function updateDocument(
   id: string,
   updates: DocumentPatch
 ): Promise<Document> {
-  const current = readDocumentsCache().find((document) => document.id === id);
+  await ensureDocumentStorageReady();
+
+  const current = (await readDocumentsCache()).find(
+    (document) => document.id === id
+  );
 
   const optimistic = normalizeDocument({
     ...(current ?? {
@@ -576,33 +569,37 @@ export async function updateDocument(
     updatedAt: nowIso(),
   });
 
-  mergeDocumentIntoCache(optimistic);
+  await mergeDocumentIntoCache(optimistic);
 
   if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
-    enqueueUpdate(id, updates);
+    await enqueueUpdate(id, updates);
+
     return optimistic;
   }
 
   try {
     const updated = await updateDocumentOnlineOnly(id, updates);
 
-    mergeDocumentIntoCache(updated);
+    await mergeDocumentIntoCache(updated);
+
     return updated;
   } catch (error) {
     if (!isProbablyOfflineError(error)) {
       throw error;
     }
 
-    enqueueUpdate(id, updates);
+    await enqueueUpdate(id, updates);
+
     return optimistic;
   }
 }
 
 export async function deleteDocument(id: string): Promise<void> {
-  removeDocumentFromCache(id);
+  await ensureDocumentStorageReady();
+  await removeDocumentFromCache(id);
 
   if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
-    enqueueDelete(id);
+    await enqueueDelete(id);
     return;
   }
 
@@ -617,18 +614,20 @@ export async function deleteDocument(id: string): Promise<void> {
       throw error;
     }
 
-    enqueueDelete(id);
+    await enqueueDelete(id);
   }
 }
 
 // ---------- Queue sync ----------
 
 export async function syncOfflineDocumentQueue(): Promise<void> {
+  await ensureDocumentStorageReady();
+
   if (!hasWindow() || !hasCloudSession() || navigator.onLine === false) {
     return;
   }
 
-  const queue = readQueue();
+  const queue = await readQueue();
 
   if (queue.length === 0) {
     return;
@@ -646,18 +645,21 @@ export async function syncOfflineDocumentQueue(): Promise<void> {
           operation.payload.content
         );
 
-        const cached = readDocumentsCache();
+        const cached = await readDocumentsCache();
         const cachedIndex = cached.findIndex(
           (document) => document.id === operation.tempId
         );
 
         if (cachedIndex !== -1) {
           cached[cachedIndex] = created;
-          writeDocumentsCache(cached);
+          await writeDocumentsCache(cached);
         } else {
-          mergeDocumentIntoCache(created);
+          await mergeDocumentIntoCache(created);
         }
 
+        /*
+         * Remap queued follow-up actions after the cloud assigns a real ID.
+         */
         for (
           let laterIndex = index + 1;
           laterIndex < queue.length;
@@ -688,23 +690,24 @@ export async function syncOfflineDocumentQueue(): Promise<void> {
           operation.patch
         );
 
-        mergeDocumentIntoCache(updated);
+        await mergeDocumentIntoCache(updated);
+
         continue;
       }
 
       if (operation.kind === "delete") {
         if (isOfflineId(operation.id)) {
-          removeDocumentFromCache(operation.id);
+          await removeDocumentFromCache(operation.id);
           continue;
         }
 
         await deleteDocumentOnlineOnly(operation.id);
-        removeDocumentFromCache(operation.id);
+        await removeDocumentFromCache(operation.id);
       }
     } catch (error) {
       if (isProbablyOfflineError(error)) {
         remaining.push(operation, ...queue.slice(index + 1));
-        writeQueue(remaining);
+        await writeQueue(remaining);
         return;
       }
 
@@ -713,16 +716,18 @@ export async function syncOfflineDocumentQueue(): Promise<void> {
     }
   }
 
-  writeQueue(remaining);
+  await writeQueue(remaining);
 
   try {
     await fetchDocuments();
   } catch {
-    // Local cache remains usable until a later successful sync.
+    // Local IndexedDB data remains usable until a later successful sync.
   }
 }
 
 export async function trySyncDocumentsIfOnline(): Promise<void> {
+  await ensureDocumentStorageReady();
+
   if (!hasWindow() || !hasCloudSession() || !navigator.onLine) {
     return;
   }
