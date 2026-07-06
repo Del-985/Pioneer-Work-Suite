@@ -20,6 +20,7 @@ import {
   deleteTask,
   fetchTasks,
   getPendingTaskSyncCount,
+  refreshPendingTaskSyncCount,
   SYNC_STATE_EVENT,
   Task,
   trySyncTasksIfOnline,
@@ -30,6 +31,7 @@ import {
   Document as SuiteDocument,
   fetchDocuments,
   getPendingDocumentSyncCount,
+  refreshPendingDocumentSyncCount,
   trySyncDocumentsIfOnline,
 } from "./api/documents";
 
@@ -588,26 +590,42 @@ const App: React.FC = () => {
   }
 
   useEffect(() => {
-    refreshSyncStatus();
+  let cancelled = false;
 
-    if (typeof window === "undefined") {
-      return;
-    }
+  const refreshFromIndexedDb = async () => {
+    await Promise.allSettled([
+      refreshPendingTaskSyncCount(),
+      refreshPendingDocumentSyncCount(),
+    ]);
 
-    const handleSyncStateChange = () => {
+    if (!cancelled) {
       refreshSyncStatus();
-    };
+    }
+  };
 
-    window.addEventListener(SYNC_STATE_EVENT, handleSyncStateChange);
-    window.addEventListener("online", handleSyncStateChange);
-    window.addEventListener("offline", handleSyncStateChange);
+  void refreshFromIndexedDb();
 
+  if (typeof window === "undefined") {
     return () => {
-      window.removeEventListener(SYNC_STATE_EVENT, handleSyncStateChange);
-      window.removeEventListener("online", handleSyncStateChange);
-      window.removeEventListener("offline", handleSyncStateChange);
+      cancelled = true;
     };
-  }, [cloudConnected]);
+  }
+
+  const handleSyncStateChange = () => {
+    void refreshFromIndexedDb();
+  };
+
+  window.addEventListener(SYNC_STATE_EVENT, handleSyncStateChange);
+  window.addEventListener("online", handleSyncStateChange);
+  window.addEventListener("offline", handleSyncStateChange);
+
+  return () => {
+    cancelled = true;
+    window.removeEventListener(SYNC_STATE_EVENT, handleSyncStateChange);
+    window.removeEventListener("online", handleSyncStateChange);
+    window.removeEventListener("offline", handleSyncStateChange);
+  };
+}, [cloudConnected]);
 
   useEffect(() => {
     if (!cloudConnected || typeof window === "undefined") {
