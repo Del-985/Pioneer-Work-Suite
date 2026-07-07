@@ -35,6 +35,12 @@ import {
   trySyncDocumentsIfOnline,
 } from "./api/documents";
 
+import {
+  getPendingEventSyncCount,
+  refreshPendingEventSyncCount,
+  trySyncEventsIfOnline,
+} from "./api/events";
+
 import UpdateBanner from "./components/UpdateBanner";
 import {
   disconnectCloudSession,
@@ -76,7 +82,9 @@ function getSyncStatus(): SyncStatus {
   }
 
   const pendingCount =
-    getPendingTaskSyncCount() + getPendingDocumentSyncCount();
+  getPendingTaskSyncCount() +
+  getPendingDocumentSyncCount() +
+  getPendingEventSyncCount();
 
   const isOnline =
     typeof navigator === "undefined" ? true : navigator.onLine;
@@ -594,9 +602,10 @@ const App: React.FC = () => {
 
   const refreshFromIndexedDb = async () => {
     await Promise.allSettled([
-      refreshPendingTaskSyncCount(),
-      refreshPendingDocumentSyncCount(),
-    ]);
+  refreshPendingTaskSyncCount(),
+  refreshPendingDocumentSyncCount(),
+  refreshPendingEventSyncCount(),
+]);
 
     if (!cancelled) {
       refreshSyncStatus();
@@ -639,10 +648,11 @@ const App: React.FC = () => {
         return;
       }
 
-      await Promise.allSettled([
-        trySyncTasksIfOnline(),
-        trySyncDocumentsIfOnline(),
-      ]);
+    await Promise.allSettled([
+  trySyncTasksIfOnline(),
+  trySyncDocumentsIfOnline(),
+  trySyncEventsIfOnline(),
+]);
 
       if (!disposed) {
         refreshSyncStatus();
