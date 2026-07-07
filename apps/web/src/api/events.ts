@@ -1,14 +1,23 @@
 // apps/web/src/api/events.ts
 import { http } from "./http";
+import { hasCloudSession } from "./session";
+import { SYNC_STATE_EVENT } from "./tasks";
+import {
+  migrateLegacyLocalStorage,
+  readStoredEventQueue,
+  readStoredEvents,
+  writeStoredEventQueue,
+  writeStoredEvents,
+} from "./storage";
 
-export type EventKind = string; // e.g. "event", "exam", "class", etc.
+export type EventKind = string;
 
 export interface CalendarEvent {
   id: string;
   title: string;
   description: string;
-  start: string;   // ISO string from backend
-  end: string;     // ISO string from backend
+  start: string;
+  end: string;
   allDay: boolean;
   kind: EventKind;
   createdAt: string;
@@ -16,74 +25,757 @@ export interface CalendarEvent {
 }
 
 export interface EventQueryParams {
-  from?: string; // ISO string (inclusive)
-  to?: string;   // ISO string (exclusive)
+  from?: string;
+  to?: string;
 }
 
-/**
- * GET /events
- * Optionally pass ?from & ?to for a date range.
- */
-export async function fetchEvents(
+export type EventPayload = Pick<
+  CalendarEvent,
+  "title" | "description" | "start" | "end" | "allDay" | "kind"
+>;
+
+export type EventPatch = Partial<EventPayload>;
+
+interface CreateEventOp {
+  kind: "create";
+  tempId: string;
+  payload: EventPayload;
+  timestamp: number;
+}
+
+interface UpdateEventOp {
+  kind: "update";
+  id: string;
+  patch: EventPatch;
+  timestamp: number;
+}
+
+interface DeleteEventOp {
+  kind: "delete";
+  id: string;
+  timestamp: number;
+}
+
+type EventOp = CreateEventOp | UpdateEventOp | DeleteEventOp;
+
+let storageInitialization: Promise<void> | null = null;
+let pendingEventSyncCount = 0;
+
+function hasWindow(): boolean {
+  return typeof window !== "undefined";
+}
+
+function notifySyncStateChanged(): void {
+  if (hasWindow()) {
+    window.dispatchEvent(new Event(SYNC_STATE_EVENT));
+  }
+}
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function makeOfflineEventId(): string {
+  return `offline-event-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2)}`;
+}
+
+function isOfflineEventId(id: string): boolean {
+  return id.startsWith("offline-event-");
+}
+
+function normalizeEvent(raw: any): CalendarEvent {
+  const now = nowIso();
+
+  return {
+    id: String(raw?.id ?? makeOfflineEventId()),
+    title: String(raw?.title ?? "Untitled event"),
+    description: String(raw?.description ?? ""),
+    start: raw?.start ? String(raw.start) : now,
+    end: raw?.end ? String(raw.end) : now,
+    allDay: Boolean(raw?.allDay),
+    kind: String(raw?.kind ?? "event"),
+    createdAt: raw?.createdAt ? String(raw.createdAt) : now,
+    updatedAt: raw?.updatedAt ? String(raw.updatedAt) : now,
+  };
+}
+
+function sortEvents(events: CalendarEvent[]): CalendarEvent[] {
+  return [...events].sort((a, b) => {
+    const aTime = new Date(a.start).getTime();
+    const bTime = new Date(b.start).getTime();
+
+    return aTime - bTime;
+  });
+}
+
+function eventTouchesRange(
+  event: CalendarEvent,
+  from?: string,
+  to?: string
+): boolean {
+  const eventStart = new Date(event.start);
+  const eventEnd = new Date(event.end);
+
+  if (Number.isNaN(eventStart.getTime()) || Number.isNaN(eventEnd.getTime())) {
+    return false;
+  }
+
+  const rangeStart = from ? new Date(from) : null;
+  const rangeEnd = to ? new Date(to) : null;
+
+  if (rangeStart && Number.isNaN(rangeStart.getTime())) {
+    return true;
+  }
+
+  if (rangeEnd && Number.isNaN(rangeEnd.getTime())) {
+    return true;
+  }
+
+  if (rangeStart && eventEnd < rangeStart) {
+    return false;
+  }
+
+  if (rangeEnd && eventStart >= rangeEnd) {
+    return false;
+  }
+
+  return true;
+}
+
+async function ensureEventStorageReady(): Promise<void> {
+  if (!storageInitialization) {
+    storageInitialization = (async () => {
+      await migrateLegacyLocalStorage();
+      await refreshPendingEventSyncCount();
+    })();
+  }
+
+  await storageInitialization;
+}
+
+function isProbablyOfflineError(error: any): boolean {
+  if (!hasWindow()) {
+    return false;
+  }
+
+  if (navigator.onLine === false) {
+    return true;
+  }
+
+  if (!error || typeof error !== "object") {
+    return false;
+  }
+
+  const status = error?.response?.status;
+
+  if (typeof status === "number") {
+    return (
+      status === 401 ||
+      status === 403 ||
+      status === 500 ||
+      status === 502 ||
+      status === 503 ||
+      status === 504
+    );
+  }
+
+  if (error.isAxiosError && !error.response) {
+    return true;
+  }
+
+  if (
+    typeof error.code === "string" &&
+    (error.code === "ERR_NETWORK" || error.code === "ECONNABORTED")
+  ) {
+    return true;
+  }
+
+  if (typeof error.message === "string") {
+    const message = error.message.toLowerCase();
+
+    return (
+      message.includes("network") ||
+      message.includes("failed to fetch") ||
+      message.includes("timeout") ||
+      message.includes("service unavailable")
+    );
+  }
+
+  return false;
+}
+
+// ---------- IndexedDB cache ----------
+
+async function readEventsCache(): Promise<CalendarEvent[]> {
+  await ensureEventStorageReady();
+
+  const events = await readStoredEvents<CalendarEvent>();
+
+  return sortEvents(events.map(normalizeEvent));
+}
+
+async function writeEventsCache(events: CalendarEvent[]): Promise<void> {
+  await writeStoredEvents(sortEvents(events.map(normalizeEvent)));
+}
+
+async function mergeEventIntoCache(event: CalendarEvent): Promise<void> {
+  const normalized = normalizeEvent(event);
+  const events = await readEventsCache();
+
+  const index = events.findIndex((entry) => entry.id === normalized.id);
+
+  if (index === -1) {
+    events.push(normalized);
+  } else {
+    events[index] = {
+      ...events[index],
+      ...normalized,
+    };
+  }
+
+  await writeEventsCache(events);
+}
+
+async function removeEventFromCache(id: string): Promise<void> {
+  const events = await readEventsCache();
+
+  await writeEventsCache(events.filter((event) => event.id !== id));
+}
+
+export async function getCachedEvents(): Promise<CalendarEvent[]> {
+  return readEventsCache();
+}
+
+// ---------- IndexedDB queue ----------
+
+async function readQueue(): Promise<EventOp[]> {
+  await ensureEventStorageReady();
+
+  const queue = await readStoredEventQueue<EventOp>();
+
+  return queue.filter((operation) => {
+    return (
+      operation &&
+      typeof operation === "object" &&
+      (operation.kind === "create" ||
+        operation.kind === "update" ||
+        operation.kind === "delete")
+    );
+  });
+}
+
+async function writeQueue(queue: EventOp[]): Promise<void> {
+  await writeStoredEventQueue(queue);
+
+  pendingEventSyncCount = queue.length;
+  notifySyncStateChanged();
+}
+
+export function getPendingEventSyncCount(): number {
+  return pendingEventSyncCount;
+}
+
+export async function refreshPendingEventSyncCount(): Promise<number> {
+  const queue = await readStoredEventQueue<EventOp>();
+
+  pendingEventSyncCount = queue.length;
+
+  return pendingEventSyncCount;
+}
+
+async function enqueueCreate(event: CalendarEvent): Promise<void> {
+  const queue = await readQueue();
+
+  queue.push({
+    kind: "create",
+    tempId: event.id,
+    payload: {
+      title: event.title,
+      description: event.description,
+      start: event.start,
+      end: event.end,
+      allDay: event.allDay,
+      kind: event.kind,
+    },
+    timestamp: Date.now(),
+  });
+
+  await writeQueue(queue);
+}
+
+async function enqueueUpdate(id: string, patch: EventPatch): Promise<void> {
+  const queue = await readQueue();
+
+  const createIndex = queue.findIndex(
+    (operation) => operation.kind === "create" && operation.tempId === id
+  );
+
+  if (createIndex !== -1) {
+    const create = queue[createIndex] as CreateEventOp;
+
+    queue[createIndex] = {
+      ...create,
+      payload: {
+        ...create.payload,
+        ...patch,
+      },
+      timestamp: Date.now(),
+    };
+
+    await writeQueue(queue);
+    return;
+  }
+
+  if (
+    queue.some(
+      (operation) => operation.kind === "delete" && operation.id === id
+    )
+  ) {
+    return;
+  }
+
+  const updateIndex = queue.findIndex(
+    (operation) => operation.kind === "update" && operation.id === id
+  );
+
+  if (updateIndex !== -1) {
+    const existing = queue[updateIndex] as UpdateEventOp;
+
+    queue[updateIndex] = {
+      ...existing,
+      patch: {
+        ...existing.patch,
+        ...patch,
+      },
+      timestamp: Date.now(),
+    };
+  } else {
+    queue.push({
+      kind: "update",
+      id,
+      patch,
+      timestamp: Date.now(),
+    });
+  }
+
+  await writeQueue(queue);
+}
+
+async function enqueueDelete(id: string): Promise<void> {
+  const queue = (await readQueue()).filter((operation) => {
+    if (operation.kind === "create" && operation.tempId === id) {
+      return false;
+    }
+
+    if (operation.kind === "update" && operation.id === id) {
+      return false;
+    }
+
+    if (operation.kind === "delete" && operation.id === id) {
+      return false;
+    }
+
+    return true;
+  });
+
+  if (!isOfflineEventId(id)) {
+    queue.push({
+      kind: "delete",
+      id,
+      timestamp: Date.now(),
+    });
+  }
+
+  await writeQueue(queue);
+}
+
+// ---------- Cloud-only API ----------
+
+async function fetchEventsOnlineOnly(
   params?: EventQueryParams
 ): Promise<CalendarEvent[]> {
   const { data } = await http.get("/events", { params });
 
-  // Backend currently returns a bare array: Event[]
-  if (Array.isArray(data)) {
-    return data as CalendarEvent[];
-  }
+  const rawEvents = Array.isArray(data)
+    ? data
+    : data && Array.isArray(data.events)
+      ? data.events
+      : [];
 
-  // Be defensive in case we ever wrap it later
-  if (data && Array.isArray((data as any).events)) {
-    return (data as any).events as CalendarEvent[];
-  }
-
-  return [];
+  return sortEvents(rawEvents.map(normalizeEvent));
 }
 
-/**
- * POST /events
- */
-export async function createEvent(
-  payload: Pick<
-    CalendarEvent,
-    "title" | "description" | "start" | "end" | "allDay" | "kind"
-  >
+async function fetchEventOnlineOnly(id: string): Promise<CalendarEvent> {
+  const { data } = await http.get(`/events/${id}`);
+
+  return normalizeEvent(data?.event ?? data);
+}
+
+async function createEventOnlineOnly(
+  payload: EventPayload
 ): Promise<CalendarEvent> {
   const { data } = await http.post("/events", payload);
 
-  // Backend returns a single event object
-  return data as CalendarEvent;
+  return normalizeEvent(data?.event ?? data);
 }
 
-/**
- * GET /events/:id
- */
+async function updateEventOnlineOnly(
+  id: string,
+  patch: EventPatch
+): Promise<CalendarEvent> {
+  const { data } = await http.put(`/events/${id}`, patch);
+
+  return normalizeEvent(data?.event ?? data);
+}
+
+async function deleteEventOnlineOnly(id: string): Promise<void> {
+  await http.delete(`/events/${id}`);
+}
+
+// ---------- Public API ----------
+
+export async function fetchEvents(
+  params?: EventQueryParams
+): Promise<CalendarEvent[]> {
+  await ensureEventStorageReady();
+
+  if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
+    const cached = await readEventsCache();
+
+    return cached.filter((event) =>
+      eventTouchesRange(event, params?.from, params?.to)
+    );
+  }
+
+  try {
+    const remoteEvents = await fetchEventsOnlineOnly(params);
+    const localEvents = await readEventsCache();
+    const queue = await readQueue();
+
+    const pendingUpdates = new Set(
+      queue
+        .filter(
+          (operation): operation is UpdateEventOp =>
+            operation.kind === "update"
+        )
+        .map((operation) => operation.id)
+    );
+
+    const pendingDeletes = new Set(
+      queue
+        .filter(
+          (operation): operation is DeleteEventOp =>
+            operation.kind === "delete"
+        )
+        .map((operation) => operation.id)
+    );
+
+    const merged = new Map<string, CalendarEvent>();
+
+    /*
+     * Preserve locally cached events outside the currently requested month.
+     * A calendar month fetch should not erase records from other months.
+     */
+    for (const event of localEvents) {
+      if (!eventTouchesRange(event, params?.from, params?.to)) {
+        merged.set(event.id, event);
+      }
+    }
+
+    for (const event of remoteEvents) {
+      if (!pendingDeletes.has(event.id)) {
+        merged.set(event.id, event);
+      }
+    }
+
+    for (const event of localEvents) {
+      if (
+        isOfflineEventId(event.id) ||
+        pendingUpdates.has(event.id) ||
+        pendingDeletes.has(event.id)
+      ) {
+        if (!pendingDeletes.has(event.id)) {
+          merged.set(event.id, event);
+        }
+      }
+    }
+
+    const allEvents = sortEvents([...merged.values()]);
+
+    await writeEventsCache(allEvents);
+
+    return allEvents.filter((event) =>
+      eventTouchesRange(event, params?.from, params?.to)
+    );
+  } catch (error) {
+    if (isProbablyOfflineError(error)) {
+      const cached = await readEventsCache();
+
+      return cached.filter((event) =>
+        eventTouchesRange(event, params?.from, params?.to)
+      );
+    }
+
+    throw error;
+  }
+}
+
 export async function fetchEvent(id: string): Promise<CalendarEvent> {
-  const { data } = await http.get(`/events/${id}`);
-  return data as CalendarEvent;
+  await ensureEventStorageReady();
+
+  const cached = (await readEventsCache()).find((event) => event.id === id);
+
+  if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
+    if (cached) {
+      return cached;
+    }
+
+    throw new Error("This event is not available in local storage.");
+  }
+
+  try {
+    const event = await fetchEventOnlineOnly(id);
+
+    await mergeEventIntoCache(event);
+
+    return event;
+  } catch (error) {
+    if (isProbablyOfflineError(error) && cached) {
+      return cached;
+    }
+
+    throw error;
+  }
 }
 
-/**
- * PUT /events/:id
- */
+export async function createEvent(
+  payload: EventPayload
+): Promise<CalendarEvent> {
+  await ensureEventStorageReady();
+
+  const localEvent: CalendarEvent = {
+    id: makeOfflineEventId(),
+    title: payload.title.trim() || "Untitled event",
+    description: payload.description ?? "",
+    start: payload.start,
+    end: payload.end,
+    allDay: Boolean(payload.allDay),
+    kind: payload.kind || "event",
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
+  };
+
+  if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
+    await mergeEventIntoCache(localEvent);
+    await enqueueCreate(localEvent);
+
+    return localEvent;
+  }
+
+  try {
+    const created = await createEventOnlineOnly({
+      ...payload,
+      title: localEvent.title,
+      description: localEvent.description,
+      kind: localEvent.kind,
+    });
+
+    await mergeEventIntoCache(created);
+
+    return created;
+  } catch (error) {
+    if (!isProbablyOfflineError(error)) {
+      throw error;
+    }
+
+    await mergeEventIntoCache(localEvent);
+    await enqueueCreate(localEvent);
+
+    return localEvent;
+  }
+}
+
 export async function updateEvent(
   id: string,
-  updates: Partial<
-    Pick<
-      CalendarEvent,
-      "title" | "description" | "start" | "end" | "allDay" | "kind"
-    >
-  >
+  updates: EventPatch
 ): Promise<CalendarEvent> {
-  const { data } = await http.put(`/events/${id}`, updates);
-  return data as CalendarEvent;
+  await ensureEventStorageReady();
+
+  const existing = (await readEventsCache()).find((event) => event.id === id);
+
+  const optimistic = normalizeEvent({
+    ...(existing ?? {
+      id,
+      title: "Untitled event",
+      description: "",
+      start: nowIso(),
+      end: nowIso(),
+      allDay: false,
+      kind: "event",
+      createdAt: nowIso(),
+    }),
+    ...updates,
+    updatedAt: nowIso(),
+  });
+
+  await mergeEventIntoCache(optimistic);
+
+  if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
+    await enqueueUpdate(id, updates);
+
+    return optimistic;
+  }
+
+  try {
+    const updated = await updateEventOnlineOnly(id, updates);
+
+    await mergeEventIntoCache(updated);
+
+    return updated;
+  } catch (error) {
+    if (!isProbablyOfflineError(error)) {
+      throw error;
+    }
+
+    await enqueueUpdate(id, updates);
+
+    return optimistic;
+  }
 }
 
-/**
- * DELETE /events/:id
- */
 export async function deleteEvent(id: string): Promise<void> {
-  await http.delete(`/events/${id}`);
+  await ensureEventStorageReady();
+
+  await removeEventFromCache(id);
+
+  if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
+    await enqueueDelete(id);
+    return;
+  }
+
+  try {
+    await deleteEventOnlineOnly(id);
+  } catch (error: any) {
+    if (error?.response?.status === 404) {
+      return;
+    }
+
+    if (!isProbablyOfflineError(error)) {
+      throw error;
+    }
+
+    await enqueueDelete(id);
+  }
+}
+
+// ---------- Queue sync ----------
+
+export async function syncOfflineEventQueue(): Promise<void> {
+  await ensureEventStorageReady();
+
+  if (!hasWindow() || !hasCloudSession() || navigator.onLine === false) {
+    return;
+  }
+
+  const queue = await readQueue();
+
+  if (queue.length === 0) {
+    return;
+  }
+
+  const remaining: EventOp[] = [];
+
+  for (let index = 0; index < queue.length; index += 1) {
+    const operation = queue[index];
+
+    try {
+      if (operation.kind === "create") {
+        const created = await createEventOnlineOnly(operation.payload);
+
+        const cached = await readEventsCache();
+        const cachedIndex = cached.findIndex(
+          (event) => event.id === operation.tempId
+        );
+
+        if (cachedIndex !== -1) {
+          cached[cachedIndex] = created;
+          await writeEventsCache(cached);
+        } else {
+          await mergeEventIntoCache(created);
+        }
+
+        for (
+          let laterIndex = index + 1;
+          laterIndex < queue.length;
+          laterIndex += 1
+        ) {
+          const later = queue[laterIndex];
+
+          if (later.kind === "update" && later.id === operation.tempId) {
+            later.id = created.id;
+          }
+
+          if (later.kind === "delete" && later.id === operation.tempId) {
+            later.id = created.id;
+          }
+        }
+
+        continue;
+      }
+
+      if (operation.kind === "update") {
+        if (isOfflineEventId(operation.id)) {
+          remaining.push(operation);
+          continue;
+        }
+
+        const updated = await updateEventOnlineOnly(
+          operation.id,
+          operation.patch
+        );
+
+        await mergeEventIntoCache(updated);
+        continue;
+      }
+
+      if (operation.kind === "delete") {
+        if (isOfflineEventId(operation.id)) {
+          await removeEventFromCache(operation.id);
+          continue;
+        }
+
+        await deleteEventOnlineOnly(operation.id);
+        await removeEventFromCache(operation.id);
+      }
+    } catch (error) {
+      if (isProbablyOfflineError(error)) {
+        remaining.push(operation, ...queue.slice(index + 1));
+        await writeQueue(remaining);
+        return;
+      }
+
+      console.error("[Event sync] operation failed:", operation, error);
+      remaining.push(operation);
+    }
+  }
+
+  await writeQueue(remaining);
+
+  try {
+    await fetchEvents();
+  } catch {
+    // IndexedDB remains usable until a later successful cloud sync.
+  }
+}
+
+export async function trySyncEventsIfOnline(): Promise<void> {
+  await ensureEventStorageReady();
+
+  if (!hasWindow() || !hasCloudSession() || !navigator.onLine) {
+    return;
+  }
+
+  await syncOfflineEventQueue();
 }
