@@ -1,16 +1,22 @@
 // apps/web/src/api/storage.ts
 
 const DATABASE_NAME = "pioneer-work-suite";
-const DATABASE_VERSION = 1;
+const DATABASE_VERSION = 2;
 
 const TASKS_STORE = "tasks";
 const TASK_QUEUE_STORE = "taskQueue";
+
 const DOCUMENTS_STORE = "documents";
 const DOCUMENT_QUEUE_STORE = "documentQueue";
+
+const EVENTS_STORE = "events";
+const EVENT_QUEUE_STORE = "eventQueue";
+
 const META_STORE = "meta";
 
 const LEGACY_TASKS_CACHE_KEY = "pioneer.tasks.cache.v1";
 const LEGACY_TASKS_QUEUE_KEY = "pioneer.tasks.queue.v1";
+
 const LEGACY_DOCUMENTS_CACHE_KEY = "pioneer.documents.cache.v2";
 const LEGACY_DOCUMENTS_QUEUE_KEY = "pioneer.documents.queue.v2";
 
@@ -24,6 +30,8 @@ type StoreName =
   | typeof TASK_QUEUE_STORE
   | typeof DOCUMENTS_STORE
   | typeof DOCUMENT_QUEUE_STORE
+  | typeof EVENTS_STORE
+  | typeof EVENT_QUEUE_STORE
   | typeof META_STORE;
 
 function hasIndexedDb(): boolean {
@@ -67,6 +75,17 @@ function openDatabase(): Promise<IDBDatabase> {
 
       if (!database.objectStoreNames.contains(DOCUMENT_QUEUE_STORE)) {
         database.createObjectStore(DOCUMENT_QUEUE_STORE, {
+          keyPath: "id",
+          autoIncrement: true,
+        });
+      }
+
+      if (!database.objectStoreNames.contains(EVENTS_STORE)) {
+        database.createObjectStore(EVENTS_STORE, { keyPath: "id" });
+      }
+
+      if (!database.objectStoreNames.contains(EVENT_QUEUE_STORE)) {
+        database.createObjectStore(EVENT_QUEUE_STORE, {
           keyPath: "id",
           autoIncrement: true,
         });
@@ -211,11 +230,10 @@ function readLegacyJson<T>(key: string): T | null {
 }
 
 /*
- * One-time import from existing localStorage storage.
+ * One-time import from the old localStorage task/document system.
  *
- * We deliberately do not delete old keys yet. Keeping them through the
- * 0.1.x validation cycle gives us a recovery path if migration ever needs
- * debugging. Delete them only after IndexedDB is proven stable.
+ * Calendar events were previously cloud-only, so there is no legacy event
+ * cache to import.
  */
 export async function migrateLegacyLocalStorage(): Promise<void> {
   if (!hasIndexedDb()) {
@@ -346,6 +364,40 @@ export async function writeStoredDocumentQueue<T>(
 ): Promise<void> {
   await replaceAll(
     DOCUMENT_QUEUE_STORE,
+    queue.map((value, index) => ({
+      id: index + 1,
+      value,
+    }))
+  );
+}
+
+/* Calendar events */
+
+export async function readStoredEvents<T>(): Promise<T[]> {
+  return getAll<T>(EVENTS_STORE);
+}
+
+export async function writeStoredEvents<T extends { id: string }>(
+  events: T[]
+): Promise<void> {
+  await replaceAll(EVENTS_STORE, events);
+}
+
+export async function clearStoredEvents(): Promise<void> {
+  await clearStore(EVENTS_STORE);
+}
+
+export async function readStoredEventQueue<T>(): Promise<T[]> {
+  const entries = await getAll<{ id: number; value: T }>(EVENT_QUEUE_STORE);
+
+  return entries
+    .sort((a, b) => a.id - b.id)
+    .map((entry) => entry.value);
+}
+
+export async function writeStoredEventQueue<T>(queue: T[]): Promise<void> {
+  await replaceAll(
+    EVENT_QUEUE_STORE,
     queue.map((value, index) => ({
       id: index + 1,
       value,
