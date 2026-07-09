@@ -14,6 +14,7 @@ import TasksPage from "./pages/TasksPage";
 import DocumentsPage from "./pages/DocumentsPage";
 import CalendarPage from "./pages/CalendarPage";
 import MailPage from "./pages/MailPage";
+import SettingsPage from "./pages/SettingsPage";
 
 import {
   createTask,
@@ -839,6 +840,9 @@ const App: React.FC = () => {
           </Link>
           <Link className="nav-item" to="/mail">
             Mail
+          </Link>
+          <Link className="nav-item" to="/settings">
+          Settings
           </Link>
         </nav>
 
