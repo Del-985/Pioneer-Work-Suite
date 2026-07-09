@@ -935,6 +935,15 @@ const App: React.FC = () => {
               />
 
               <Route
+  path="/settings"
+  element={
+    <RequireAuth>
+      <SettingsPage />
+    </RequireAuth>
+  }
+/>
+
+              <Route
                 path="/"
                 element={
                   workspaceAccessible ? (
