@@ -1,4 +1,4 @@
-```tsx
+
 // apps/web/src/pages/RegisterPage.tsx
 
 import React, { useState } from "react";
@@ -313,4 +313,3 @@ const RegisterPage: React.FC = () => {
 };
 
 export default RegisterPage;
-```
