@@ -27,11 +27,12 @@ export interface AppSettings {
     animationsEnabled: boolean;
   };
 
-  sidebar: {
-    rightSidebarVisible: boolean;
-    rightSidebarDefault: SidebarContentPreference;
-    rememberOpenState: boolean;
-  };
+sidebar: {
+  rightSidebarVisible: boolean;
+  rightSidebarOpen: boolean;
+  rightSidebarDefault: SidebarContentPreference;
+  rememberOpenState: boolean;
+};
 
   workspace: {
     startupPage: StartupPagePreference;
