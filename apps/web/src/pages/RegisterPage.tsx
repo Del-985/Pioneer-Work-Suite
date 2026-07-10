@@ -1,34 +1,62 @@
+```tsx
 // apps/web/src/pages/RegisterPage.tsx
+
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
+
 import { register } from "../api/auth";
 import {
   connectCloudSession,
   createOrUpdateLocalWorkspace,
   getLocalWorkspaceName,
 } from "../api/session";
+import { getConfiguredStartupPath } from "../api/settings";
 
-const APP_VERSION = import.meta.env.VITE_APP_VERSION || "0.0.0";
+const APP_VERSION =
+  import.meta.env.VITE_APP_VERSION || "0.0.0";
 
 const RegisterPage: React.FC = () => {
   const navigate = useNavigate();
 
-  const [name, setName] = useState(getLocalWorkspaceName());
+  const [name, setName] = useState(
+    getLocalWorkspaceName()
+  );
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
 
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] =
+    useState(false);
 
-  function continueLocally() {
-    createOrUpdateLocalWorkspace(name);
-    navigate("/dashboard", { replace: true });
+  const [error, setError] = useState<string | null>(
+    null
+  );
+
+  function openConfiguredStartupPage(): void {
+    navigate(getConfiguredStartupPath(), {
+      replace: true,
+    });
   }
 
-  async function handleSubmit(event: React.FormEvent) {
+  function continueLocally(): void {
+    const workspaceName = name.trim();
+
+    createOrUpdateLocalWorkspace(workspaceName);
+    openConfiguredStartupPage();
+  }
+
+  async function handleSubmit(
+    event: React.FormEvent<HTMLFormElement>
+  ): Promise<void> {
     event.preventDefault();
 
-    if (!name.trim() || !email.trim() || !password) {
+    const normalizedName = name.trim();
+    const normalizedEmail = email.trim();
+
+    if (
+      !normalizedName ||
+      !normalizedEmail ||
+      !password
+    ) {
       return;
     }
 
@@ -37,20 +65,43 @@ const RegisterPage: React.FC = () => {
 
     try {
       const { user, token } = await register(
-        name.trim(),
-        email.trim(),
+        normalizedName,
+        normalizedEmail,
         password
       );
 
       connectCloudSession(user, token);
-      navigate("/dashboard", { replace: true });
-    } catch (err: any) {
-      console.error("Register error:", err);
+      openConfiguredStartupPage();
+    } catch (error: unknown) {
+      console.error("Register error:", error);
 
-      const message =
-        err?.response?.data?.error ||
-        err?.message ||
+      let message =
         "Unable to create the cloud account.";
+
+      if (
+        typeof error === "object" &&
+        error !== null
+      ) {
+        const possibleError = error as {
+          message?: unknown;
+          response?: {
+            data?: {
+              error?: unknown;
+            };
+          };
+        };
+
+        const responseMessage =
+          possibleError.response?.data?.error;
+
+        if (typeof responseMessage === "string") {
+          message = responseMessage;
+        } else if (
+          typeof possibleError.message === "string"
+        ) {
+          message = possibleError.message;
+        }
+      }
 
       setError(message);
     } finally {
@@ -67,11 +118,19 @@ const RegisterPage: React.FC = () => {
         minHeight: 520,
       }}
     >
-      <h2 style={{ marginTop: 0 }}>Connect a cloud account</h2>
+      <h2 style={{ marginTop: 0 }}>
+        Connect a cloud account
+      </h2>
 
-      <p style={{ fontSize: 13, color: "#9da2c8" }}>
-        A cloud account is optional. It will be used for future syncing across
-        devices; your local workspace remains available either way.
+      <p
+        style={{
+          fontSize: 13,
+          color: "var(--text-muted)",
+        }}
+      >
+        A cloud account is optional. It will be used
+        for syncing across devices; your local
+        workspace remains available either way.
       </p>
 
       <form
@@ -90,19 +149,24 @@ const RegisterPage: React.FC = () => {
             gap: 4,
           }}
         >
-          <span style={{ fontSize: 13 }}>Name</span>
+          <span style={{ fontSize: 13 }}>
+            Name
+          </span>
 
           <input
             type="text"
             value={name}
-            onChange={(event) => setName(event.target.value)}
+            onChange={(event) =>
+              setName(event.target.value)
+            }
             required
+            autoComplete="name"
             style={{
               padding: "8px 10px",
               borderRadius: 6,
-              border: "1px solid rgba(255,255,255,0.16)",
-              background: "#05070a",
-              color: "#f5f5f5",
+              border: "1px solid var(--border)",
+              background: "var(--surface-input)",
+              color: "var(--text)",
             }}
           />
         </label>
@@ -114,19 +178,24 @@ const RegisterPage: React.FC = () => {
             gap: 4,
           }}
         >
-          <span style={{ fontSize: 13 }}>Email</span>
+          <span style={{ fontSize: 13 }}>
+            Email
+          </span>
 
           <input
             type="email"
             value={email}
-            onChange={(event) => setEmail(event.target.value)}
+            onChange={(event) =>
+              setEmail(event.target.value)
+            }
             required
+            autoComplete="email"
             style={{
               padding: "8px 10px",
               borderRadius: 6,
-              border: "1px solid rgba(255,255,255,0.16)",
-              background: "#05070a",
-              color: "#f5f5f5",
+              border: "1px solid var(--border)",
+              background: "var(--surface-input)",
+              color: "var(--text)",
             }}
           />
         </label>
@@ -138,25 +207,37 @@ const RegisterPage: React.FC = () => {
             gap: 4,
           }}
         >
-          <span style={{ fontSize: 13 }}>Password</span>
+          <span style={{ fontSize: 13 }}>
+            Password
+          </span>
 
           <input
             type="password"
             value={password}
-            onChange={(event) => setPassword(event.target.value)}
+            onChange={(event) =>
+              setPassword(event.target.value)
+            }
             required
+            autoComplete="new-password"
             style={{
               padding: "8px 10px",
               borderRadius: 6,
-              border: "1px solid rgba(255,255,255,0.16)",
-              background: "#05070a",
-              color: "#f5f5f5",
+              border: "1px solid var(--border)",
+              background: "var(--surface-input)",
+              color: "var(--text)",
             }}
           />
         </label>
 
         {error && (
-          <p style={{ color: "#ff7b88", fontSize: 13, margin: "2px 0 0" }}>
+          <p
+            role="alert"
+            style={{
+              color: "var(--danger)",
+              fontSize: 13,
+              margin: "2px 0 0",
+            }}
+          >
             {error}
           </p>
         )}
@@ -169,14 +250,19 @@ const RegisterPage: React.FC = () => {
             padding: "8px 0",
             borderRadius: 999,
             border: "none",
-            cursor: isSubmitting ? "default" : "pointer",
-            background: "linear-gradient(135deg, #3f64ff, #7f3dff)",
-            color: "#ffffff",
+            cursor: isSubmitting
+              ? "default"
+              : "pointer",
+            background: "var(--accent-gradient)",
+            color: "var(--text-on-accent)",
             fontWeight: 500,
             fontSize: 14,
+            opacity: isSubmitting ? 0.7 : 1,
           }}
         >
-          {isSubmitting ? "Creating account..." : "Create cloud account"}
+          {isSubmitting
+            ? "Creating account..."
+            : "Create cloud account"}
         </button>
       </form>
 
@@ -188,10 +274,10 @@ const RegisterPage: React.FC = () => {
           marginTop: 12,
           padding: "8px 0",
           borderRadius: 999,
-          border: "1px solid rgba(255,255,255,0.16)",
+          border: "1px solid var(--border)",
           cursor: "pointer",
           background: "transparent",
-          color: "#c7ceff",
+          color: "var(--accent-text)",
           fontWeight: 500,
           fontSize: 14,
         }}
@@ -199,17 +285,23 @@ const RegisterPage: React.FC = () => {
         Continue with local workspace
       </button>
 
-      <div style={{ marginTop: 10, fontSize: 13 }}>
+      <div
+        style={{
+          marginTop: 10,
+          fontSize: 13,
+        }}
+      >
         <span>Already have a cloud account? </span>
         <Link to="/login">Log in</Link>
       </div>
 
       <span
+        aria-label={`Pioneer Work Suite version ${APP_VERSION}`}
         style={{
           position: "absolute",
           right: 0,
           bottom: 0,
-          color: "#6f7598",
+          color: "var(--text-faint)",
           fontSize: 11,
           userSelect: "none",
         }}
@@ -221,3 +313,4 @@ const RegisterPage: React.FC = () => {
 };
 
 export default RegisterPage;
+```
