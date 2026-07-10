@@ -1,8 +1,15 @@
 // apps/web/src/api/settings.ts
 
 export type ThemePreference = "dark" | "light" | "system";
-export type FontSizePreference = "small" | "medium" | "large" | "extra-large";
+
+export type FontSizePreference =
+  | "small"
+  | "medium"
+  | "large"
+  | "extra-large";
+
 export type UiDensityPreference = "compact" | "comfortable";
+
 export type SidebarContentPreference =
   | "tasks"
   | "documents"
@@ -27,12 +34,12 @@ export interface AppSettings {
     animationsEnabled: boolean;
   };
 
-sidebar: {
-  rightSidebarVisible: boolean;
-  rightSidebarOpen: boolean;
-  rightSidebarDefault: SidebarContentPreference;
-  rememberOpenState: boolean;
-};
+  sidebar: {
+    rightSidebarVisible: boolean;
+    rightSidebarOpen: boolean;
+    rightSidebarDefault: SidebarContentPreference;
+    rememberOpenState: boolean;
+  };
 
   workspace: {
     startupPage: StartupPagePreference;
@@ -67,6 +74,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
 
   sidebar: {
     rightSidebarVisible: true,
+    rightSidebarOpen: false,
     rightSidebarDefault: "tasks",
     rememberOpenState: true,
   },
@@ -84,6 +92,10 @@ function hasWindow(): boolean {
   return typeof window !== "undefined";
 }
 
+function hasDocument(): boolean {
+  return typeof document !== "undefined";
+}
+
 function isObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -92,7 +104,9 @@ function isThemePreference(value: unknown): value is ThemePreference {
   return value === "dark" || value === "light" || value === "system";
 }
 
-function isFontSizePreference(value: unknown): value is FontSizePreference {
+function isFontSizePreference(
+  value: unknown
+): value is FontSizePreference {
   return (
     value === "small" ||
     value === "medium" ||
@@ -101,7 +115,9 @@ function isFontSizePreference(value: unknown): value is FontSizePreference {
   );
 }
 
-function isUiDensityPreference(value: unknown): value is UiDensityPreference {
+function isUiDensityPreference(
+  value: unknown
+): value is UiDensityPreference {
   return value === "compact" || value === "comfortable";
 }
 
@@ -158,10 +174,21 @@ function normalizeSettings(raw: unknown): AppSettings {
     return settings;
   }
 
-  const appearance = isObject(raw.appearance) ? raw.appearance : null;
-  const sidebar = isObject(raw.sidebar) ? raw.sidebar : null;
-  const workspace = isObject(raw.workspace) ? raw.workspace : null;
-  const developer = isObject(raw.developer) ? raw.developer : null;
+  const appearance = isObject(raw.appearance)
+    ? raw.appearance
+    : null;
+
+  const sidebar = isObject(raw.sidebar)
+    ? raw.sidebar
+    : null;
+
+  const workspace = isObject(raw.workspace)
+    ? raw.workspace
+    : null;
+
+  const developer = isObject(raw.developer)
+    ? raw.developer
+    : null;
 
   if (appearance) {
     if (isThemePreference(appearance.theme)) {
@@ -188,19 +215,26 @@ function normalizeSettings(raw: unknown): AppSettings {
         sidebar.rightSidebarVisible;
     }
 
+    if (typeof sidebar.rightSidebarOpen === "boolean") {
+      settings.sidebar.rightSidebarOpen =
+        sidebar.rightSidebarOpen;
+    }
+
     if (isSidebarContentPreference(sidebar.rightSidebarDefault)) {
       settings.sidebar.rightSidebarDefault =
         sidebar.rightSidebarDefault;
     }
 
     if (typeof sidebar.rememberOpenState === "boolean") {
-      settings.sidebar.rememberOpenState = sidebar.rememberOpenState;
+      settings.sidebar.rememberOpenState =
+        sidebar.rememberOpenState;
     }
   }
 
   if (workspace) {
     if (isStartupPagePreference(workspace.startupPage)) {
-      settings.workspace.startupPage = workspace.startupPage;
+      settings.workspace.startupPage =
+        workspace.startupPage;
     }
   }
 
@@ -214,21 +248,18 @@ function normalizeSettings(raw: unknown): AppSettings {
   return settings;
 }
 
-function readStoredSettings(): AppSettings {
+function writeStoredSettings(settings: AppSettings): void {
   if (!hasWindow()) {
-    return cloneDefaults();
+    return;
   }
 
   try {
-    const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
-
-    if (!raw) {
-      return migrateLegacySettings();
-    }
-
-    return normalizeSettings(JSON.parse(raw));
-  } catch {
-    return cloneDefaults();
+    window.localStorage.setItem(
+      SETTINGS_STORAGE_KEY,
+      JSON.stringify(settings)
+    );
+  } catch (error) {
+    console.error("Unable to save application settings:", error);
   }
 }
 
@@ -239,31 +270,45 @@ function migrateLegacySettings(): AppSettings {
     return settings;
   }
 
-  const legacySidebarMode = window.localStorage.getItem(
-    LEGACY_SIDEBAR_MODE_KEY
-  );
+  try {
+    const legacySidebarMode = window.localStorage.getItem(
+      LEGACY_SIDEBAR_MODE_KEY
+    );
 
-  if (
-    legacySidebarMode === "tasks" ||
-    legacySidebarMode === "documents"
-  ) {
-    settings.sidebar.rightSidebarDefault = legacySidebarMode;
+    if (
+      legacySidebarMode === "tasks" ||
+      legacySidebarMode === "documents"
+    ) {
+      settings.sidebar.rightSidebarDefault =
+        legacySidebarMode;
+    }
+
+    writeStoredSettings(settings);
+
+    return settings;
+  } catch {
+    return settings;
   }
-
-  writeStoredSettings(settings);
-
-  return settings;
 }
 
-function writeStoredSettings(settings: AppSettings): void {
+function readStoredSettings(): AppSettings {
   if (!hasWindow()) {
-    return;
+    return cloneDefaults();
   }
 
-  window.localStorage.setItem(
-    SETTINGS_STORAGE_KEY,
-    JSON.stringify(settings)
-  );
+  try {
+    const raw = window.localStorage.getItem(
+      SETTINGS_STORAGE_KEY
+    );
+
+    if (!raw) {
+      return migrateLegacySettings();
+    }
+
+    return normalizeSettings(JSON.parse(raw));
+  } catch {
+    return cloneDefaults();
+  }
 }
 
 function notifySettingsChanged(settings: AppSettings): void {
@@ -278,8 +323,72 @@ function notifySettingsChanged(settings: AppSettings): void {
   );
 }
 
+/**
+ * Applies appearance settings to the root HTML element.
+ *
+ * global.css reads these values through:
+ * - data-theme
+ * - data-font-size
+ * - data-density
+ * - data-animations
+ */
+export function applySettingsToDocument(
+  settings: AppSettings
+): void {
+  if (!hasDocument()) {
+    return;
+  }
+
+  const root = document.documentElement;
+
+  root.dataset.theme = settings.appearance.theme;
+  root.dataset.fontSize = settings.appearance.fontSize;
+  root.dataset.density = settings.appearance.density;
+  root.dataset.animations =
+    settings.appearance.animationsEnabled
+      ? "enabled"
+      : "disabled";
+}
+
+/**
+ * Converts a startup-page preference into an application route.
+ */
+export function getStartupPath(
+  preference: StartupPagePreference
+): string {
+  switch (preference) {
+    case "tasks":
+      return "/tasks";
+
+    case "documents":
+      return "/documents";
+
+    case "calendar":
+      return "/calendar";
+
+    case "mail":
+      return "/mail";
+
+    case "settings":
+      return "/settings";
+
+    case "dashboard":
+    default:
+      return "/dashboard";
+  }
+}
+
+/**
+ * Returns the route currently selected in stored settings.
+ */
+export function getConfiguredStartupPath(): string {
+  const settings = getSettingsSnapshot();
+
+  return getStartupPath(settings.workspace.startupPage);
+}
+
 /*
- * Async by design so App.tsx can keep the same loading pattern if settings
+ * Async by design so consumers can retain the same API if settings
  * later move to IndexedDB or cloud-backed storage.
  */
 export async function getSettings(): Promise<AppSettings> {
@@ -287,8 +396,8 @@ export async function getSettings(): Promise<AppSettings> {
 }
 
 /*
- * Useful for initial React state where waiting for an effect would cause
- * a visible flash of default styles.
+ * Useful for initial React state where waiting for an effect would
+ * cause a visible flash of default styles.
  */
 export function getSettingsSnapshot(): AppSettings {
   return readStoredSettings();
@@ -299,7 +408,7 @@ export async function updateSettings(
 ): Promise<AppSettings> {
   const current = readStoredSettings();
 
-  const updated: AppSettings = normalizeSettings({
+  const updated = normalizeSettings({
     ...current,
 
     appearance: {
@@ -324,6 +433,7 @@ export async function updateSettings(
   });
 
   writeStoredSettings(updated);
+  applySettingsToDocument(updated);
   notifySettingsChanged(updated);
 
   return updated;
@@ -335,6 +445,7 @@ export async function replaceSettings(
   const normalized = normalizeSettings(settings);
 
   writeStoredSettings(normalized);
+  applySettingsToDocument(normalized);
   notifySettingsChanged(normalized);
 
   return normalized;
@@ -344,6 +455,7 @@ export async function resetSettings(): Promise<AppSettings> {
   const defaults = cloneDefaults();
 
   writeStoredSettings(defaults);
+  applySettingsToDocument(defaults);
   notifySettingsChanged(defaults);
 
   return defaults;
@@ -359,13 +471,22 @@ export function subscribeToSettings(
   const handleSettingsChange = (event: Event) => {
     const customEvent = event as CustomEvent<AppSettings>;
 
-    listener(customEvent.detail ?? readStoredSettings());
+    listener(
+      customEvent.detail
+        ? normalizeSettings(customEvent.detail)
+        : readStoredSettings()
+    );
   };
 
   const handleStorageChange = (event: StorageEvent) => {
-    if (event.key === SETTINGS_STORAGE_KEY) {
-      listener(readStoredSettings());
+    if (event.key !== SETTINGS_STORAGE_KEY) {
+      return;
     }
+
+    const settings = readStoredSettings();
+
+    applySettingsToDocument(settings);
+    listener(settings);
   };
 
   window.addEventListener(
@@ -373,7 +494,10 @@ export function subscribeToSettings(
     handleSettingsChange
   );
 
-  window.addEventListener("storage", handleStorageChange);
+  window.addEventListener(
+    "storage",
+    handleStorageChange
+  );
 
   return () => {
     window.removeEventListener(
@@ -381,6 +505,9 @@ export function subscribeToSettings(
       handleSettingsChange
     );
 
-    window.removeEventListener("storage", handleStorageChange);
+    window.removeEventListener(
+      "storage",
+      handleStorageChange
+    );
   };
 }
