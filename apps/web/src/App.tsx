@@ -1,5 +1,5 @@
 // apps/web/src/App.tsx
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   Link,
   Navigate,
@@ -14,6 +14,7 @@ import TasksPage from "./pages/TasksPage";
 import DocumentsPage from "./pages/DocumentsPage";
 import CalendarPage from "./pages/CalendarPage";
 import MailPage from "./pages/MailPage";
+import SettingsPage from "./pages/SettingsPage";
 
 import {
   createTask,
@@ -38,20 +39,22 @@ import {
   hasWorkspaceAccess,
 } from "./api/session";
 
+import {
+  AppSettings,
+  getSettingsSnapshot,
+  getStartupPath,
+  subscribeToSettings,
+  updateSettings,
+} from "./api/settings";
+
 type SidebarMode = "tasks" | "documents";
 
-const SIDEBAR_MODE_KEY = "pioneer-sidebar-mode";
-const APP_VERSION = "0.1.2";
+const APP_VERSION = import.meta.env.VITE_APP_VERSION || "0.0.0";
 
-
-function loadInitialSidebarMode(): SidebarMode {
-  if (typeof window === "undefined") {
-    return "tasks";
-  }
-
-  return window.localStorage.getItem(SIDEBAR_MODE_KEY) === "documents"
-    ? "documents"
-    : "tasks";
+function toSidebarMode(
+  preference: AppSettings["sidebar"]["rightSidebarDefault"]
+): SidebarMode {
+  return preference === "documents" ? "documents" : "tasks";
 }
 
 function formatDocumentDate(raw: string | undefined): string {
@@ -463,9 +466,22 @@ const Dashboard: React.FC<DashboardProps> = ({
 const App: React.FC = () => {
   const navigate = useNavigate();
 
-  const [isTodoOpen, setIsTodoOpen] = useState(false);
+  const initialSettings = useRef<AppSettings>(
+    getSettingsSnapshot()
+  ).current;
+
+  const settingsRef = useRef<AppSettings>(initialSettings);
+
+  const [settings, setSettings] = useState<AppSettings>(
+    initialSettings
+  );
+
+  const [isTodoOpen, setIsTodoOpen] = useState(
+    initialSettings.sidebar.rightSidebarOpen
+  );
+
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>(
-    loadInitialSidebarMode
+    toSidebarMode(initialSettings.sidebar.rightSidebarDefault)
   );
 
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -484,11 +500,74 @@ const App: React.FC = () => {
   const workspaceAccessible = hasWorkspaceAccess();
   const cloudConnected = hasCloudSession();
 
-  function handleSidebarModeChange(mode: SidebarMode) {
+  useEffect(() => {
+    return subscribeToSettings((nextSettings) => {
+      const previousSettings = settingsRef.current;
+
+      settingsRef.current = nextSettings;
+      setSettings(nextSettings);
+
+      if (
+        previousSettings.sidebar.rightSidebarDefault !==
+        nextSettings.sidebar.rightSidebarDefault
+      ) {
+        setSidebarMode(
+          toSidebarMode(
+            nextSettings.sidebar.rightSidebarDefault
+          )
+        );
+      }
+
+      if (
+        previousSettings.sidebar.rightSidebarOpen !==
+        nextSettings.sidebar.rightSidebarOpen
+      ) {
+        setIsTodoOpen(
+          nextSettings.sidebar.rightSidebarOpen
+        );
+      }
+    });
+  }, []);
+
+  async function handleSidebarModeChange(
+    mode: SidebarMode
+  ): Promise<void> {
     setSidebarMode(mode);
 
-    if (typeof window !== "undefined") {
-      window.localStorage.setItem(SIDEBAR_MODE_KEY, mode);
+    try {
+      await updateSettings({
+        sidebar: {
+          rightSidebarDefault: mode,
+        },
+      });
+    } catch (error) {
+      console.error(
+        "Unable to save sidebar content setting:",
+        error
+      );
+    }
+  }
+
+  async function handleSidebarToggle(): Promise<void> {
+    const nextOpen = !isTodoOpen;
+
+    setIsTodoOpen(nextOpen);
+
+    if (!settings.sidebar.rememberOpenState) {
+      return;
+    }
+
+    try {
+      await updateSettings({
+        sidebar: {
+          rightSidebarOpen: nextOpen,
+        },
+      });
+    } catch (error) {
+      console.error(
+        "Unable to save sidebar open state:",
+        error
+      );
     }
   }
 
@@ -648,11 +727,14 @@ const App: React.FC = () => {
     disconnectCloudSession();
 
     setIsTodoOpen(false);
-    navigate("/dashboard", { replace: true });
+    navigate(
+      getStartupPath(settings.workspace.startupPage),
+      { replace: true }
+    );
   }
 
   return (
-    <div className="app app-dark">
+    <div className="app">
       <UpdateBanner />
 
       <aside className="sidebar-left">
@@ -676,6 +758,9 @@ const App: React.FC = () => {
           </Link>
           <Link className="nav-item" to="/mail">
             Mail
+          </Link>
+          <Link className="nav-item" to="/settings">
+            Settings
           </Link>
         </nav>
 
@@ -768,10 +853,24 @@ const App: React.FC = () => {
               />
 
               <Route
+                path="/settings"
+                element={
+                  <RequireAuth>
+                    <SettingsPage />
+                  </RequireAuth>
+                }
+              />
+
+              <Route
                 path="/"
                 element={
                   workspaceAccessible ? (
-                    <Navigate to="/dashboard" replace />
+                    <Navigate
+                      to={getStartupPath(
+                        settings.workspace.startupPage
+                      )}
+                      replace
+                    />
                   ) : (
                     <Navigate to="/login" replace />
                   )
@@ -783,17 +882,20 @@ const App: React.FC = () => {
           </section>
         </main>
 
-        <aside
-          className={
-            "sidebar-right" +
-            (isTodoOpen ? " sidebar-right-open" : " sidebar-right-collapsed")
-          }
-        >
+        {settings.sidebar.rightSidebarVisible && (
+          <aside
+            className={
+              "sidebar-right" +
+              (isTodoOpen
+                ? " sidebar-right-open"
+                : " sidebar-right-collapsed")
+            }
+          >
           <div className="todo-header">
             <button
               className="todo-toggle"
               type="button"
-              onClick={() => setIsTodoOpen((open) => !open)}
+              onClick={() => void handleSidebarToggle()}
             >
               {isTodoOpen ? "➜" : "⬅"}
             </button>
@@ -994,7 +1096,8 @@ const App: React.FC = () => {
               )}
             </div>
           )}
-        </aside>
+          </aside>
+        )}
       </div>
 
       <span
