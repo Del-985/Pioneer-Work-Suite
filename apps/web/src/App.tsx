@@ -14,15 +14,11 @@ import TasksPage from "./pages/TasksPage";
 import DocumentsPage from "./pages/DocumentsPage";
 import CalendarPage from "./pages/CalendarPage";
 import MailPage from "./pages/MailPage";
-import SettingsPage from "./pages/SettingsPage";
 
 import {
   createTask,
   deleteTask,
   fetchTasks,
-  getPendingTaskSyncCount,
-  refreshPendingTaskSyncCount,
-  SYNC_STATE_EVENT,
   Task,
   trySyncTasksIfOnline,
   updateTask,
@@ -31,16 +27,8 @@ import {
 import {
   Document as SuiteDocument,
   fetchDocuments,
-  getPendingDocumentSyncCount,
-  refreshPendingDocumentSyncCount,
   trySyncDocumentsIfOnline,
 } from "./api/documents";
-
-import {
-  getPendingEventSyncCount,
-  refreshPendingEventSyncCount,
-  trySyncEventsIfOnline,
-} from "./api/events";
 
 import UpdateBanner from "./components/UpdateBanner";
 import {
@@ -52,14 +40,9 @@ import {
 
 type SidebarMode = "tasks" | "documents";
 
-type SyncStatus = {
-  label: string;
-  detail: string;
-  tone: "local" | "connected" | "pending" | "unavailable";
-};
-
 const SIDEBAR_MODE_KEY = "pioneer-sidebar-mode";
-const APP_VERSION = import.meta.env.VITE_APP_VERSION || "0.0.0";
+const APP_VERSION = "0.1.2";
+
 
 function loadInitialSidebarMode(): SidebarMode {
   if (typeof window === "undefined") {
@@ -69,83 +52,6 @@ function loadInitialSidebarMode(): SidebarMode {
   return window.localStorage.getItem(SIDEBAR_MODE_KEY) === "documents"
     ? "documents"
     : "tasks";
-}
-
-function getSyncStatus(): SyncStatus {
-  const cloudConnected = hasCloudSession();
-
-  if (!cloudConnected) {
-    return {
-      label: "Local only",
-      detail: "Your work is saved on this device.",
-      tone: "local",
-    };
-  }
-
-  const pendingCount =
-  getPendingTaskSyncCount() +
-  getPendingDocumentSyncCount() +
-  getPendingEventSyncCount();
-
-  const isOnline =
-    typeof navigator === "undefined" ? true : navigator.onLine;
-
-  if (!isOnline) {
-    return {
-      label: "Cloud unavailable",
-      detail: "Saved locally. Changes will sync when you reconnect.",
-      tone: "unavailable",
-    };
-  }
-
-  if (pendingCount > 0) {
-    return {
-      label: `Sync pending: ${pendingCount}`,
-      detail:
-        pendingCount === 1
-          ? "1 local change is waiting to sync."
-          : `${pendingCount} local changes are waiting to sync.`,
-      tone: "pending",
-    };
-  }
-
-  return {
-    label: "Cloud connected",
-    detail: "Local work is synced with your cloud account.",
-    tone: "connected",
-  };
-}
-
-function getSyncStatusColors(tone: SyncStatus["tone"]) {
-  switch (tone) {
-    case "connected":
-      return {
-        background: "rgba(61, 163, 104, 0.15)",
-        border: "1px solid rgba(104, 216, 144, 0.35)",
-        color: "#a4efbd",
-      };
-
-    case "pending":
-      return {
-        background: "rgba(255, 181, 67, 0.14)",
-        border: "1px solid rgba(255, 198, 99, 0.35)",
-        color: "#ffd07a",
-      };
-
-    case "unavailable":
-      return {
-        background: "rgba(255, 107, 126, 0.14)",
-        border: "1px solid rgba(255, 123, 136, 0.35)",
-        color: "#ffadb6",
-      };
-
-    default:
-      return {
-        background: "rgba(100, 115, 180, 0.14)",
-        border: "1px solid rgba(150, 165, 230, 0.28)",
-        color: "#c2cbff",
-      };
-  }
 }
 
 function formatDocumentDate(raw: string | undefined): string {
@@ -185,6 +91,7 @@ const Dashboard: React.FC<DashboardProps> = ({
   onSidebarModeChange,
 }) => {
   const navigate = useNavigate();
+
   const userName = getWorkspaceName();
 
   const [loading, setLoading] = useState(true);
@@ -276,7 +183,6 @@ const Dashboard: React.FC<DashboardProps> = ({
   return (
     <div className="workspace-placeholder">
       <h2>Welcome, {userName}</h2>
-
       <p>
         This is your student workspace. Track tasks, write documents, and keep
         your right sidebar focused on the information you use most.
@@ -317,9 +223,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           >
             Today
           </div>
-
           <div style={{ fontSize: 22, fontWeight: 600 }}>{todayCount}</div>
-
           <div style={{ fontSize: 11, color: "#aab0dd", marginTop: 2 }}>
             tasks due today
           </div>
@@ -352,9 +256,7 @@ const Dashboard: React.FC<DashboardProps> = ({
           >
             Overdue
           </div>
-
           <div style={{ fontSize: 22, fontWeight: 600 }}>{overdueCount}</div>
-
           <div style={{ fontSize: 11, color: "#f2a3a6", marginTop: 2 }}>
             tasks past due
           </div>
@@ -387,11 +289,9 @@ const Dashboard: React.FC<DashboardProps> = ({
           >
             Completed
           </div>
-
           <div style={{ fontSize: 22, fontWeight: 600 }}>
             {completedCount}
           </div>
-
           <div style={{ fontSize: 11, color: "#cdb3ff", marginTop: 2 }}>
             tasks finished
           </div>
@@ -581,14 +481,8 @@ const App: React.FC = () => {
     string | null
   >(null);
 
-  const [syncStatus, setSyncStatus] = useState<SyncStatus>(getSyncStatus);
-
   const workspaceAccessible = hasWorkspaceAccess();
   const cloudConnected = hasCloudSession();
-
-  function refreshSyncStatus() {
-    setSyncStatus(getSyncStatus());
-  }
 
   function handleSidebarModeChange(mode: SidebarMode) {
     setSidebarMode(mode);
@@ -599,74 +493,26 @@ const App: React.FC = () => {
   }
 
   useEffect(() => {
-  let cancelled = false;
-
-  const refreshFromIndexedDb = async () => {
-    await Promise.allSettled([
-  refreshPendingTaskSyncCount(),
-  refreshPendingDocumentSyncCount(),
-  refreshPendingEventSyncCount(),
-]);
-
-    if (!cancelled) {
-      refreshSyncStatus();
-    }
-  };
-
-  void refreshFromIndexedDb();
-
-  if (typeof window === "undefined") {
-    return () => {
-      cancelled = true;
-    };
-  }
-
-  const handleSyncStateChange = () => {
-    void refreshFromIndexedDb();
-  };
-
-  window.addEventListener(SYNC_STATE_EVENT, handleSyncStateChange);
-  window.addEventListener("online", handleSyncStateChange);
-  window.addEventListener("offline", handleSyncStateChange);
-
-  return () => {
-    cancelled = true;
-    window.removeEventListener(SYNC_STATE_EVENT, handleSyncStateChange);
-    window.removeEventListener("online", handleSyncStateChange);
-    window.removeEventListener("offline", handleSyncStateChange);
-  };
-}, [cloudConnected]);
-
-  useEffect(() => {
     if (!cloudConnected || typeof window === "undefined") {
       return;
     }
 
     let disposed = false;
 
-    const sync = async () => {
+    const sync = () => {
       if (disposed) {
         return;
       }
 
-    await Promise.allSettled([
-  trySyncTasksIfOnline(),
-  trySyncDocumentsIfOnline(),
-  trySyncEventsIfOnline(),
-]);
-
-      if (!disposed) {
-        refreshSyncStatus();
-      }
+      void trySyncTasksIfOnline();
+      void trySyncDocumentsIfOnline();
     };
 
-    void sync();
+    sync();
 
     window.addEventListener("online", sync);
 
-    const interval = window.setInterval(() => {
-      void sync();
-    }, 60_000);
+    const interval = window.setInterval(sync, 60_000);
 
     return () => {
       disposed = true;
@@ -720,7 +566,6 @@ const App: React.FC = () => {
 
       setTasksLoading(false);
       setSidebarDocumentsLoading(false);
-      refreshSyncStatus();
     }
 
     void loadSidebarData();
@@ -753,8 +598,6 @@ const App: React.FC = () => {
     } catch (error) {
       console.error("Unable to create task:", error);
       setTasksError("Unable to create task.");
-    } finally {
-      refreshSyncStatus();
     }
   }
 
@@ -783,8 +626,6 @@ const App: React.FC = () => {
     } catch (error) {
       console.error("Unable to update task:", error);
       setTasksError("Unable to update task.");
-    } finally {
-      refreshSyncStatus();
     }
   }
 
@@ -800,8 +641,6 @@ const App: React.FC = () => {
       console.error("Unable to delete task:", error);
       setTasks(previousTasks);
       setTasksError("Unable to delete task.");
-    } finally {
-      refreshSyncStatus();
     }
   }
 
@@ -809,11 +648,8 @@ const App: React.FC = () => {
     disconnectCloudSession();
 
     setIsTodoOpen(false);
-    refreshSyncStatus();
     navigate("/dashboard", { replace: true });
   }
-
-  const syncColors = getSyncStatusColors(syncStatus.tone);
 
   return (
     <div className="app app-dark">
@@ -840,9 +676,6 @@ const App: React.FC = () => {
           </Link>
           <Link className="nav-item" to="/mail">
             Mail
-          </Link>
-          <Link className="nav-item" to="/settings">
-          Settings
           </Link>
         </nav>
 
@@ -933,15 +766,6 @@ const App: React.FC = () => {
                   </RequireAuth>
                 }
               />
-
-              <Route
-  path="/settings"
-  element={
-    <RequireAuth>
-      <SettingsPage />
-    </RequireAuth>
-  }
-/>
 
               <Route
                 path="/"
@@ -1173,49 +997,25 @@ const App: React.FC = () => {
         </aside>
       </div>
 
-      <div
+      <span
+        aria-label={`Pioneer Work Suite version ${APP_VERSION}`}
         style={{
           position: "fixed",
           right: 10,
           bottom: 8,
           zIndex: 10000,
-          display: "flex",
-          alignItems: "center",
-          gap: 6,
+          padding: "3px 7px",
+          borderRadius: 999,
+          background: "rgba(5, 7, 19, 0.82)",
+          border: "1px solid rgba(255,255,255,0.12)",
+          color: "#8d94bd",
+          fontSize: 10,
+          lineHeight: 1,
           pointerEvents: "none",
         }}
       >
-        <span
-          title={syncStatus.detail}
-          style={{
-            padding: "3px 7px",
-            borderRadius: 999,
-            background: syncColors.background,
-            border: syncColors.border,
-            color: syncColors.color,
-            fontSize: 10,
-            lineHeight: 1,
-            whiteSpace: "nowrap",
-          }}
-        >
-          {syncStatus.label}
-        </span>
-
-        <span
-          aria-label={`Pioneer Work Suite version ${APP_VERSION}`}
-          style={{
-            padding: "3px 7px",
-            borderRadius: 999,
-            background: "rgba(5, 7, 19, 0.82)",
-            border: "1px solid rgba(255,255,255,0.12)",
-            color: "#8d94bd",
-            fontSize: 10,
-            lineHeight: 1,
-          }}
-        >
-          v{APP_VERSION}
-        </span>
-      </div>
+        v{APP_VERSION}
+      </span>
     </div>
   );
 };
