@@ -10,12 +10,13 @@ import {
 } from "./storage";
 
 export type TaskStatus = "todo" | "in_progress" | "done" | string;
+export type TaskPriority = "critical" | "high" | "medium" | "low";
 
 export interface Task {
   id: string;
   title: string;
   status: TaskStatus;
-  priority?: string | null;
+  priority: TaskPriority;
   dueDate?: string | null;
   createdAt?: string;
 }
@@ -23,22 +24,26 @@ export interface Task {
 export interface TaskPatch {
   title?: string;
   status?: TaskStatus;
-  priority?: string | null;
+  priority?: TaskPriority;
+  dueDate?: string | null;
+}
+
+export interface CreateTaskOptions {
+  status?: TaskStatus;
+  priority?: TaskPriority;
   dueDate?: string | null;
 }
 
 export const SYNC_STATE_EVENT = "pioneer:sync-state-changed";
-
-type TaskOpKind = "create" | "update" | "delete";
 
 interface CreateOp {
   kind: "create";
   tempId: string;
   payload: {
     title: string;
-    status?: TaskStatus;
-    priority?: string | null;
-    dueDate?: string | null;
+    status: TaskStatus;
+    priority: TaskPriority;
+    dueDate: string | null;
   };
   timestamp: number;
 }
@@ -92,13 +97,57 @@ function makeOfflineTaskId(): string {
     .slice(2)}`;
 }
 
+export function normalizeTaskPriority(input: unknown): TaskPriority {
+  const value = String(input ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (
+    value === "critical" ||
+    value === "high" ||
+    value === "medium" ||
+    value === "low"
+  ) {
+    return value;
+  }
+
+  // Tasks created before Tasks v2 used "normal".
+  if (value === "normal") {
+    return "medium";
+  }
+
+  return "medium";
+}
+
+function normalizeDueDate(input: unknown): string | null {
+  if (input === null || input === undefined || input === "") {
+    return null;
+  }
+
+  return String(input);
+}
+
+function normalizeTaskPatch(patch: TaskPatch): TaskPatch {
+  const normalized: TaskPatch = { ...patch };
+
+  if (patch.priority !== undefined) {
+    normalized.priority = normalizeTaskPriority(patch.priority);
+  }
+
+  if (patch.dueDate !== undefined) {
+    normalized.dueDate = normalizeDueDate(patch.dueDate);
+  }
+
+  return normalized;
+}
+
 function normalizeTask(raw: any): Task {
   return {
     id: String(raw?.id ?? makeOfflineTaskId()),
     title: String(raw?.title ?? ""),
     status: (raw?.status ?? "todo") as TaskStatus,
-    priority: raw?.priority ?? "normal",
-    dueDate: raw?.dueDate ? String(raw.dueDate) : null,
+    priority: normalizeTaskPriority(raw?.priority),
+    dueDate: normalizeDueDate(raw?.dueDate),
     createdAt: raw?.createdAt
       ? String(raw.createdAt)
       : new Date().toISOString(),
@@ -117,20 +166,56 @@ async function writeTasksCache(tasks: Task[]): Promise<void> {
   await writeStoredTasks(tasks.map(normalizeTask));
 }
 
+function normalizeQueueOperation(operation: any): TaskOp | null {
+  if (!operation || typeof operation !== "object") {
+    return null;
+  }
+
+  if (operation.kind === "create") {
+    return {
+      ...operation,
+      kind: "create",
+      tempId: String(operation.tempId),
+      payload: {
+        title: String(operation.payload?.title ?? ""),
+        status: (operation.payload?.status ?? "todo") as TaskStatus,
+        priority: normalizeTaskPriority(operation.payload?.priority),
+        dueDate: normalizeDueDate(operation.payload?.dueDate),
+      },
+      timestamp: Number(operation.timestamp) || Date.now(),
+    };
+  }
+
+  if (operation.kind === "update") {
+    return {
+      ...operation,
+      kind: "update",
+      id: String(operation.id),
+      patch: normalizeTaskPatch(operation.patch ?? {}),
+      timestamp: Number(operation.timestamp) || Date.now(),
+    };
+  }
+
+  if (operation.kind === "delete") {
+    return {
+      ...operation,
+      kind: "delete",
+      id: String(operation.id),
+      timestamp: Number(operation.timestamp) || Date.now(),
+    };
+  }
+
+  return null;
+}
+
 async function readQueue(): Promise<TaskOp[]> {
   await ensureTaskStorageReady();
 
   const queue = await readStoredTaskQueue<TaskOp>();
 
-  return queue.filter((operation) => {
-    return (
-      operation &&
-      typeof operation === "object" &&
-      (operation.kind === "create" ||
-        operation.kind === "update" ||
-        operation.kind === "delete")
-    );
-  });
+  return queue
+    .map(normalizeQueueOperation)
+    .filter((operation): operation is TaskOp => operation !== null);
 }
 
 async function writeQueue(queue: TaskOp[]): Promise<void> {
@@ -192,8 +277,6 @@ function isProbablyOfflineError(error: any): boolean {
 
   if (typeof status === "number") {
     return (
-      status === 401 ||
-      status === 403 ||
       status === 500 ||
       status === 502 ||
       status === 503 ||
@@ -235,7 +318,7 @@ async function enqueueCreate(task: Task): Promise<void> {
     payload: {
       title: task.title,
       status: task.status,
-      priority: task.priority ?? "normal",
+      priority: task.priority,
       dueDate: task.dueDate ?? null,
     },
     timestamp: Date.now(),
@@ -248,16 +331,13 @@ async function enqueueUpdate(
   id: string,
   patch: TaskPatch
 ): Promise<void> {
+  const normalizedPatch = normalizeTaskPatch(patch);
   const queue = await readQueue();
 
   const createIndex = queue.findIndex(
     (operation) => operation.kind === "create" && operation.tempId === id
   );
 
-  /*
-   * A locally created task does not have a cloud ID yet. Keep its queued
-   * create operation current instead of creating a separate update.
-   */
   if (createIndex !== -1) {
     const create = queue[createIndex] as CreateOp;
 
@@ -265,7 +345,7 @@ async function enqueueUpdate(
       ...create,
       payload: {
         ...create.payload,
-        ...patch,
+        ...normalizedPatch,
       },
       timestamp: Date.now(),
     };
@@ -293,7 +373,7 @@ async function enqueueUpdate(
       ...existing,
       patch: {
         ...existing.patch,
-        ...patch,
+        ...normalizedPatch,
       },
       timestamp: Date.now(),
     };
@@ -301,7 +381,7 @@ async function enqueueUpdate(
     queue.push({
       kind: "update",
       id,
-      patch,
+      patch: normalizedPatch,
       timestamp: Date.now(),
     });
   }
@@ -326,10 +406,6 @@ async function enqueueDelete(id: string): Promise<void> {
     return true;
   });
 
-  /*
-   * An offline-only task was never sent to the cloud, so it does not need
-   * a future delete operation.
-   */
   if (!isOfflineTaskId(id)) {
     queue.push({
       kind: "delete",
@@ -410,10 +486,6 @@ export async function fetchTasks(): Promise<Task[]> {
       }
     }
 
-    /*
-     * Local queued work wins over a stale cloud response so disconnected
-     * edits cannot be overwritten during a refresh.
-     */
     for (const task of localTasks) {
       if (
         isOfflineTaskId(task.id) ||
@@ -439,7 +511,10 @@ export async function fetchTasks(): Promise<Task[]> {
   }
 }
 
-export async function createTask(title: string): Promise<Task> {
+export async function createTask(
+  title: string,
+  options: CreateTaskOptions = {}
+): Promise<Task> {
   await ensureTaskStorageReady();
 
   const finalTitle = title.trim();
@@ -448,12 +523,16 @@ export async function createTask(title: string): Promise<Task> {
     throw new Error("Task title is required.");
   }
 
+  const status = options.status ?? "todo";
+  const priority = normalizeTaskPriority(options.priority);
+  const dueDate = normalizeDueDate(options.dueDate);
+
   const localTask: Task = {
     id: makeOfflineTaskId(),
     title: finalTitle,
-    status: "todo",
-    priority: "normal",
-    dueDate: null,
+    status,
+    priority,
+    dueDate,
     createdAt: new Date().toISOString(),
   };
 
@@ -467,9 +546,9 @@ export async function createTask(title: string): Promise<Task> {
   try {
     const created = await createTaskOnlineOnly({
       title: finalTitle,
-      status: "todo",
-      priority: "normal",
-      dueDate: null,
+      status,
+      priority,
+      dueDate,
     });
 
     await mergeTaskIntoCache(created);
@@ -492,6 +571,7 @@ export async function updateTask(
 ): Promise<Task> {
   await ensureTaskStorageReady();
 
+  const normalizedPatch = normalizeTaskPatch(patch);
   const existing = (await readTasksCache()).find((task) => task.id === id);
 
   const optimistic = normalizeTask({
@@ -499,22 +579,22 @@ export async function updateTask(
       id,
       title: "",
       status: "todo",
-      priority: "normal",
+      priority: "medium",
       dueDate: null,
       createdAt: new Date().toISOString(),
     }),
-    ...patch,
+    ...normalizedPatch,
   });
 
   await mergeTaskIntoCache(optimistic);
 
   if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
-    await enqueueUpdate(id, patch);
+    await enqueueUpdate(id, normalizedPatch);
     return optimistic;
   }
 
   try {
-    const updated = await updateTaskOnlineOnly(id, patch);
+    const updated = await updateTaskOnlineOnly(id, normalizedPatch);
 
     await mergeTaskIntoCache(updated);
     return updated;
@@ -523,7 +603,7 @@ export async function updateTask(
       throw error;
     }
 
-    await enqueueUpdate(id, patch);
+    await enqueueUpdate(id, normalizedPatch);
     return optimistic;
   }
 }
@@ -586,10 +666,6 @@ export async function syncOfflineTaskQueue(): Promise<void> {
           await mergeTaskIntoCache(created);
         }
 
-        /*
-         * Future-proof remapping in case an update/delete follows a queued
-         * create operation for the old temporary ID.
-         */
         for (
           let laterIndex = index + 1;
           laterIndex < queue.length;
@@ -651,5 +727,5 @@ export async function syncOfflineTaskQueue(): Promise<void> {
     await fetchTasks();
   } catch {
     // Local IndexedDB data remains available until a later successful sync.
-}
+  }
 }
