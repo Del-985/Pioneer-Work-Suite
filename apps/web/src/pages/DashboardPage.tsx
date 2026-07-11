@@ -5,6 +5,14 @@ import { useNavigate } from "react-router-dom";
 import { Document as SuiteDocument, fetchDocuments } from "../api/documents";
 import { getWorkspaceName } from "../api/session";
 import { fetchTasks, Task } from "../api/tasks";
+import {
+  formatTaskDueDate,
+  getDueDateKey,
+  getEndOfLocalWeekKey,
+  getLocalDateKey,
+  isDueDateOverdue,
+  isDueDateToday,
+} from "../utils/taskDates";
 
 import "../styles/dashboard.css";
 
@@ -26,25 +34,6 @@ interface StorageSnapshot {
   quota: number | null;
 }
 
-function startOfLocalDay(date: Date): Date {
-  const value = new Date(date);
-  value.setHours(0, 0, 0, 0);
-  return value;
-}
-
-function endOfLocalDay(date: Date): Date {
-  const value = new Date(date);
-  value.setHours(23, 59, 59, 999);
-  return value;
-}
-
-function endOfLocalWeek(date: Date): Date {
-  const value = endOfLocalDay(date);
-  const daysUntilSunday = (7 - value.getDay()) % 7;
-  value.setDate(value.getDate() + daysUntilSunday);
-  return value;
-}
-
 function parseDate(raw?: string | null): Date | null {
   if (!raw) {
     return null;
@@ -54,26 +43,7 @@ function parseDate(raw?: string | null): Date | null {
   return Number.isNaN(value.getTime()) ? null : value;
 }
 
-function localDateKey(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${year}-${month}-${day}`;
-}
 
-function formatDueDate(raw?: string | null): string {
-  const value = parseDate(raw);
-
-  if (!value) {
-    return "No due date";
-  }
-
-  return value.toLocaleDateString(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric",
-  });
-}
 
 function formatDocumentDate(raw?: string | null): string {
   const value = parseDate(raw);
@@ -121,12 +91,11 @@ function isTaskArchived(task: DashboardTask): boolean {
 
 function sortTasksByDueDate(tasks: DashboardTask[]): DashboardTask[] {
   return [...tasks].sort((left, right) => {
-    const leftDate = parseDate(left.dueDate)?.getTime() ?? Number.MAX_SAFE_INTEGER;
-    const rightDate =
-      parseDate(right.dueDate)?.getTime() ?? Number.MAX_SAFE_INTEGER;
+    const leftDate = getDueDateKey(left.dueDate) ?? "9999-12-31";
+    const rightDate = getDueDateKey(right.dueDate) ?? "9999-12-31";
 
     if (leftDate !== rightDate) {
-      return leftDate - rightDate;
+      return leftDate.localeCompare(rightDate);
     }
 
     return left.title.localeCompare(right.title);
@@ -237,35 +206,27 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
 
   const dashboardData = useMemo(() => {
     const now = new Date();
-    const todayStart = startOfLocalDay(now);
-    const todayEnd = endOfLocalDay(now);
-    const weekEnd = endOfLocalWeek(now);
-    const todayKey = localDateKey(now);
+    const todayKey = getLocalDateKey(now);
+    const weekEndKey = getEndOfLocalWeekKey(now);
 
     const activeTasks = tasks.filter(
       (task) => !isTaskDone(task) && !isTaskArchived(task)
     );
 
     const todayTasks = sortTasksByDueDate(
-      activeTasks.filter((task) => {
-        const dueDate = parseDate(task.dueDate);
-        return dueDate ? localDateKey(dueDate) === todayKey : false;
-      })
+      activeTasks.filter((task) => isDueDateToday(task.dueDate, now))
     );
 
     const overdueTasks = sortTasksByDueDate(
-      activeTasks.filter((task) => {
-        const dueDate = parseDate(task.dueDate);
-        return dueDate ? dueDate < todayStart : false;
-      })
+      activeTasks.filter((task) => isDueDateOverdue(task.dueDate, now))
     );
 
     const dueThisWeek = sortTasksByDueDate(
       activeTasks.filter((task) => {
-        const dueDate = parseDate(task.dueDate);
+        const dueKey = getDueDateKey(task.dueDate);
 
-        return dueDate
-          ? dueDate > todayEnd && dueDate <= weekEnd
+        return dueKey
+          ? dueKey > todayKey && dueKey <= weekEndKey
           : false;
       })
     );
@@ -275,7 +236,7 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
 
     const documentsEditedToday = documents.filter((document) => {
       const editedAt = parseDate(document.updatedAt);
-      return editedAt ? localDateKey(editedAt) === todayKey : false;
+      return editedAt ? getLocalDateKey(editedAt) === todayKey : false;
     }).length;
 
     const completedTasks = tasks.filter(isTaskDone);
@@ -285,7 +246,7 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
 
     const tasksCompletedToday = completedTasks.filter((task) => {
       const completedAt = parseDate(task.completedAt || task.updatedAt);
-      return completedAt ? localDateKey(completedAt) === todayKey : false;
+      return completedAt ? getLocalDateKey(completedAt) === todayKey : false;
     }).length;
 
     return {
@@ -638,7 +599,7 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
             <li key={task.id}>
               <button type="button" onClick={onOpen}>
                 <span>{task.title || "Untitled task"}</span>
-                <small>{formatDueDate(task.dueDate)}</small>
+                <small>{formatTaskDueDate(task.dueDate)}</small>
               </button>
             </li>
           ))}
