@@ -96,6 +96,7 @@ const TasksPage: React.FC = () => {
   const [newPriority, setNewPriority] =
     useState<TaskPriority>("medium");
   const [filter, setFilter] = useState<TaskFilter>("all");
+  const [searchTargetId, setSearchTargetId] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -109,6 +110,27 @@ const TasksPage: React.FC = () => {
 
         if (!cancelled) {
           setTasks(loaded);
+
+          const requestedId =
+            typeof window !== "undefined"
+              ? new URLSearchParams(window.location.search).get("task")
+              : null;
+
+          if (requestedId && loaded.some((task) => task.id === requestedId)) {
+            setFilter("all");
+            setSearchTargetId(requestedId);
+
+            window.requestAnimationFrame(() => {
+              document
+                .getElementById(`task-card-${requestedId}`)
+                ?.scrollIntoView({
+                  behavior: "smooth",
+                  block: "center",
+                });
+            });
+
+            window.setTimeout(() => setSearchTargetId(null), 2600);
+          }
         }
       } catch (loadError) {
         console.error("Error loading tasks:", loadError);
@@ -435,7 +457,7 @@ const TasksPage: React.FC = () => {
             type="submit"
             disabled={!newTitle.trim() || savingNewTask}
           >
-            {savingNewTask ? "Adding…" : "Add task"}
+            {savingNewTask ? "Addingâ¦" : "Add task"}
           </button>
         </form>
       </section>
@@ -491,6 +513,7 @@ const TasksPage: React.FC = () => {
             onDueDateChange={handleDueDateChange}
             onTitleChange={handleTitleChange}
             onDelete={handleDelete}
+            searchTargetId={searchTargetId}
           />
 
           <TasksColumn
@@ -502,6 +525,7 @@ const TasksPage: React.FC = () => {
             onDueDateChange={handleDueDateChange}
             onTitleChange={handleTitleChange}
             onDelete={handleDelete}
+            searchTargetId={searchTargetId}
           />
 
           <TasksColumn
@@ -513,6 +537,7 @@ const TasksPage: React.FC = () => {
             onDueDateChange={handleDueDateChange}
             onTitleChange={handleTitleChange}
             onDelete={handleDelete}
+            searchTargetId={searchTargetId}
           />
         </section>
       )}
@@ -554,6 +579,7 @@ interface TasksColumnProps {
   onDueDateChange: (task: Task, value: string) => Promise<void>;
   onTitleChange: (task: Task, value: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  searchTargetId: string | null;
 }
 
 const TasksColumn: React.FC<TasksColumnProps> = ({
@@ -565,6 +591,7 @@ const TasksColumn: React.FC<TasksColumnProps> = ({
   onDueDateChange,
   onTitleChange,
   onDelete,
+  searchTargetId,
 }) => {
   return (
     <article className="tasks-v2-column">
@@ -586,6 +613,7 @@ const TasksColumn: React.FC<TasksColumnProps> = ({
               onDueDateChange={onDueDateChange}
               onTitleChange={onTitleChange}
               onDelete={onDelete}
+              isSearchTarget={task.id === searchTargetId}
             />
           ))}
         </div>
@@ -607,6 +635,7 @@ interface TaskCardProps {
   onDueDateChange: (task: Task, value: string) => Promise<void>;
   onTitleChange: (task: Task, value: string) => Promise<void>;
   onDelete: (id: string) => Promise<void>;
+  isSearchTarget: boolean;
 }
 
 const TaskCard: React.FC<TaskCardProps> = ({
@@ -616,6 +645,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
   onDueDateChange,
   onTitleChange,
   onDelete,
+  isSearchTarget,
 }) => {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [draftTitle, setDraftTitle] = useState(task.title);
@@ -664,7 +694,11 @@ const TaskCard: React.FC<TaskCardProps> = ({
 
   return (
     <article
-      className={`tasks-v2-card priority-${task.priority}`}
+      id={`task-card-${task.id}`}
+      className={
+        `tasks-v2-card priority-${task.priority}` +
+        (isSearchTarget ? " is-search-target" : "")
+      }
       data-status={task.status}
     >
       <div className="tasks-v2-card-topline">
