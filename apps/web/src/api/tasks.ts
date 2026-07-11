@@ -651,4 +651,4 @@ export async function syncOfflineTaskQueue(): Promise<void> {
     await fetchTasks();
   } catch {
     // Local IndexedDB data remains available until a later successful sync.
-  }
+}
