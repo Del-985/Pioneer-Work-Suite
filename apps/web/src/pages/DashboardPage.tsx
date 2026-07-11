@@ -6,6 +6,9 @@ import { Document as SuiteDocument, fetchDocuments } from "../api/documents";
 import { getWorkspaceName } from "../api/session";
 import { fetchTasks, Task } from "../api/tasks";
 import {
+  formatDocumentDate,
+} from "../utils/documentText";
+import {
   formatTaskDueDate,
   getDueDateKey,
   getEndOfLocalWeekKey,
@@ -43,22 +46,6 @@ function parseDate(raw?: string | null): Date | null {
   return Number.isNaN(value.getTime()) ? null : value;
 }
 
-
-
-function formatDocumentDate(raw?: string | null): string {
-  const value = parseDate(raw);
-
-  if (!value) {
-    return "Unknown";
-  }
-
-  return value.toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-    year:
-      value.getFullYear() === new Date().getFullYear() ? undefined : "numeric",
-  });
-}
 
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 0) {
@@ -542,7 +529,7 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
 
         <select
           value={sidebarMode}
-          onChange={(event) =>
+          onChange={(event: React.ChangeEvent<HTMLSelectElement>) =>
             onSidebarModeChange(
               event.target.value === "documents" ? "documents" : "tasks"
             )
