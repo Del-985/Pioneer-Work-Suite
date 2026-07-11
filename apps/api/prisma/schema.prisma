@@ -14,15 +14,13 @@ model User {
   email        String   @unique
   name         String
   passwordHash String
-  role         String   // "student" for now
+  role         String
   createdAt    DateTime @default(now())
 
-  // Relations
   tasks        Task[]
   documents    Document[]
   events       Event[]
 
-  // Mail v1
   mailAccounts MailAccount[]
   mailMessages MailMessage[]
 }
@@ -33,34 +31,34 @@ model Task {
   userId    String
 
   title     String
-  status    String   // "todo" | "in_progress" | "done"
-  priority  String   @default("normal") // kept for Tasks UI (low/normal/high etc.)
+  status    String
+  priority  String   @default("normal")
   dueDate   DateTime?
   createdAt DateTime @default(now())
 }
 
 model Document {
-  id        String   @id @default(cuid())
-  user      User     @relation(fields: [userId], references: [id])
-  userId    String
+  id         String   @id @default(cuid())
+  user       User     @relation(fields: [userId], references: [id])
+  userId     String
 
-  title     String
-  content   String   @default("")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  title      String
+  content    String   @default("")
+  isPinned   Boolean  @default(false)
+  isFavorite Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([userId, isPinned, updatedAt])
+  @@index([userId, isFavorite])
 }
 
-//
-// Calendar v1 - Event model
-//
 model Event {
   id          String   @id @default(cuid())
 
-  // Owner
   userId      String
   user        User     @relation(fields: [userId], references: [id])
 
-  // Core fields
   title       String
   description String?
 
@@ -68,7 +66,6 @@ model Event {
   end         DateTime
   allDay      Boolean  @default(false)
 
-  // Suite v3: distinguish event types (general, task, reminder, etc.)
   kind        String   @default("general")
 
   createdAt   DateTime @default(now())
@@ -77,32 +74,24 @@ model Event {
   @@index([userId, start])
 }
 
-//
-// Mail v1 models
-//
-
 model MailAccount {
   id        String   @id @default(cuid())
 
   user      User     @relation(fields: [userId], references: [id])
   userId    String
 
-  // e.g. "imap", "gmail", "outlook"
   provider     String
   emailAddress String
   displayName  String?
 
-  // IMAP connection info
   imapHost   String
   imapPort   Int
   imapUseTLS Boolean @default(true)
 
-  // SMTP connection info
   smtpHost   String
   smtpPort   Int
   smtpUseTLS Boolean @default(true)
 
-  // Credentials (encrypted/tokenized)
   username    String
   passwordEnc String
 
@@ -115,17 +104,14 @@ model MailAccount {
 model MailMessage {
   id String @id @default(cuid())
 
-  // Which account this came from / is sent through
   account   MailAccount @relation(fields: [accountId], references: [id])
   accountId String
 
-  // Owner in our app
   user   User   @relation(fields: [userId], references: [id])
   userId String
 
-  // Optional external identifiers (IMAP UID / Message-ID)
   externalId String?
-  folder     String   // "inbox" | "sent" | "draft" | "archive" | "starred" | etc.
+  folder     String
 
   subject     String
   fromAddress String
@@ -144,7 +130,6 @@ model MailMessage {
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
 
-  // Simple threading helpers
   threadKey   String?
   inReplyToId String?
 }
