@@ -4,7 +4,6 @@ import {
   getPendingTaskSyncCount,
   refreshPendingTaskSyncCount,
   syncOfflineTaskQueue,
-  SYNC_STATE_EVENT,
 } from "./tasks";
 import {
   getPendingDocumentSyncCount,
@@ -16,6 +15,11 @@ import {
   refreshPendingEventSyncCount,
   syncOfflineEventQueue,
 } from "./events";
+import {
+  hasBrowserWindow,
+  isBrowserOffline,
+  SYNC_STATE_EVENT,
+} from "./syncSupport";
 import {
   CLOUD_AUTH_REQUIRED_EVENT,
   SESSION_CHANGED_EVENT,
@@ -53,14 +57,9 @@ let syncPromise: Promise<SyncSnapshot> | null = null;
 let lastSuccessfulSyncAt: string | null = null;
 let errorMessage: string | null = null;
 
-function hasWindow(): boolean {
-  return typeof window !== "undefined";
-}
 
 function isOnline(): boolean {
-  return !hasWindow() || typeof navigator === "undefined"
-    ? true
-    : navigator.onLine !== false;
+  return !isBrowserOffline();
 }
 
 function readCachedPendingCounts() {
@@ -242,7 +241,7 @@ export async function syncAllNow(): Promise<SyncSnapshot> {
 export function startSyncCoordinator(
   intervalMilliseconds = 60_000
 ): () => void {
-  if (!hasWindow()) {
+  if (!hasBrowserWindow()) {
     return () => undefined;
   }
 
