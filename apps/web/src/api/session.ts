@@ -14,6 +14,10 @@ const TOKEN_KEY = "token";
 const USER_EMAIL_KEY = "userEmail";
 const USER_NAME_KEY = "userName";
 const USER_ROLE_KEY = "userRole";
+const CLOUD_RECONNECT_REQUIRED_KEY = "pioneer.cloud.reconnectRequired.v1";
+
+export const SESSION_CHANGED_EVENT = "pioneer:session-changed";
+export const CLOUD_AUTH_REQUIRED_EVENT = "pioneer:cloud-auth-required";
 
 function hasWindow(): boolean {
   return typeof window !== "undefined";
@@ -22,6 +26,20 @@ function hasWindow(): boolean {
 function cleanName(name: string | null | undefined): string {
   const trimmed = String(name ?? "").trim();
   return trimmed || "Student";
+}
+
+function removeCloudCredentials(): void {
+  if (!hasWindow()) return;
+
+  window.localStorage.removeItem(TOKEN_KEY);
+  window.localStorage.removeItem(USER_EMAIL_KEY);
+  window.localStorage.removeItem(USER_NAME_KEY);
+  window.localStorage.removeItem(USER_ROLE_KEY);
+}
+
+function notifySessionChanged(): void {
+  if (!hasWindow()) return;
+  window.dispatchEvent(new Event(SESSION_CHANGED_EVENT));
 }
 
 /*
@@ -46,13 +64,13 @@ export function createOrUpdateLocalWorkspace(name: string): void {
 
   window.localStorage.setItem(LOCAL_WORKSPACE_ENABLED_KEY, "true");
   window.localStorage.setItem(LOCAL_PROFILE_NAME_KEY, cleanName(name));
+  notifySessionChanged();
 }
 
 export function hasWorkspaceAccess(): boolean {
   if (!hasWindow()) return false;
 
   ensureLocalWorkspace();
-
   return window.localStorage.getItem(LOCAL_WORKSPACE_ENABLED_KEY) === "true";
 }
 
@@ -60,12 +78,18 @@ export function getLocalWorkspaceName(): string {
   if (!hasWindow()) return "Student";
 
   ensureLocalWorkspace();
-
   return cleanName(window.localStorage.getItem(LOCAL_PROFILE_NAME_KEY));
 }
 
 export function hasCloudSession(): boolean {
   return hasWindow() && Boolean(window.localStorage.getItem(TOKEN_KEY));
+}
+
+export function isCloudReconnectRequired(): boolean {
+  return (
+    hasWindow() &&
+    window.localStorage.getItem(CLOUD_RECONNECT_REQUIRED_KEY) === "true"
+  );
 }
 
 export function getWorkspaceName(): string {
@@ -80,12 +104,16 @@ export function connectCloudSession(user: CloudUser, token: string): void {
   if (!hasWindow()) return;
 
   // Preserve a local identity for use after cloud disconnect.
-  createOrUpdateLocalWorkspace(user.name);
+  window.localStorage.setItem(LOCAL_WORKSPACE_ENABLED_KEY, "true");
+  window.localStorage.setItem(LOCAL_PROFILE_NAME_KEY, cleanName(user.name));
 
   window.localStorage.setItem(TOKEN_KEY, token);
   window.localStorage.setItem(USER_EMAIL_KEY, user.email);
   window.localStorage.setItem(USER_NAME_KEY, user.name);
   window.localStorage.setItem(USER_ROLE_KEY, user.role);
+  window.localStorage.removeItem(CLOUD_RECONNECT_REQUIRED_KEY);
+
+  notifySessionChanged();
 }
 
 /*
@@ -95,10 +123,31 @@ export function connectCloudSession(user: CloudUser, token: string): void {
 export function disconnectCloudSession(): void {
   if (!hasWindow()) return;
 
-  window.localStorage.removeItem(TOKEN_KEY);
-  window.localStorage.removeItem(USER_EMAIL_KEY);
-  window.localStorage.removeItem(USER_NAME_KEY);
-  window.localStorage.removeItem(USER_ROLE_KEY);
-
+  removeCloudCredentials();
+  window.localStorage.removeItem(CLOUD_RECONNECT_REQUIRED_KEY);
   ensureLocalWorkspace();
+  notifySessionChanged();
+}
+
+/*
+ * Called when the backend rejects an existing token. The local workspace and
+ * queued changes remain intact, but the UI can now distinguish an expired
+ * session from a deliberate local-only workspace.
+ */
+export function invalidateCloudSession(
+  reason = "Your cloud session expired. Reconnect to resume syncing."
+): void {
+  if (!hasWindow()) return;
+
+  removeCloudCredentials();
+  window.localStorage.setItem(CLOUD_RECONNECT_REQUIRED_KEY, "true");
+  ensureLocalWorkspace();
+
+  window.dispatchEvent(
+    new CustomEvent<string>(CLOUD_AUTH_REQUIRED_EVENT, {
+      detail: reason,
+    })
+  );
+
+  notifySessionChanged();
 }
