@@ -17,21 +17,13 @@ import MailPage from "./pages/MailPage";
 import SettingsPage from "./pages/SettingsPage";
 import DashboardPage from "./pages/DashboardPage";
 
-import {
-  createTask,
-  deleteTask,
-  fetchTasks,
-  Task,
-  updateTask,
-} from "./api/tasks";
-
-import {
-  Document as SuiteDocument,
-  fetchDocuments,
-} from "./api/documents";
-
 import UpdateBanner from "./components/UpdateBanner";
 import StatusBar from "./components/StatusBar";
+import RightSidebar, {
+  type RightSidebarMode,
+} from "./components/RightSidebar";
+
+import "./styles/app-shell.css";
 
 import { startSyncCoordinator } from "./api/sync";
 
@@ -49,14 +41,13 @@ import {
   updateSettings,
 } from "./api/settings";
 
-type SidebarMode = "tasks" | "documents";
+type SidebarMode = RightSidebarMode;
 
 function toSidebarMode(
   preference: AppSettings["sidebar"]["rightSidebarDefault"]
 ): SidebarMode {
   return preference === "documents" ? "documents" : "tasks";
 }
-
 
 const RequireAuth: React.FC<{ children: React.ReactElement }> = ({
   children,
@@ -66,23 +57,6 @@ const RequireAuth: React.FC<{ children: React.ReactElement }> = ({
   }
 
   return children;
-};
-
-interface DashboardProps {
-  sidebarMode: SidebarMode;
-  onSidebarModeChange: (mode: SidebarMode) => void;
-}
-
-const Dashboard: React.FC<DashboardProps> = ({
-  sidebarMode,
-  onSidebarModeChange,
-}) => {
-  return (
-    <DashboardPage
-      sidebarMode={sidebarMode}
-      onSidebarModeChange={onSidebarModeChange}
-    />
-  );
 };
 
 const App: React.FC = () => {
@@ -98,26 +72,13 @@ const App: React.FC = () => {
     initialSettings
   );
 
-  const [isTodoOpen, setIsTodoOpen] = useState(
+  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(
     initialSettings.sidebar.rightSidebarOpen
   );
 
   const [sidebarMode, setSidebarMode] = useState<SidebarMode>(
     toSidebarMode(initialSettings.sidebar.rightSidebarDefault)
   );
-
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [tasksLoading, setTasksLoading] = useState(false);
-  const [tasksError, setTasksError] = useState<string | null>(null);
-  const [newTaskTitle, setNewTaskTitle] = useState("");
-
-  const [sidebarDocuments, setSidebarDocuments] = useState<SuiteDocument[]>(
-    []
-  );
-  const [sidebarDocumentsLoading, setSidebarDocumentsLoading] = useState(false);
-  const [sidebarDocumentsError, setSidebarDocumentsError] = useState<
-    string | null
-  >(null);
 
   const workspaceAccessible = hasWorkspaceAccess();
   const cloudConnected = hasCloudSession();
@@ -144,7 +105,7 @@ const App: React.FC = () => {
         previousSettings.sidebar.rightSidebarOpen !==
         nextSettings.sidebar.rightSidebarOpen
       ) {
-        setIsTodoOpen(
+        setIsRightSidebarOpen(
           nextSettings.sidebar.rightSidebarOpen
         );
       }
@@ -171,9 +132,9 @@ const App: React.FC = () => {
   }
 
   async function handleSidebarToggle(): Promise<void> {
-    const nextOpen = !isTodoOpen;
+    const nextOpen = !isRightSidebarOpen;
 
-    setIsTodoOpen(nextOpen);
+    setIsRightSidebarOpen(nextOpen);
 
     if (!settings.sidebar.rememberOpenState) {
       return;
@@ -197,133 +158,10 @@ const App: React.FC = () => {
     return startSyncCoordinator();
   }, []);
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function loadSidebarData() {
-      if (!workspaceAccessible) {
-        setTasks([]);
-        setSidebarDocuments([]);
-        setTasksError(null);
-        setSidebarDocumentsError(null);
-        return;
-      }
-
-      setTasksLoading(true);
-      setSidebarDocumentsLoading(true);
-      setTasksError(null);
-      setSidebarDocumentsError(null);
-
-      const [taskResult, documentResult] = await Promise.allSettled([
-        fetchTasks(),
-        fetchDocuments(),
-      ]);
-
-      if (cancelled) {
-        return;
-      }
-
-      if (taskResult.status === "fulfilled") {
-        setTasks(taskResult.value);
-      } else {
-        console.error("Unable to load sidebar tasks:", taskResult.reason);
-        setTasksError("Unable to load tasks.");
-      }
-
-      if (documentResult.status === "fulfilled") {
-        setSidebarDocuments(documentResult.value);
-      } else {
-        console.error(
-          "Unable to load sidebar documents:",
-          documentResult.reason
-        );
-        setSidebarDocumentsError("Unable to load documents.");
-      }
-
-      setTasksLoading(false);
-      setSidebarDocumentsLoading(false);
-    }
-
-    void loadSidebarData();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [workspaceAccessible, cloudConnected]);
-
-  async function handleAddTask(event: React.FormEvent) {
-    event.preventDefault();
-
-    const title = newTaskTitle.trim();
-
-    if (!title) {
-      return;
-    }
-
-    setTasksError(null);
-
-    try {
-      const created = await createTask(title);
-
-      setTasks((current) => [
-        created,
-        ...current.filter((task) => task.id !== created.id),
-      ]);
-
-      setNewTaskTitle("");
-    } catch (error) {
-      console.error("Unable to create task:", error);
-      setTasksError("Unable to create task.");
-    }
-  }
-
-  async function handleToggleTask(task: Task) {
-    const nextStatus: Task["status"] =
-      task.status === "done" ? "todo" : "done";
-
-    setTasks((current) =>
-      current.map((entry) =>
-        entry.id === task.id ? { ...entry, status: nextStatus } : entry
-      )
-    );
-
-    setTasksError(null);
-
-    try {
-      const updated = await updateTask(task.id, {
-        status: nextStatus,
-      });
-
-      setTasks((current) =>
-        current.map((entry) =>
-          entry.id === task.id ? { ...entry, ...updated } : entry
-        )
-      );
-    } catch (error) {
-      console.error("Unable to update task:", error);
-      setTasksError("Unable to update task.");
-    }
-  }
-
-  async function handleDeleteTask(id: string) {
-    const previousTasks = tasks;
-
-    setTasks((current) => current.filter((task) => task.id !== id));
-    setTasksError(null);
-
-    try {
-      await deleteTask(id);
-    } catch (error) {
-      console.error("Unable to delete task:", error);
-      setTasks(previousTasks);
-      setTasksError("Unable to delete task.");
-    }
-  }
-
   function handleDisconnectCloud() {
     disconnectCloudSession();
 
-    setIsTodoOpen(false);
+    setIsRightSidebarOpen(false);
     navigate(
       getStartupPath(settings.workspace.startupPage),
       { replace: true }
@@ -370,17 +208,7 @@ const App: React.FC = () => {
               navigate("/login");
             }
           }}
-          style={{
-            marginTop: "auto",
-            padding: "6px 10px",
-            borderRadius: 999,
-            border: "1px solid rgba(255,255,255,0.18)",
-            background: "transparent",
-            color: "#f5f5f5",
-            fontSize: 12,
-            cursor: "pointer",
-            alignSelf: "stretch",
-          }}
+          className="sidebar-cloud-button"
         >
           {cloudConnected ? "Disconnect cloud" : "Connect cloud"}
         </button>
@@ -405,7 +233,7 @@ const App: React.FC = () => {
                 path="/dashboard"
                 element={
                   <RequireAuth>
-                    <Dashboard
+                    <DashboardPage
                       sidebarMode={sidebarMode}
                       onSidebarModeChange={handleSidebarModeChange}
                     />
@@ -480,220 +308,14 @@ const App: React.FC = () => {
         </main>
 
         {settings.sidebar.rightSidebarVisible && (
-          <aside
-            className={
-              "sidebar-right" +
-              (isTodoOpen
-                ? " sidebar-right-open"
-                : " sidebar-right-collapsed")
-            }
-          >
-          <div className="todo-header">
-            <button
-              className="todo-toggle"
-              type="button"
-              onClick={() => void handleSidebarToggle()}
-            >
-              {isTodoOpen ? "➜" : "⬅"}
-            </button>
-
-            {isTodoOpen && (
-              <h2 className="todo-title">
-                {sidebarMode === "tasks" ? "Tasks" : "Documents"}
-              </h2>
-            )}
-          </div>
-
-          {isTodoOpen && (
-            <div className="todo-body">
-              {!workspaceAccessible ? (
-                <ul className="todo-list">
-                  <li>Register a student account</li>
-                  <li>Log in with your new account</li>
-                  <li>Use the workspace after signing in</li>
-                </ul>
-              ) : sidebarMode === "tasks" ? (
-                <>
-                  <form
-                    onSubmit={handleAddTask}
-                    style={{
-                      display: "flex",
-                      gap: 6,
-                      marginBottom: 10,
-                    }}
-                  >
-                    <input
-                      type="text"
-                      value={newTaskTitle}
-                      onChange={(event) => setNewTaskTitle(event.target.value)}
-                      placeholder="Add a task..."
-                      style={{
-                        flex: 1,
-                        padding: "6px 8px",
-                        borderRadius: 999,
-                        border: "1px solid rgba(255,255,255,0.18)",
-                        background: "#05070a",
-                        color: "#f5f5f5",
-                        fontSize: 12,
-                      }}
-                    />
-
-                    <button
-                      type="submit"
-                      style={{
-                        padding: "6px 10px",
-                        borderRadius: 999,
-                        border: "none",
-                        fontSize: 12,
-                        cursor: "pointer",
-                        background:
-                          "linear-gradient(135deg, #3f64ff, #7f3dff)",
-                        color: "#ffffff",
-                      }}
-                    >
-                      +
-                    </button>
-                  </form>
-
-                  {tasksLoading && (
-                    <p style={{ fontSize: 12, color: "#9da2c8" }}>
-                      Loading tasks…
-                    </p>
-                  )}
-
-                  {tasksError && (
-                    <p style={{ fontSize: 12, color: "#ff7b88" }}>
-                      {tasksError}
-                    </p>
-                  )}
-
-                  {!tasksLoading && !tasksError && tasks.length === 0 && (
-                    <p style={{ fontSize: 12, color: "#9da2c8" }}>
-                      No tasks yet. Add your first one above.
-                    </p>
-                  )}
-
-                  <ul className="todo-list">
-                    {tasks.map((task) => (
-                      <li
-                        key={task.id}
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "space-between",
-                          gap: 8,
-                        }}
-                      >
-                        <label
-                          style={{
-                            display: "flex",
-                            alignItems: "center",
-                            gap: 8,
-                            cursor: "pointer",
-                          }}
-                        >
-                          <input
-                            type="checkbox"
-                            checked={task.status === "done"}
-                            onChange={() => void handleToggleTask(task)}
-                          />
-
-                          <span
-                            style={{
-                              fontSize: 13,
-                              textDecoration:
-                                task.status === "done"
-                                  ? "line-through"
-                                  : "none",
-                              color:
-                                task.status === "done"
-                                  ? "#6f7598"
-                                  : "#f5f5f5",
-                            }}
-                          >
-                            {task.title}
-                          </span>
-                        </label>
-
-                        <button
-                          type="button"
-                          onClick={() => void handleDeleteTask(task.id)}
-                          style={{
-                            all: "unset",
-                            cursor: "pointer",
-                            fontSize: 11,
-                            opacity: 0.7,
-                          }}
-                          aria-label={`Delete ${task.title}`}
-                        >
-                          ✕
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                </>
-              ) : (
-                <>
-                  {sidebarDocumentsLoading && (
-                    <p style={{ fontSize: 12, color: "#9da2c8" }}>
-                      Loading documents…
-                    </p>
-                  )}
-
-                  {sidebarDocumentsError && (
-                    <p style={{ fontSize: 12, color: "#ff7b88" }}>
-                      {sidebarDocumentsError}
-                    </p>
-                  )}
-
-                  {!sidebarDocumentsLoading &&
-                    !sidebarDocumentsError &&
-                    sidebarDocuments.length === 0 && (
-                      <p style={{ fontSize: 12, color: "#9da2c8" }}>
-                        No documents yet. Create one from the Documents page.
-                      </p>
-                    )}
-
-                  <ul className="todo-list">
-                    {sidebarDocuments.map((document) => (
-                      <li
-                        key={document.id}
-                        style={{
-                          padding: "4px 2px",
-                          fontSize: 12,
-                          whiteSpace: "nowrap",
-                          overflow: "hidden",
-                          textOverflow: "ellipsis",
-                        }}
-                      >
-                        {document.title || "Untitled document"}
-                      </li>
-                    ))}
-                  </ul>
-
-                  <div
-                    style={{
-                      marginTop: 8,
-                      display: "flex",
-                      justifyContent: "flex-end",
-                    }}
-                  >
-                    <Link
-                      to="/documents"
-                      style={{
-                        fontSize: 11,
-                        color: "#aeb7ff",
-                        textDecoration: "underline",
-                      }}
-                    >
-                      Open Documents
-                    </Link>
-                  </div>
-                </>
-              )}
-            </div>
-          )}
-          </aside>
+          <RightSidebar
+            isOpen={isRightSidebarOpen}
+            mode={sidebarMode}
+            workspaceAccessible={workspaceAccessible}
+            cloudConnected={cloudConnected}
+            onToggle={handleSidebarToggle}
+            onModeChange={handleSidebarModeChange}
+          />
         )}
       </div>
 
