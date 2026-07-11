@@ -2,6 +2,12 @@
 import { http } from "./http";
 import { hasCloudSession } from "./session";
 import {
+  hasBrowserWindow,
+  isBrowserOffline,
+  isRecoverableOfflineError,
+  notifySyncStateChanged,
+} from "./syncSupport";
+import {
   migrateLegacyLocalStorage,
   readStoredTaskQueue,
   readStoredTasks,
@@ -34,7 +40,6 @@ export interface CreateTaskOptions {
   dueDate?: string | null;
 }
 
-export const SYNC_STATE_EVENT = "pioneer:sync-state-changed";
 
 interface CreateOp {
   kind: "create";
@@ -66,15 +71,7 @@ type TaskOp = CreateOp | UpdateOp | DeleteOp;
 let storageInitialization: Promise<void> | null = null;
 let pendingTaskSyncCount = 0;
 
-function hasWindow(): boolean {
-  return typeof window !== "undefined";
-}
 
-function notifySyncStateChanged(): void {
-  if (hasWindow()) {
-    window.dispatchEvent(new Event(SYNC_STATE_EVENT));
-  }
-}
 
 async function ensureTaskStorageReady(): Promise<void> {
   if (!storageInitialization) {
@@ -260,55 +257,6 @@ async function removeTaskFromCache(id: string): Promise<void> {
   await writeTasksCache(tasks.filter((task) => task.id !== id));
 }
 
-function isProbablyOfflineError(error: any): boolean {
-  if (!hasWindow()) {
-    return false;
-  }
-
-  if (navigator.onLine === false) {
-    return true;
-  }
-
-  if (!error || typeof error !== "object") {
-    return false;
-  }
-
-  const status = error?.response?.status;
-
-  if (typeof status === "number") {
-    return (
-      status === 500 ||
-      status === 502 ||
-      status === 503 ||
-      status === 504
-    );
-  }
-
-  if (error.isAxiosError && !error.response) {
-    return true;
-  }
-
-  if (
-    typeof error.code === "string" &&
-    (error.code === "ERR_NETWORK" || error.code === "ECONNABORTED")
-  ) {
-    return true;
-  }
-
-  if (typeof error.message === "string") {
-    const message = error.message.toLowerCase();
-
-    return (
-      message.includes("network") ||
-      message.includes("failed to fetch") ||
-      message.includes("timeout") ||
-      message.includes("service unavailable")
-    );
-  }
-
-  return false;
-}
-
 async function enqueueCreate(task: Task): Promise<void> {
   const queue = await readQueue();
 
@@ -453,7 +401,7 @@ async function deleteTaskOnlineOnly(id: string): Promise<void> {
 export async function fetchTasks(): Promise<Task[]> {
   await ensureTaskStorageReady();
 
-  if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
+  if (!hasCloudSession() || isBrowserOffline()) {
     return readTasksCache();
   }
 
@@ -503,7 +451,7 @@ export async function fetchTasks(): Promise<Task[]> {
     await writeTasksCache(tasks);
     return tasks;
   } catch (error) {
-    if (isProbablyOfflineError(error)) {
+    if (isRecoverableOfflineError(error)) {
       return readTasksCache();
     }
 
@@ -536,7 +484,7 @@ export async function createTask(
     createdAt: new Date().toISOString(),
   };
 
-  if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
+  if (!hasCloudSession() || isBrowserOffline()) {
     await mergeTaskIntoCache(localTask);
     await enqueueCreate(localTask);
 
@@ -554,7 +502,7 @@ export async function createTask(
     await mergeTaskIntoCache(created);
     return created;
   } catch (error) {
-    if (!isProbablyOfflineError(error)) {
+    if (!isRecoverableOfflineError(error)) {
       throw error;
     }
 
@@ -588,7 +536,7 @@ export async function updateTask(
 
   await mergeTaskIntoCache(optimistic);
 
-  if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
+  if (!hasCloudSession() || isBrowserOffline()) {
     await enqueueUpdate(id, normalizedPatch);
     return optimistic;
   }
@@ -599,7 +547,7 @@ export async function updateTask(
     await mergeTaskIntoCache(updated);
     return updated;
   } catch (error) {
-    if (!isProbablyOfflineError(error)) {
+    if (!isRecoverableOfflineError(error)) {
       throw error;
     }
 
@@ -612,7 +560,7 @@ export async function deleteTask(id: string): Promise<void> {
   await ensureTaskStorageReady();
   await removeTaskFromCache(id);
 
-  if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
+  if (!hasCloudSession() || isBrowserOffline()) {
     await enqueueDelete(id);
     return;
   }
@@ -624,7 +572,7 @@ export async function deleteTask(id: string): Promise<void> {
       return;
     }
 
-    if (!isProbablyOfflineError(error)) {
+    if (!isRecoverableOfflineError(error)) {
       throw error;
     }
 
@@ -635,7 +583,7 @@ export async function deleteTask(id: string): Promise<void> {
 export async function syncOfflineTaskQueue(): Promise<void> {
   await ensureTaskStorageReady();
 
-  if (!hasWindow() || !hasCloudSession() || navigator.onLine === false) {
+  if (!hasBrowserWindow() || !hasCloudSession() || isBrowserOffline()) {
     return;
   }
 
@@ -710,7 +658,7 @@ export async function syncOfflineTaskQueue(): Promise<void> {
         await removeTaskFromCache(operation.id);
       }
     } catch (error) {
-      if (isProbablyOfflineError(error)) {
+      if (isRecoverableOfflineError(error)) {
         remaining.push(operation, ...queue.slice(index + 1));
         await writeQueue(remaining);
         return;
