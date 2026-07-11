@@ -1,4 +1,4 @@
-// apps/web/src/api/tasks.ts
+/ apps/web/src/api/tasks.ts
 import { http } from "./http";
 import { hasCloudSession } from "./session";
 import {
@@ -652,14 +652,3 @@ export async function syncOfflineTaskQueue(): Promise<void> {
   } catch {
     // Local IndexedDB data remains available until a later successful sync.
   }
-}
-
-export async function trySyncTasksIfOnline(): Promise<void> {
-  await ensureTaskStorageReady();
-
-  if (!hasWindow() || !hasCloudSession() || !navigator.onLine) {
-    return;
-  }
-
-  await syncOfflineTaskQueue();
-}
