@@ -3,18 +3,18 @@
 import {
   getPendingTaskSyncCount,
   refreshPendingTaskSyncCount,
+  syncOfflineTaskQueue,
   SYNC_STATE_EVENT,
-  trySyncTasksIfOnline,
 } from "./tasks";
 import {
   getPendingDocumentSyncCount,
   refreshPendingDocumentSyncCount,
-  trySyncDocumentsIfOnline,
+  syncOfflineDocumentQueue,
 } from "./documents";
 import {
   getPendingEventSyncCount,
   refreshPendingEventSyncCount,
-  trySyncEventsIfOnline,
+  syncOfflineEventQueue,
 } from "./events";
 import {
   CLOUD_AUTH_REQUIRED_EVENT,
@@ -194,9 +194,9 @@ export async function syncAllNow(): Promise<SyncSnapshot> {
     publish(makeSnapshot());
 
     const results = await Promise.allSettled([
-      trySyncTasksIfOnline(),
-      trySyncDocumentsIfOnline(),
-      trySyncEventsIfOnline(),
+      syncOfflineTaskQueue(),
+      syncOfflineDocumentQueue(),
+      syncOfflineEventQueue(),
     ]);
 
     const rejected = results.find(
