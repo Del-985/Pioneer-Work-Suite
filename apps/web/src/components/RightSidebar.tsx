@@ -1,503 +1,790 @@
 // apps/web/src/components/RightSidebar.tsx
-import React, { useEffect, useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
 import {
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
+
+import {
+  createTask,
+  deleteTask,
   fetchTasks,
   Task,
+  updateTask,
 } from "../api/tasks";
 import {
+  Document as SuiteDocument,
   fetchDocuments,
-  Document,
 } from "../api/documents";
+import {
+  SYNC_STATE_EVENT,
+} from "../api/syncSupport";
+import {
+  formatTaskDueDate,
+  getDueDateKey,
+  isDueDateOverdue,
+  isDueDateToday,
+} from "../utils/taskDates";
+import {
+  formatDocumentDate,
+} from "../utils/documentText";
 
-type SidebarMode = "tasks" | "documents";
+import "../styles/right-sidebar.css";
 
-const RightSidebar: React.FC = () => {
-  const [isOpen, setIsOpen] = useState(true);
-  const [mode, setMode] = useState<SidebarMode>("tasks");
+export type RightSidebarMode =
+  | "tasks"
+  | "documents";
 
-  const [tasks, setTasks] = useState<Task[]>([]);
-  const [tasksLoading, setTasksLoading] = useState(false);
-  const [tasksError, setTasksError] = useState<string | null>(null);
+interface RightSidebarProps {
+  isOpen: boolean;
+  mode: RightSidebarMode;
+  workspaceAccessible: boolean;
+  cloudConnected: boolean;
+  onToggle: () => void | Promise<void>;
+  onModeChange: (
+    mode: RightSidebarMode
+  ) => void | Promise<void>;
+}
 
-  const [docs, setDocs] = useState<Document[]>([]);
-  const [docsLoading, setDocsLoading] = useState(false);
-  const [docsError, setDocsError] = useState<string | null>(null);
+const PRIORITY_ORDER: Record<
+  Task["priority"],
+  number
+> = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+};
 
+function taskStatusLabel(
+  status: Task["status"]
+): string {
+  if (status === "in_progress") {
+    return "In progress";
+  }
+
+  if (status === "done") {
+    return "Done";
+  }
+
+  return "To-do";
+}
+
+function taskDueTone(
+  task: Task
+): "overdue" | "today" | "neutral" {
+  if (
+    task.status !== "done" &&
+    isDueDateOverdue(task.dueDate)
+  ) {
+    return "overdue";
+  }
+
+  if (
+    task.status !== "done" &&
+    isDueDateToday(task.dueDate)
+  ) {
+    return "today";
+  }
+
+  return "neutral";
+}
+
+function sortSidebarTasks(
+  tasks: Task[]
+): Task[] {
+  return [...tasks].sort((left, right) => {
+    if (
+      left.status === "done" &&
+      right.status !== "done"
+    ) {
+      return 1;
+    }
+
+    if (
+      left.status !== "done" &&
+      right.status === "done"
+    ) {
+      return -1;
+    }
+
+    const leftPriority =
+      PRIORITY_ORDER[left.priority] ?? 2;
+    const rightPriority =
+      PRIORITY_ORDER[right.priority] ?? 2;
+
+    if (leftPriority !== rightPriority) {
+      return leftPriority - rightPriority;
+    }
+
+    const leftDue =
+      getDueDateKey(left.dueDate) ??
+      "9999-12-31";
+    const rightDue =
+      getDueDateKey(right.dueDate) ??
+      "9999-12-31";
+
+    if (leftDue !== rightDue) {
+      return leftDue.localeCompare(rightDue);
+    }
+
+    return left.title.localeCompare(
+      right.title
+    );
+  });
+}
+
+function sortSidebarDocuments(
+  documents: SuiteDocument[]
+): SuiteDocument[] {
+  return [...documents].sort(
+    (left, right) => {
+      if (
+        left.isPinned !== right.isPinned
+      ) {
+        return left.isPinned ? -1 : 1;
+      }
+
+      const leftTime = new Date(
+        left.updatedAt || left.createdAt
+      ).getTime();
+      const rightTime = new Date(
+        right.updatedAt || right.createdAt
+      ).getTime();
+
+      return rightTime - leftTime;
+    }
+  );
+}
+
+const RightSidebar: React.FC<
+  RightSidebarProps
+> = ({
+  isOpen,
+  mode,
+  workspaceAccessible,
+  cloudConnected,
+  onToggle,
+  onModeChange,
+}) => {
   const navigate = useNavigate();
+  const location = useLocation();
 
-  // --- Date helpers (same behavior as TasksPage) ---
+  const [tasks, setTasks] =
+    useState<Task[]>([]);
+  const [documents, setDocuments] =
+    useState<SuiteDocument[]>([]);
 
-  function isoToInputValue(iso: string | null | undefined): string | null {
-    if (!iso) return null;
-    const parts = iso.split("T")[0];
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(parts)) return null;
-    return parts;
-  }
+  const [tasksLoading, setTasksLoading] =
+    useState(false);
+  const [
+    documentsLoading,
+    setDocumentsLoading,
+  ] = useState(false);
 
-  function isoToLocalDate(iso: string | null | undefined): Date | null {
-    const ymd = isoToInputValue(iso);
-    if (!ymd) return null;
-    const [y, m, d] = ymd.split("-");
-    const year = Number(y);
-    const month = Number(m);
-    const day = Number(d);
-    if (!year || !month || !day) return null;
-    return new Date(year, month - 1, day);
-  }
+  const [tasksError, setTasksError] =
+    useState<string | null>(null);
+  const [
+    documentsError,
+    setDocumentsError,
+  ] = useState<string | null>(null);
 
-  function formatDueLabel(
-    dueDate?: string | null
-  ): { label: string; tone: "neutral" | "overdue" | "today" } {
-    const local = isoToLocalDate(dueDate || null);
-    if (!local) return { label: "No due date", tone: "neutral" };
+  const [newTaskTitle, setNewTaskTitle] =
+    useState("");
+  const [creatingTask, setCreatingTask] =
+    useState(false);
 
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const target = new Date(
-      local.getFullYear(),
-      local.getMonth(),
-      local.getDate()
-    );
+  const loadSidebarData =
+    useCallback(async (): Promise<void> => {
+      if (!workspaceAccessible) {
+        setTasks([]);
+        setDocuments([]);
+        setTasksError(null);
+        setDocumentsError(null);
+        setTasksLoading(false);
+        setDocumentsLoading(false);
+        return;
+      }
 
-    const diffMs = target.getTime() - today.getTime();
-    const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
-
-    if (diffDays < 0) {
-      return {
-        label: `Overdue (${local.toLocaleDateString()})`,
-        tone: "overdue",
-      };
-    }
-    if (diffDays === 0) {
-      return { label: "Due today", tone: "today" };
-    }
-    return {
-      label: `Due ${local.toLocaleDateString()}`,
-      tone: "neutral",
-    };
-  }
-
-  // --- Load tasks once (for sidebar) ---
-
-  useEffect(() => {
-    let cancelled = false;
-
-    (async () => {
       setTasksLoading(true);
+      setDocumentsLoading(true);
       setTasksError(null);
-      try {
-        const data = await fetchTasks();
-        if (!cancelled) setTasks(data);
-      } catch (err) {
-        console.error("Sidebar tasks load error:", err);
-        if (!cancelled) setTasksError("Unable to load tasks.");
-      } finally {
-        if (!cancelled) setTasksLoading(false);
+      setDocumentsError(null);
+
+      const [
+        taskResult,
+        documentResult,
+      ] = await Promise.allSettled([
+        fetchTasks(),
+        fetchDocuments(),
+      ]);
+
+      if (
+        taskResult.status === "fulfilled"
+      ) {
+        setTasks(taskResult.value);
+      } else {
+        console.error(
+          "Unable to load sidebar tasks:",
+          taskResult.reason
+        );
+        setTasksError(
+          "Unable to load tasks."
+        );
       }
-    })();
 
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+      if (
+        documentResult.status ===
+        "fulfilled"
+      ) {
+        setDocuments(
+          documentResult.value
+        );
+      } else {
+        console.error(
+          "Unable to load sidebar documents:",
+          documentResult.reason
+        );
+        setDocumentsError(
+          "Unable to load documents."
+        );
+      }
 
-  // --- Load documents once (for sidebar docs mode) ---
+      setTasksLoading(false);
+      setDocumentsLoading(false);
+    }, [
+      cloudConnected,
+      workspaceAccessible,
+    ]);
 
   useEffect(() => {
-    let cancelled = false;
+    void loadSidebarData();
+  }, [
+    loadSidebarData,
+    location.pathname,
+  ]);
 
-    (async () => {
-      setDocsLoading(true);
-      setDocsError(null);
-      try {
-        const data = await fetchDocuments();
-        if (!cancelled) setDocs(data);
-      } catch (err) {
-        console.error("Sidebar docs load error:", err);
-        if (!cancelled) setDocsError("Unable to load documents.");
-      } finally {
-        if (!cancelled) setDocsLoading(false);
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // --- Today / overdue radar (for tasks mode) ---
-
-  const { todayCount, overdueCount } = useMemo(() => {
-    const now = new Date();
-    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-
-    let todayC = 0;
-    let overdueC = 0;
-
-    for (const t of tasks) {
-      const local = isoToLocalDate(t.dueDate || null);
-      if (!local) continue;
-
-      const target = new Date(
-        local.getFullYear(),
-        local.getMonth(),
-        local.getDate()
-      );
-      const diffMs = target.getTime() - today.getTime();
-      const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
-
-      if (diffDays < 0) {
-        overdueC += 1;
-      } else if (diffDays === 0) {
-        todayC += 1;
-      }
+  useEffect(() => {
+    if (
+      typeof window === "undefined"
+    ) {
+      return;
     }
 
-    return { todayCount: todayC, overdueCount: overdueC };
-  }, [tasks]);
+    const refresh = () => {
+      void loadSidebarData();
+    };
 
-  // Sort tasks for sidebar: overdue + today first, then others
-  const sortedSidebarTasks = useMemo(() => {
-    return [...tasks].sort((a, b) => {
-      const da = isoToLocalDate(a.dueDate || null);
-      const db = isoToLocalDate(b.dueDate || null);
-
-      // Tasks with due dates first
-      if (da && !db) return -1;
-      if (!da && db) return 1;
-      if (!da && !db) return 0;
-
-      if (!da || !db) return 0;
-
-      return da.getTime() - db.getTime();
-    });
-  }, [tasks]);
-
-  function renderTasksMode() {
-    return (
-      <div className="todo-body">
-        {/* Radar summary */}
-        <div
-          style={{
-            marginBottom: 10,
-            padding: "6px 8px",
-            borderRadius: 8,
-            border: "1px solid rgba(255,255,255,0.08)",
-            background: "#050713",
-            fontSize: 11,
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 6,
-          }}
-        >
-          <span style={{ color: "#9da2c8" }}>
-            Today:{" "}
-            <strong style={{ color: "#f5f5f5" }}>{todayCount}</strong>
-          </span>
-          <span
-            style={{
-              color: overdueCount > 0 ? "#ff7b88" : "#6f7598",
-            }}
-          >
-            Overdue:{" "}
-            <strong>{overdueCount}</strong>
-          </span>
-        </div>
-
-        {tasksLoading && (
-          <p style={{ fontSize: 11, color: "#9da2c8" }}>Loading tasks…</p>
-        )}
-        {tasksError && (
-          <p style={{ fontSize: 11, color: "#ff7b88" }}>{tasksError}</p>
-        )}
-
-        {!tasksLoading && !tasksError && tasks.length === 0 && (
-          <p style={{ fontSize: 11, color: "#6f7598" }}>
-            No tasks yet. Create some on the Tasks page.
-          </p>
-        )}
-
-        <ul
-          className="todo-list"
-          style={{
-            listStyle: "none",
-            padding: 0,
-            margin: 0,
-            display: "flex",
-            flexDirection: "column",
-            gap: 6,
-          }}
-        >
-          {sortedSidebarTasks.slice(0, 12).map((task) => {
-            const { label: dueLabel, tone } = formatDueLabel(task.dueDate);
-            const dueColor =
-              tone === "overdue"
-                ? "#ff7b88"
-                : tone === "today"
-                ? "#f0c36a"
-                : "#6f7598";
-
-            return (
-              <li
-                key={task.id}
-                style={{
-                  borderRadius: 8,
-                  border: "1px solid rgba(255,255,255,0.08)",
-                  padding: "6px 8px",
-                  background: "#050713",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 2,
-                }}
-              >
-                <div
-                  style={{
-                    fontSize: 12,
-                    color: "#f5f5f5",
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                  }}
-                >
-                  {task.title}
-                </div>
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    fontSize: 10,
-                    color: "#6f7598",
-                    gap: 6,
-                  }}
-                >
-                  <span
-                    style={{
-                      color: dueColor,
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
-                    {dueLabel}
-                  </span>
-                  <span
-                    style={{
-                      padding: "1px 6px",
-                      borderRadius: 999,
-                      border: "1px solid rgba(255,255,255,0.12)",
-                      fontSize: 10,
-                      textTransform: "uppercase",
-                      letterSpacing: 0.5,
-                    }}
-                  >
-                    {task.status === "todo"
-                      ? "To-Do"
-                      : task.status === "in_progress"
-                      ? "In Progress"
-                      : "Done"}
-                  </span>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-
-        <button
-          type="button"
-          onClick={() => navigate("/tasks")}
-          style={{
-            marginTop: 10,
-            width: "100%",
-            padding: "6px 8px",
-            borderRadius: 999,
-            border: "none",
-            fontSize: 11,
-            cursor: "pointer",
-            background: "rgba(127,61,255,0.9)",
-            color: "#ffffff",
-            whiteSpace: "nowrap",
-          }}
-        >
-          Open full tasks
-        </button>
-      </div>
+    window.addEventListener(
+      SYNC_STATE_EVENT,
+      refresh
     );
+
+    return () => {
+      window.removeEventListener(
+        SYNC_STATE_EVENT,
+        refresh
+      );
+    };
+  }, [loadSidebarData]);
+
+  const sortedTasks = useMemo(
+    () => sortSidebarTasks(tasks),
+    [tasks]
+  );
+
+  const sortedDocuments = useMemo(
+    () =>
+      sortSidebarDocuments(
+        documents
+      ),
+    [documents]
+  );
+
+  const taskSummary = useMemo(() => {
+    const activeTasks = tasks.filter(
+      (task) => task.status !== "done"
+    );
+
+    return {
+      today: activeTasks.filter(
+        (task) =>
+          isDueDateToday(task.dueDate)
+      ).length,
+      overdue: activeTasks.filter(
+        (task) =>
+          isDueDateOverdue(task.dueDate)
+      ).length,
+    };
+  }, [tasks]);
+
+  async function handleCreateTask(
+    event: React.FormEvent
+  ): Promise<void> {
+    event.preventDefault();
+
+    const title =
+      newTaskTitle.trim();
+
+    if (!title || creatingTask) {
+      return;
+    }
+
+    setCreatingTask(true);
+    setTasksError(null);
+
+    try {
+      const created =
+        await createTask(title);
+
+      setTasks((current) => [
+        created,
+        ...current.filter(
+          (task) =>
+            task.id !== created.id
+        ),
+      ]);
+      setNewTaskTitle("");
+    } catch (error) {
+      console.error(
+        "Unable to create sidebar task:",
+        error
+      );
+      setTasksError(
+        "Unable to create task."
+      );
+    } finally {
+      setCreatingTask(false);
+    }
   }
 
-  function renderDocsMode() {
-    const recentDocs = docs.slice(0, 10);
+  async function handleToggleTask(
+    task: Task
+  ): Promise<void> {
+    const nextStatus:
+      Task["status"] =
+      task.status === "done"
+        ? "todo"
+        : "done";
+    const previous = tasks;
 
-    return (
-      <div className="todo-body">
-        {docsLoading && (
-          <p style={{ fontSize: 11, color: "#9da2c8" }}>
-            Loading documents…
-          </p>
-        )}
-        {docsError && (
-          <p style={{ fontSize: 11, color: "#ff7b88" }}>{docsError}</p>
-        )}
-        {!docsLoading && !docsError && recentDocs.length === 0 && (
-          <p style={{ fontSize: 11, color: "#6f7598" }}>
-            No documents yet. Create one on the Documents page.
-          </p>
-        )}
-
-        <ul
-          style={{
-            listStyle: "none",
-            padding: 0,
-            margin: 0,
-            display: "flex",
-            flexDirection: "column",
-            gap: 6,
-          }}
-        >
-          {recentDocs.map((doc) => (
-            <li
-              key={doc.id}
-              style={{
-                borderRadius: 8,
-                border: "1px solid rgba(255,255,255,0.08)",
-                padding: "6px 8px",
-                background: "#050713",
-              }}
-            >
-              <button
-                type="button"
-                onClick={() => navigate("/documents")}
-                style={{
-                  all: "unset",
-                  cursor: "pointer",
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 2,
-                }}
-              >
-                <span
-                  style={{
-                    fontSize: 12,
-                    color: "#f5f5f5",
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                  }}
-                >
-                  {doc.title || "Untitled document"}
-                </span>
-                <span
-                  style={{
-                    fontSize: 10,
-                    color: "#6f7598",
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                  }}
-                >
-                  {doc.updatedAt
-                    ? new Date(doc.updatedAt).toLocaleDateString()
-                    : ""}
-                </span>
-              </button>
-            </li>
-          ))}
-        </ul>
-
-        <button
-          type="button"
-          onClick={() => navigate("/documents")}
-          style={{
-            marginTop: 10,
-            width: "100%",
-            padding: "6px 8px",
-            borderRadius: 999,
-            border: "none",
-            fontSize: 11,
-            cursor: "pointer",
-            background: "rgba(127,61,255,0.9)",
-            color: "#ffffff",
-            whiteSpace: "nowrap",
-          }}
-        >
-          Open documents
-        </button>
-      </div>
+    setTasks((current) =>
+      current.map((entry) =>
+        entry.id === task.id
+          ? {
+              ...entry,
+              status: nextStatus,
+            }
+          : entry
+      )
     );
+    setTasksError(null);
+
+    try {
+      const updated =
+        await updateTask(task.id, {
+          status: nextStatus,
+        });
+
+      setTasks((current) =>
+        current.map((entry) =>
+          entry.id === updated.id
+            ? updated
+            : entry
+        )
+      );
+    } catch (error) {
+      console.error(
+        "Unable to update sidebar task:",
+        error
+      );
+      setTasks(previous);
+      setTasksError(
+        "Unable to update task."
+      );
+    }
+  }
+
+  async function handleDeleteTask(
+    id: string
+  ): Promise<void> {
+    const previous = tasks;
+
+    setTasks((current) =>
+      current.filter(
+        (task) => task.id !== id
+      )
+    );
+    setTasksError(null);
+
+    try {
+      await deleteTask(id);
+    } catch (error) {
+      console.error(
+        "Unable to delete sidebar task:",
+        error
+      );
+      setTasks(previous);
+      setTasksError(
+        "Unable to delete task."
+      );
+    }
   }
 
   return (
     <aside
       className={
-        "sidebar-right" +
-        (isOpen ? " sidebar-right-open" : " sidebar-right-collapsed")
+        "sidebar-right " +
+        (isOpen
+          ? "sidebar-right-open"
+          : "sidebar-right-collapsed")
       }
+      aria-label="Workspace sidebar"
     >
-      <div className="todo-header">
+      <header className="right-sidebar__header">
         <button
-          className="todo-toggle"
-          onClick={() => setIsOpen((open) => !open)}
+          className="right-sidebar__toggle"
           type="button"
+          onClick={() => void onToggle()}
+          aria-label={
+            isOpen
+              ? "Collapse right sidebar"
+              : "Expand right sidebar"
+          }
+          title={
+            isOpen
+              ? "Collapse sidebar"
+              : "Expand sidebar"
+          }
         >
-          {isOpen ? "➜" : "⬅"}
+          {isOpen ? "→" : "←"}
         </button>
+
         {isOpen && (
           <>
-            <h2 className="todo-title" style={{ marginRight: 8 }}>
-              {mode === "tasks" ? "Tasks" : "Documents"}
+            <h2>
+              {mode === "tasks"
+                ? "Tasks"
+                : "Documents"}
             </h2>
 
-            {/* Mode toggle */}
             <div
-              style={{
-                display: "inline-flex",
-                borderRadius: 999,
-                border: "1px solid rgba(255,255,255,0.18)",
-                overflow: "hidden",
-                fontSize: 10,
-              }}
+              className="right-sidebar__mode-switch"
+              role="group"
+              aria-label="Sidebar content"
             >
               <button
                 type="button"
-                onClick={() => setMode("tasks")}
-                style={{
-                  padding: "2px 8px",
-                  border: "none",
-                  background:
-                    mode === "tasks"
-                      ? "rgba(127,61,255,0.9)"
-                      : "transparent",
-                  color: mode === "tasks" ? "#ffffff" : "#9da2c8",
-                  cursor: "pointer",
-                }}
+                className={
+                  mode === "tasks"
+                    ? "is-active"
+                    : ""
+                }
+                onClick={() =>
+                  void onModeChange(
+                    "tasks"
+                  )
+                }
               >
                 Tasks
               </button>
               <button
                 type="button"
-                onClick={() => setMode("documents")}
-                style={{
-                  padding: "2px 8px",
-                  border: "none",
-                  background:
-                    mode === "documents"
-                      ? "rgba(127,61,255,0.9)"
-                      : "transparent",
-                  color: mode === "documents" ? "#ffffff" : "#9da2c8",
-                  cursor: "pointer",
-                }}
+                className={
+                  mode === "documents"
+                    ? "is-active"
+                    : ""
+                }
+                onClick={() =>
+                  void onModeChange(
+                    "documents"
+                  )
+                }
               >
                 Docs
               </button>
             </div>
           </>
         )}
-      </div>
+      </header>
 
-      {isOpen && (mode === "tasks" ? renderTasksMode() : renderDocsMode())}
+      {isOpen && (
+        <div className="right-sidebar__body">
+          {!workspaceAccessible ? (
+            <div className="right-sidebar__empty">
+              <p>
+                Connect or create a workspace
+                to use tasks and documents.
+              </p>
+              <button
+                type="button"
+                onClick={() =>
+                  navigate("/login")
+                }
+              >
+                Connect workspace
+              </button>
+            </div>
+          ) : mode === "tasks" ? (
+            <>
+              <div className="right-sidebar__summary">
+                <span>
+                  Today{" "}
+                  <strong>
+                    {taskSummary.today}
+                  </strong>
+                </span>
+                <span
+                  className={
+                    taskSummary.overdue > 0
+                      ? "has-overdue"
+                      : ""
+                  }
+                >
+                  Overdue{" "}
+                  <strong>
+                    {taskSummary.overdue}
+                  </strong>
+                </span>
+              </div>
+
+              <form
+                className="right-sidebar__task-form"
+                onSubmit={(event: React.FormEvent<HTMLFormElement>) =>
+                  void handleCreateTask(
+                    event
+                  )
+                }
+              >
+                <input
+                  type="text"
+                  value={newTaskTitle}
+                  onChange={(event: React.ChangeEvent<HTMLInputElement>) =>
+                    setNewTaskTitle(
+                      event.target.value
+                    )
+                  }
+                  placeholder="Add a task"
+                  aria-label="New task title"
+                />
+                <button
+                  type="submit"
+                  disabled={
+                    !newTaskTitle.trim() ||
+                    creatingTask
+                  }
+                  aria-label="Add task"
+                >
+                  {creatingTask ? "…" : "+"}
+                </button>
+              </form>
+
+              <SidebarMessage
+                loading={tasksLoading}
+                error={tasksError}
+                empty={
+                  !tasksLoading &&
+                  !tasksError &&
+                  tasks.length === 0
+                    ? "No tasks yet."
+                    : null
+                }
+              />
+
+              <ul className="right-sidebar__list">
+                {sortedTasks
+                  .slice(0, 12)
+                  .map((task) => {
+                    const dueTone =
+                      taskDueTone(task);
+
+                    return (
+                      <li
+                        key={task.id}
+                        className={
+                          task.status ===
+                          "done"
+                            ? "is-complete"
+                            : ""
+                        }
+                      >
+                        <label className="right-sidebar__task-main">
+                          <input
+                            type="checkbox"
+                            checked={
+                              task.status ===
+                              "done"
+                            }
+                            onChange={() =>
+                              void handleToggleTask(
+                                task
+                              )
+                            }
+                          />
+                          <span>
+                            <strong>
+                              {task.title}
+                            </strong>
+                            <small
+                              className={`tone-${dueTone}`}
+                            >
+                              {task.dueDate
+                                ? formatTaskDueDate(
+                                    task.dueDate
+                                  )
+                                : "No due date"}
+                              {" · "}
+                              {taskStatusLabel(
+                                task.status
+                              )}
+                            </small>
+                          </span>
+                        </label>
+
+                        <button
+                          className="right-sidebar__delete"
+                          type="button"
+                          onClick={() =>
+                            void handleDeleteTask(
+                              task.id
+                            )
+                          }
+                          aria-label={`Delete ${task.title}`}
+                          title="Delete"
+                        >
+                          ×
+                        </button>
+                      </li>
+                    );
+                  })}
+              </ul>
+
+              <button
+                className="right-sidebar__open-page"
+                type="button"
+                onClick={() =>
+                  navigate("/tasks")
+                }
+              >
+                Open Tasks
+              </button>
+            </>
+          ) : (
+            <>
+              <SidebarMessage
+                loading={
+                  documentsLoading
+                }
+                error={documentsError}
+                empty={
+                  !documentsLoading &&
+                  !documentsError &&
+                  documents.length === 0
+                    ? "No documents yet."
+                    : null
+                }
+              />
+
+              <ul className="right-sidebar__list right-sidebar__document-list">
+                {sortedDocuments
+                  .slice(0, 10)
+                  .map((document) => (
+                    <li key={document.id}>
+                      <button
+                        className="right-sidebar__document"
+                        type="button"
+                        onClick={() =>
+                          navigate(
+                            "/documents"
+                          )
+                        }
+                      >
+                        <span>
+                          {document.isPinned && (
+                            <span
+                              className="right-sidebar__pin"
+                              aria-label="Pinned"
+                            >
+                              ●
+                            </span>
+                          )}
+                          <strong>
+                            {document.title ||
+                              "Untitled document"}
+                          </strong>
+                        </span>
+                        <small>
+                          Updated{" "}
+                          {formatDocumentDate(
+                            document.updatedAt ||
+                              document.createdAt
+                          )}
+                        </small>
+                      </button>
+                    </li>
+                  ))}
+              </ul>
+
+              <button
+                className="right-sidebar__open-page"
+                type="button"
+                onClick={() =>
+                  navigate("/documents")
+                }
+              >
+                Open Documents
+              </button>
+            </>
+          )}
+        </div>
+      )}
     </aside>
   );
+};
+
+interface SidebarMessageProps {
+  loading: boolean;
+  error: string | null;
+  empty: string | null;
+}
+
+const SidebarMessage: React.FC<
+  SidebarMessageProps
+> = ({
+  loading,
+  error,
+  empty,
+}) => {
+  if (loading) {
+    return (
+      <p className="right-sidebar__message">
+        Loading…
+      </p>
+    );
+  }
+
+  if (error) {
+    return (
+      <p className="right-sidebar__message is-error">
+        {error}
+      </p>
+    );
+  }
+
+  if (empty) {
+    return (
+      <p className="right-sidebar__message">
+        {empty}
+      </p>
+    );
+  }
+
+  return null;
 };
 
 export default RightSidebar;
