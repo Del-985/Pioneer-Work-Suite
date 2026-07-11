@@ -724,13 +724,3 @@ export async function syncOfflineDocumentQueue(): Promise<void> {
     // Local IndexedDB data remains usable until a later successful sync.
   }
 }
-
-export async function trySyncDocumentsIfOnline(): Promise<void> {
-  await ensureDocumentStorageReady();
-
-  if (!hasWindow() || !hasCloudSession() || !navigator.onLine) {
-    return;
-  }
-
-  await syncOfflineDocumentQueue();
-}
