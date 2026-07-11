@@ -5,11 +5,10 @@ import { prisma } from "./prisma";
 
 const router = express.Router();
 
-// All /tasks routes require authentication
 router.use(authMiddleware);
 
 type TaskStatus = "todo" | "in_progress" | "done";
-type TaskPriority = "low" | "normal" | "high";
+type TaskPriority = "critical" | "high" | "medium" | "low";
 
 interface TaskResponse {
   id: string;
@@ -20,13 +19,43 @@ interface TaskResponse {
   dueDate?: string | null;
 }
 
-// Helper to normalize priority from any input
-function normalizePriority(input: any): TaskPriority {
-  if (input === "low" || input === "high") return input;
-  return "normal";
+function normalizePriority(input: unknown): TaskPriority {
+  const value = String(input ?? "")
+    .trim()
+    .toLowerCase();
+
+  if (
+    value === "critical" ||
+    value === "high" ||
+    value === "medium" ||
+    value === "low"
+  ) {
+    return value;
+  }
+
+  // Legacy Tasks v1 records used "normal".
+  if (value === "normal") {
+    return "medium";
+  }
+
+  return "medium";
 }
 
-// Helper to map Prisma Task to API shape
+function parseDueDate(input: unknown): Date | null {
+  if (input === null || input === undefined || input === "") {
+    return null;
+  }
+
+  const value = String(input).trim();
+
+  // Treat YYYY-MM-DD as a calendar date rather than local midnight.
+  const parsed = /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? new Date(`${value}T00:00:00.000Z`)
+    : new Date(value);
+
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 function mapTask(task: any): TaskResponse {
   return {
     id: task.id,
@@ -44,7 +73,6 @@ function mapTask(task: any): TaskResponse {
   };
 }
 
-// GET /tasks - list tasks for current user
 router.get("/", async (req, res) => {
   const user = (req as any).user as User | undefined;
 
@@ -58,17 +86,13 @@ router.get("/", async (req, res) => {
       orderBy: { createdAt: "desc" },
     });
 
-    const mapped = tasks.map(mapTask);
-
-    // Frontend expects an array
-    return res.json(mapped);
-  } catch (err) {
-    console.error("Error in GET /tasks:", err);
+    return res.json(tasks.map(mapTask));
+  } catch (error) {
+    console.error("Error in GET /tasks:", error);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// POST /tasks - create a new task for current user
 router.post("/", async (req, res) => {
   const user = (req as any).user as User | undefined;
 
@@ -78,22 +102,14 @@ router.post("/", async (req, res) => {
 
   const { title, status, dueDate, priority } = req.body || {};
 
-  if (!title || typeof title !== "string") {
+  if (!title || typeof title !== "string" || !title.trim()) {
     return res.status(400).json({ error: "Title is required" });
   }
 
   const statusValue: TaskStatus =
     status === "in_progress" || status === "done" ? status : "todo";
-
-  const priorityValue: TaskPriority = normalizePriority(priority);
-
-  let parsedDueDate: Date | null = null;
-  if (dueDate) {
-    const d = new Date(dueDate);
-    if (!isNaN(d.getTime())) {
-      parsedDueDate = d;
-    }
-  }
+  const priorityValue = normalizePriority(priority);
+  const parsedDueDate = parseDueDate(dueDate);
 
   try {
     const created = await prisma.task.create({
@@ -106,15 +122,13 @@ router.post("/", async (req, res) => {
       },
     });
 
-    const mapped = mapTask(created);
-    return res.status(201).json(mapped);
-  } catch (err) {
-    console.error("Error in POST /tasks:", err);
+    return res.status(201).json(mapTask(created));
+  } catch (error) {
+    console.error("Error in POST /tasks:", error);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// PUT /tasks/:id - update task (title/status/dueDate/priority)
 router.put("/:id", async (req, res) => {
   const user = (req as any).user as User | undefined;
 
@@ -124,17 +138,18 @@ router.put("/:id", async (req, res) => {
 
   const { id } = req.params;
   const { title, status, dueDate, priority } = req.body || {};
-
   const data: any = {};
 
   if (typeof title === "string" && title.trim().length > 0) {
     data.title = title.trim();
   }
 
-  if (typeof status === "string") {
-    if (status === "todo" || status === "in_progress" || status === "done") {
-      data.status = status;
-    }
+  if (
+    status === "todo" ||
+    status === "in_progress" ||
+    status === "done"
+  ) {
+    data.status = status;
   }
 
   if (priority !== undefined) {
@@ -142,14 +157,7 @@ router.put("/:id", async (req, res) => {
   }
 
   if (dueDate !== undefined) {
-    if (dueDate === null || dueDate === "") {
-      data.dueDate = null;
-    } else {
-      const d = new Date(dueDate);
-      if (!isNaN(d.getTime())) {
-        data.dueDate = d;
-      }
-    }
+    data.dueDate = parseDueDate(dueDate);
   }
 
   try {
@@ -166,15 +174,13 @@ router.put("/:id", async (req, res) => {
       data,
     });
 
-    const mapped = mapTask(updated);
-    return res.json(mapped);
-  } catch (err) {
-    console.error("Error in PUT /tasks/:id:", err);
+    return res.json(mapTask(updated));
+  } catch (error) {
+    console.error("Error in PUT /tasks/:id:", error);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// DELETE /tasks/:id - delete a task
 router.delete("/:id", async (req, res) => {
   const user = (req as any).user as User | undefined;
 
@@ -198,8 +204,8 @@ router.delete("/:id", async (req, res) => {
     });
 
     return res.status(204).send();
-  } catch (err) {
-    console.error("Error in DELETE /tasks/:id:", err);
+  } catch (error) {
+    console.error("Error in DELETE /tasks/:id:", error);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
