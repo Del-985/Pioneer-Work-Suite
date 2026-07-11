@@ -5,9 +5,8 @@ import { useNavigate } from "react-router-dom";
 import { Document as SuiteDocument, fetchDocuments } from "../api/documents";
 import { getWorkspaceName } from "../api/session";
 import { fetchTasks, Task } from "../api/tasks";
-import {
-  formatDocumentDate,
-} from "../utils/documentText";
+import { openGlobalSearch } from "../components/GlobalSearch";
+import { formatDocumentDate } from "../utils/documentText";
 import {
   formatTaskDueDate,
   getDueDateKey,
@@ -43,9 +42,11 @@ function parseDate(raw?: string | null): Date | null {
   }
 
   const value = new Date(raw);
-  return Number.isNaN(value.getTime()) ? null : value;
-}
 
+  return Number.isNaN(value.getTime())
+    ? null
+    : value;
+}
 
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 0) {
@@ -56,211 +57,484 @@ function formatBytes(bytes: number): string {
     return "0 B";
   }
 
-  const units = ["B", "KB", "MB", "GB", "TB"];
+  const units = [
+    "B",
+    "KB",
+    "MB",
+    "GB",
+    "TB",
+  ];
+
   const unitIndex = Math.min(
-    Math.floor(Math.log(bytes) / Math.log(1024)),
+    Math.floor(
+      Math.log(bytes) /
+        Math.log(1024)
+    ),
     units.length - 1
   );
-  const value = bytes / 1024 ** unitIndex;
 
-  return `${value.toFixed(value >= 10 || unitIndex === 0 ? 0 : 1)} ${
-    units[unitIndex]
-  }`;
+  const value =
+    bytes /
+    1024 ** unitIndex;
+
+  return `${value.toFixed(
+    value >= 10 || unitIndex === 0
+      ? 0
+      : 1
+  )} ${units[unitIndex]}`;
 }
 
-function isTaskDone(task: DashboardTask): boolean {
+function isTaskDone(
+  task: DashboardTask
+): boolean {
   return task.status === "done";
 }
 
-function isTaskArchived(task: DashboardTask): boolean {
-  return Boolean(task.archivedAt);
+function isTaskArchived(
+  task: DashboardTask
+): boolean {
+  return Boolean(
+    task.archivedAt
+  );
 }
 
-function sortTasksByDueDate(tasks: DashboardTask[]): DashboardTask[] {
-  return [...tasks].sort((left, right) => {
-    const leftDate = getDueDateKey(left.dueDate) ?? "9999-12-31";
-    const rightDate = getDueDateKey(right.dueDate) ?? "9999-12-31";
+function sortTasksByDueDate(
+  tasks: DashboardTask[]
+): DashboardTask[] {
+  return [...tasks].sort(
+    (left, right) => {
+      const leftDate =
+        getDueDateKey(
+          left.dueDate
+        ) ?? "9999-12-31";
 
-    if (leftDate !== rightDate) {
-      return leftDate.localeCompare(rightDate);
+      const rightDate =
+        getDueDateKey(
+          right.dueDate
+        ) ?? "9999-12-31";
+
+      if (
+        leftDate !== rightDate
+      ) {
+        return leftDate.localeCompare(
+          rightDate
+        );
+      }
+
+      return left.title.localeCompare(
+        right.title
+      );
     }
-
-    return left.title.localeCompare(right.title);
-  });
+  );
 }
 
 function sortDocumentsBy(
   documents: SuiteDocument[],
-  field: "createdAt" | "updatedAt"
+  field:
+    | "createdAt"
+    | "updatedAt"
 ): SuiteDocument[] {
-  return [...documents].sort((left, right) => {
-    const leftTime = parseDate(left[field])?.getTime() ?? 0;
-    const rightTime = parseDate(right[field])?.getTime() ?? 0;
-    return rightTime - leftTime;
-  });
+  return [...documents].sort(
+    (left, right) => {
+      const leftTime =
+        parseDate(
+          left[field]
+        )?.getTime() ?? 0;
+
+      const rightTime =
+        parseDate(
+          right[field]
+        )?.getTime() ?? 0;
+
+      return (
+        rightTime -
+        leftTime
+      );
+    }
+  );
 }
 
-const DashboardPage: React.FC<DashboardPageProps> = ({
+const DashboardPage: React.FC<
+  DashboardPageProps
+> = ({
   sidebarMode,
   onSidebarModeChange,
 }) => {
-  const navigate = useNavigate();
-  const userName = getWorkspaceName();
+  const navigate =
+    useNavigate();
 
-  const [tasks, setTasks] = useState<DashboardTask[]>([]);
-  const [documents, setDocuments] = useState<SuiteDocument[]>([]);
-  const [storage, setStorage] = useState<StorageSnapshot>({
+  const userName =
+    getWorkspaceName();
+
+  const [
+    tasks,
+    setTasks,
+  ] = useState<
+    DashboardTask[]
+  >([]);
+
+  const [
+    documents,
+    setDocuments,
+  ] = useState<
+    SuiteDocument[]
+  >([]);
+
+  const [
+    storage,
+    setStorage,
+  ] = useState<
+    StorageSnapshot
+  >({
     usage: null,
     quota: null,
   });
-  const [loading, setLoading] = useState(true);
-  const [storageLoading, setStorageLoading] = useState(true);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [lastLoadedAt, setLastLoadedAt] = useState<Date | null>(null);
 
-  const loadStorageEstimate = useCallback(async () => {
-    setStorageLoading(true);
+  const [
+    loading,
+    setLoading,
+  ] = useState(true);
 
-    try {
-      if (
-        typeof navigator === "undefined" ||
-        !navigator.storage ||
-        typeof navigator.storage.estimate !== "function"
-      ) {
-        setStorage({ usage: null, quota: null });
-        return;
-      }
+  const [
+    storageLoading,
+    setStorageLoading,
+  ] = useState(true);
 
-      const estimate = await navigator.storage.estimate();
+  const [
+    loadError,
+    setLoadError,
+  ] = useState<
+    string | null
+  >(null);
 
-      setStorage({
-        usage:
-          typeof estimate.usage === "number" ? estimate.usage : null,
-        quota:
-          typeof estimate.quota === "number" ? estimate.quota : null,
-      });
-    } catch (error) {
-      console.warn("Unable to estimate local storage usage:", error);
-      setStorage({ usage: null, quota: null });
-    } finally {
-      setStorageLoading(false);
-    }
-  }, []);
+  const [
+    lastLoadedAt,
+    setLastLoadedAt,
+  ] = useState<
+    Date | null
+  >(null);
 
-  const loadDashboard = useCallback(async () => {
-    setLoading(true);
-    setLoadError(null);
-
-    try {
-      const [taskResult, documentResult] = await Promise.allSettled([
-        fetchTasks(),
-        fetchDocuments(),
-      ]);
-
-      const failures: string[] = [];
-
-      if (taskResult.status === "fulfilled") {
-        setTasks(taskResult.value as DashboardTask[]);
-      } else {
-        console.error("Unable to load dashboard tasks:", taskResult.reason);
-        failures.push("tasks");
-      }
-
-      if (documentResult.status === "fulfilled") {
-        setDocuments(documentResult.value);
-      } else {
-        console.error(
-          "Unable to load dashboard documents:",
-          documentResult.reason
+  const loadStorageEstimate =
+    useCallback(
+      async () => {
+        setStorageLoading(
+          true
         );
-        failures.push("documents");
-      }
 
-      if (failures.length > 0) {
-        setLoadError(`Unable to load ${failures.join(" and ")}.`);
-      }
+        try {
+          if (
+            typeof navigator ===
+              "undefined" ||
+            !navigator.storage ||
+            typeof navigator
+              .storage
+              .estimate !==
+              "function"
+          ) {
+            setStorage({
+              usage: null,
+              quota: null,
+            });
 
-      setLastLoadedAt(new Date());
-      await loadStorageEstimate();
-    } finally {
-      setLoading(false);
-    }
-  }, [loadStorageEstimate]);
+            return;
+          }
+
+          const estimate =
+            await navigator
+              .storage
+              .estimate();
+
+          setStorage({
+            usage:
+              typeof estimate
+                .usage ===
+              "number"
+                ? estimate.usage
+                : null,
+
+            quota:
+              typeof estimate
+                .quota ===
+              "number"
+                ? estimate.quota
+                : null,
+          });
+        } catch (error) {
+          console.warn(
+            "Unable to estimate local storage usage:",
+            error
+          );
+
+          setStorage({
+            usage: null,
+            quota: null,
+          });
+        } finally {
+          setStorageLoading(
+            false
+          );
+        }
+      },
+      []
+    );
+
+  const loadDashboard =
+    useCallback(
+      async () => {
+        setLoading(true);
+        setLoadError(null);
+
+        try {
+          const [
+            taskResult,
+            documentResult,
+          ] =
+            await Promise.allSettled(
+              [
+                fetchTasks(),
+                fetchDocuments(),
+              ]
+            );
+
+          const failures:
+            string[] = [];
+
+          if (
+            taskResult.status ===
+            "fulfilled"
+          ) {
+            setTasks(
+              taskResult.value as DashboardTask[]
+            );
+          } else {
+            console.error(
+              "Unable to load dashboard tasks:",
+              taskResult.reason
+            );
+
+            failures.push(
+              "tasks"
+            );
+          }
+
+          if (
+            documentResult.status ===
+            "fulfilled"
+          ) {
+            setDocuments(
+              documentResult.value
+            );
+          } else {
+            console.error(
+              "Unable to load dashboard documents:",
+              documentResult.reason
+            );
+
+            failures.push(
+              "documents"
+            );
+          }
+
+          if (
+            failures.length > 0
+          ) {
+            setLoadError(
+              `Unable to load ${failures.join(
+                " and "
+              )}.`
+            );
+          }
+
+          setLastLoadedAt(
+            new Date()
+          );
+
+          await loadStorageEstimate();
+        } finally {
+          setLoading(false);
+        }
+      },
+      [
+        loadStorageEstimate,
+      ]
+    );
 
   useEffect(() => {
     void loadDashboard();
   }, [loadDashboard]);
 
-  const dashboardData = useMemo(() => {
-    const now = new Date();
-    const todayKey = getLocalDateKey(now);
-    const weekEndKey = getEndOfLocalWeekKey(now);
+  const dashboardData =
+    useMemo(() => {
+      const now =
+        new Date();
 
-    const activeTasks = tasks.filter(
-      (task) => !isTaskDone(task) && !isTaskArchived(task)
-    );
+      const todayKey =
+        getLocalDateKey(now);
 
-    const todayTasks = sortTasksByDueDate(
-      activeTasks.filter((task) => isDueDateToday(task.dueDate, now))
-    );
+      const weekEndKey =
+        getEndOfLocalWeekKey(
+          now
+        );
 
-    const overdueTasks = sortTasksByDueDate(
-      activeTasks.filter((task) => isDueDateOverdue(task.dueDate, now))
-    );
+      const activeTasks =
+        tasks.filter(
+          (task) =>
+            !isTaskDone(
+              task
+            ) &&
+            !isTaskArchived(
+              task
+            )
+        );
 
-    const dueThisWeek = sortTasksByDueDate(
-      activeTasks.filter((task) => {
-        const dueKey = getDueDateKey(task.dueDate);
+      const todayTasks =
+        sortTasksByDueDate(
+          activeTasks.filter(
+            (task) =>
+              isDueDateToday(
+                task.dueDate,
+                now
+              )
+          )
+        );
 
-        return dueKey
-          ? dueKey > todayKey && dueKey <= weekEndKey
-          : false;
-      })
-    );
+      const overdueTasks =
+        sortTasksByDueDate(
+          activeTasks.filter(
+            (task) =>
+              isDueDateOverdue(
+                task.dueDate,
+                now
+              )
+          )
+        );
 
-    const recentlyEdited = sortDocumentsBy(documents, "updatedAt").slice(0, 5);
-    const recentlyCreated = sortDocumentsBy(documents, "createdAt").slice(0, 5);
+      const dueThisWeek =
+        sortTasksByDueDate(
+          activeTasks.filter(
+            (task) => {
+              const dueKey =
+                getDueDateKey(
+                  task.dueDate
+                );
 
-    const documentsEditedToday = documents.filter((document) => {
-      const editedAt = parseDate(document.updatedAt);
-      return editedAt ? getLocalDateKey(editedAt) === todayKey : false;
-    }).length;
+              return dueKey
+                ? dueKey >
+                    todayKey &&
+                    dueKey <=
+                      weekEndKey
+                : false;
+            }
+          )
+        );
 
-    const completedTasks = tasks.filter(isTaskDone);
-    const completionMetadataAvailable = completedTasks.some(
-      (task) => Boolean(task.completedAt || task.updatedAt)
-    );
+      const recentlyEdited =
+        sortDocumentsBy(
+          documents,
+          "updatedAt"
+        ).slice(0, 5);
 
-    const tasksCompletedToday = completedTasks.filter((task) => {
-      const completedAt = parseDate(task.completedAt || task.updatedAt);
-      return completedAt ? getLocalDateKey(completedAt) === todayKey : false;
-    }).length;
+      const recentlyCreated =
+        sortDocumentsBy(
+          documents,
+          "createdAt"
+        ).slice(0, 5);
 
-    return {
-      todayTasks,
-      overdueTasks,
-      dueThisWeek,
-      recentlyEdited,
-      recentlyCreated,
-      documentsEditedToday,
-      completionMetadataAvailable,
-      tasksCompletedToday,
-    };
-  }, [documents, tasks]);
+      const documentsEditedToday =
+        documents.filter(
+          (document) => {
+            const editedAt =
+              parseDate(
+                document.updatedAt
+              );
+
+            return editedAt
+              ? getLocalDateKey(
+                  editedAt
+                ) ===
+                  todayKey
+              : false;
+          }
+        ).length;
+
+      const completedTasks =
+        tasks.filter(
+          isTaskDone
+        );
+
+      const completionMetadataAvailable =
+        completedTasks.some(
+          (task) =>
+            Boolean(
+              task.completedAt ||
+                task.updatedAt
+            )
+        );
+
+      const tasksCompletedToday =
+        completedTasks.filter(
+          (task) => {
+            const completedAt =
+              parseDate(
+                task.completedAt ||
+                  task.updatedAt
+              );
+
+            return completedAt
+              ? getLocalDateKey(
+                  completedAt
+                ) ===
+                  todayKey
+              : false;
+          }
+        ).length;
+
+      return {
+        todayTasks,
+        overdueTasks,
+        dueThisWeek,
+        recentlyEdited,
+        recentlyCreated,
+        documentsEditedToday,
+        completionMetadataAvailable,
+        tasksCompletedToday,
+      };
+    }, [
+      documents,
+      tasks,
+    ]);
 
   const storagePercent =
-    storage.usage !== null && storage.quota
-      ? Math.min(100, (storage.usage / storage.quota) * 100)
+    storage.usage !== null &&
+    storage.quota
+      ? Math.min(
+          100,
+          (storage.usage /
+            storage.quota) *
+            100
+        )
       : null;
 
   return (
     <div className="dashboard-page">
-      <section className="dashboard-hero" aria-labelledby="dashboard-title">
+      <section
+        className="dashboard-hero"
+        aria-labelledby="dashboard-title"
+      >
         <div>
-          <p className="dashboard-eyebrow">Today</p>
-          <h2 id="dashboard-title">Welcome back, {userName}</h2>
+          <p className="dashboard-eyebrow">
+            Today
+          </p>
+
+          <h2 id="dashboard-title">
+            Welcome back,{" "}
+            {userName}
+          </h2>
+
           <p className="dashboard-hero-copy">
-            Review what needs attention, return to recent work, or start
+            Review what needs
+            attention, return to
+            recent work, or start
             something new.
           </p>
         </div>
@@ -268,17 +542,32 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
         <button
           className="dashboard-refresh"
           type="button"
-          onClick={() => void loadDashboard()}
+          onClick={() =>
+            void loadDashboard()
+          }
           disabled={loading}
         >
-          {loading ? "Refreshing…" : "Refresh"}
+          {loading
+            ? "Refreshing…"
+            : "Refresh"}
         </button>
       </section>
 
       {loadError && (
-        <div className="dashboard-error" role="alert">
-          <span>{loadError}</span>
-          <button type="button" onClick={() => void loadDashboard()}>
+        <div
+          className="dashboard-error"
+          role="alert"
+        >
+          <span>
+            {loadError}
+          </span>
+
+          <button
+            type="button"
+            onClick={() =>
+              void loadDashboard()
+            }
+          >
             Try again
           </button>
         </div>
@@ -290,17 +579,26 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
       >
         <div className="dashboard-section-heading">
           <div>
-            <p className="dashboard-section-kicker">Start here</p>
-            <h3 id="dashboard-quick-actions">Quick actions</h3>
+            <p className="dashboard-section-kicker">
+              Start here
+            </p>
+
+            <h3 id="dashboard-quick-actions">
+              Quick actions
+            </h3>
           </div>
 
           {lastLoadedAt && (
             <span className="dashboard-last-updated">
               Updated{" "}
-              {lastLoadedAt.toLocaleTimeString(undefined, {
-                hour: "numeric",
-                minute: "2-digit",
-              })}
+              {lastLoadedAt.toLocaleTimeString(
+                undefined,
+                {
+                  hour: "numeric",
+                  minute:
+                    "2-digit",
+                }
+              )}
             </span>
           )}
         </div>
@@ -309,73 +607,138 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
           <button
             className="dashboard-action dashboard-action-primary"
             type="button"
-            onClick={() => navigate("/tasks?create=1")}
+            onClick={() =>
+              navigate(
+                "/tasks?create=1"
+              )
+            }
           >
-            <span className="dashboard-action-icon" aria-hidden="true">
+            <span
+              className="dashboard-action-icon"
+              aria-hidden="true"
+            >
               +
             </span>
+
             <span>
-              <strong>New task</strong>
-              <small>Capture something to do</small>
+              <strong>
+                New task
+              </strong>
+
+              <small>
+                Capture something
+                to do
+              </small>
             </span>
           </button>
 
           <button
             className="dashboard-action"
             type="button"
-            onClick={() => navigate("/documents?create=1")}
+            onClick={() =>
+              navigate(
+                "/documents?create=1"
+              )
+            }
           >
-            <span className="dashboard-action-icon" aria-hidden="true">
+            <span
+              className="dashboard-action-icon"
+              aria-hidden="true"
+            >
               D
             </span>
+
             <span>
-              <strong>New document</strong>
-              <small>Open the document workspace</small>
+              <strong>
+                New document
+              </strong>
+
+              <small>
+                Open the document
+                workspace
+              </small>
             </span>
           </button>
 
           <button
             className="dashboard-action"
             type="button"
-            disabled
-            title="Global Search is scheduled later in version 0.1.9."
+            onClick={
+              openGlobalSearch
+            }
           >
-            <span className="dashboard-action-icon" aria-hidden="true">
+            <span
+              className="dashboard-action-icon"
+              aria-hidden="true"
+            >
               /
             </span>
+
             <span>
-              <strong>Search</strong>
-              <small>Coming later in 0.1.9</small>
+              <strong>
+                Search
+              </strong>
+
+              <small>
+                Search tasks and
+                documents
+              </small>
             </span>
           </button>
 
           <button
             className="dashboard-action"
             type="button"
-            onClick={() => navigate("/settings")}
+            onClick={() =>
+              navigate(
+                "/settings"
+              )
+            }
           >
-            <span className="dashboard-action-icon" aria-hidden="true">
+            <span
+              className="dashboard-action-icon"
+              aria-hidden="true"
+            >
               S
             </span>
+
             <span>
-              <strong>Open settings</strong>
-              <small>Adjust your workspace</small>
+              <strong>
+                Open settings
+              </strong>
+
+              <small>
+                Adjust your
+                workspace
+              </small>
             </span>
           </button>
         </div>
       </section>
 
-      <section className="dashboard-section" aria-labelledby="dashboard-tasks">
+      <section
+        className="dashboard-section"
+        aria-labelledby="dashboard-tasks"
+      >
         <div className="dashboard-section-heading">
           <div>
-            <p className="dashboard-section-kicker">Focus</p>
-            <h3 id="dashboard-tasks">Task overview</h3>
+            <p className="dashboard-section-kicker">
+              Focus
+            </p>
+
+            <h3 id="dashboard-tasks">
+              Task overview
+            </h3>
           </div>
 
           <button
             className="dashboard-text-button"
             type="button"
-            onClick={() => navigate("/tasks")}
+            onClick={() =>
+              navigate(
+                "/tasks"
+              )
+            }
           >
             Open all tasks
           </button>
@@ -384,31 +747,64 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
         <div className="dashboard-task-grid">
           <TaskPanel
             title="Due today"
-            count={dashboardData.todayTasks.length}
-            tasks={dashboardData.todayTasks}
+            count={
+              dashboardData
+                .todayTasks
+                .length
+            }
+            tasks={
+              dashboardData
+                .todayTasks
+            }
             emptyMessage="Nothing is due today."
             loading={loading}
-            onOpen={() => navigate("/tasks")}
+            onOpen={() =>
+              navigate(
+                "/tasks"
+              )
+            }
             tone="accent"
           />
 
           <TaskPanel
             title="Overdue"
-            count={dashboardData.overdueTasks.length}
-            tasks={dashboardData.overdueTasks}
+            count={
+              dashboardData
+                .overdueTasks
+                .length
+            }
+            tasks={
+              dashboardData
+                .overdueTasks
+            }
             emptyMessage="No overdue tasks."
             loading={loading}
-            onOpen={() => navigate("/tasks")}
+            onOpen={() =>
+              navigate(
+                "/tasks"
+              )
+            }
             tone="danger"
           />
 
           <TaskPanel
             title="Due this week"
-            count={dashboardData.dueThisWeek.length}
-            tasks={dashboardData.dueThisWeek}
+            count={
+              dashboardData
+                .dueThisWeek
+                .length
+            }
+            tasks={
+              dashboardData
+                .dueThisWeek
+            }
             emptyMessage="Nothing else is due this week."
             loading={loading}
-            onOpen={() => navigate("/tasks")}
+            onOpen={() =>
+              navigate(
+                "/tasks"
+              )
+            }
             tone="warning"
           />
         </div>
@@ -420,14 +816,23 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
       >
         <div className="dashboard-section-heading">
           <div>
-            <p className="dashboard-section-kicker">Continue working</p>
-            <h3 id="dashboard-documents">Document activity</h3>
+            <p className="dashboard-section-kicker">
+              Continue working
+            </p>
+
+            <h3 id="dashboard-documents">
+              Document activity
+            </h3>
           </div>
 
           <button
             className="dashboard-text-button"
             type="button"
-            onClick={() => navigate("/documents")}
+            onClick={() =>
+              navigate(
+                "/documents"
+              )
+            }
           >
             Open documents
           </button>
@@ -436,20 +841,34 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
         <div className="dashboard-document-grid">
           <DocumentPanel
             title="Recently edited"
-            documents={dashboardData.recentlyEdited}
+            documents={
+              dashboardData
+                .recentlyEdited
+            }
             dateField="updatedAt"
             emptyMessage="No documents have been edited yet."
             loading={loading}
-            onOpen={() => navigate("/documents")}
+            onOpen={() =>
+              navigate(
+                "/documents"
+              )
+            }
           />
 
           <DocumentPanel
             title="Recently created"
-            documents={dashboardData.recentlyCreated}
+            documents={
+              dashboardData
+                .recentlyCreated
+            }
             dateField="createdAt"
             emptyMessage="No documents have been created yet."
             loading={loading}
-            onOpen={() => navigate("/documents")}
+            onOpen={() =>
+              navigate(
+                "/documents"
+              )
+            }
           />
         </div>
       </section>
@@ -460,8 +879,13 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
       >
         <div className="dashboard-section-heading">
           <div>
-            <p className="dashboard-section-kicker">Workspace pulse</p>
-            <h3 id="dashboard-productivity">Productivity</h3>
+            <p className="dashboard-section-kicker">
+              Workspace pulse
+            </p>
+
+            <h3 id="dashboard-productivity">
+              Productivity
+            </h3>
           </div>
         </div>
 
@@ -469,12 +893,17 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
           <StatCard
             label="Tasks completed today"
             value={
-              dashboardData.completionMetadataAvailable
-                ? String(dashboardData.tasksCompletedToday)
+              dashboardData
+                .completionMetadataAvailable
+                ? String(
+                    dashboardData
+                      .tasksCompletedToday
+                  )
                 : "—"
             }
             detail={
-              dashboardData.completionMetadataAvailable
+              dashboardData
+                .completionMetadataAvailable
                 ? "Based on completion timestamps"
                 : "Completion timestamps arrive with Tasks v2"
             }
@@ -482,9 +911,16 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
 
           <StatCard
             label="Documents edited today"
-            value={String(dashboardData.documentsEditedToday)}
-            detail={`${documents.length} document${
-              documents.length === 1 ? "" : "s"
+            value={String(
+              dashboardData
+                .documentsEditedToday
+            )}
+            detail={`${
+              documents.length
+            } document${
+              documents.length === 1
+                ? ""
+                : "s"
             } stored`}
           />
 
@@ -493,18 +929,27 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
             value={
               storageLoading
                 ? "Loading…"
-                : storage.usage === null
+                : storage.usage ===
+                    null
                   ? "Unavailable"
-                  : formatBytes(storage.usage)
+                  : formatBytes(
+                      storage.usage
+                    )
             }
             detail={
-              storagePercent === null
+              storagePercent ===
+              null
                 ? "Browser storage estimate"
-                : `${storagePercent.toFixed(1)}% of ${formatBytes(
-                    storage.quota ?? 0
+                : `${storagePercent.toFixed(
+                    1
+                  )}% of ${formatBytes(
+                    storage.quota ??
+                      0
                   )}`
             }
-            progress={storagePercent}
+            progress={
+              storagePercent
+            }
           />
 
           <StatCard
@@ -520,24 +965,45 @@ const DashboardPage: React.FC<DashboardPageProps> = ({
         aria-labelledby="dashboard-sidebar-heading"
       >
         <div>
-          <p className="dashboard-section-kicker">Workspace layout</p>
-          <h3 id="dashboard-sidebar-heading">Right sidebar content</h3>
+          <p className="dashboard-section-kicker">
+            Workspace layout
+          </p>
+
+          <h3 id="dashboard-sidebar-heading">
+            Right sidebar
+            content
+          </h3>
+
           <p>
-            Choose which collection remains visible beside the active page.
+            Choose which
+            collection remains
+            visible beside the
+            active page.
           </p>
         </div>
 
         <select
           value={sidebarMode}
-          onChange={(event: React.ChangeEvent<HTMLSelectElement>) =>
+          onChange={(
+            event: React.ChangeEvent<HTMLSelectElement>
+          ) =>
             onSidebarModeChange(
-              event.target.value === "documents" ? "documents" : "tasks"
+              event.target
+                .value ===
+                "documents"
+                ? "documents"
+                : "tasks"
             )
           }
           aria-label="Right sidebar content"
         >
-          <option value="tasks">Tasks</option>
-          <option value="documents">Documents</option>
+          <option value="tasks">
+            Tasks
+          </option>
+
+          <option value="documents">
+            Documents
+          </option>
         </select>
       </section>
     </div>
@@ -551,10 +1017,15 @@ interface TaskPanelProps {
   emptyMessage: string;
   loading: boolean;
   onOpen: () => void;
-  tone: "accent" | "danger" | "warning";
+  tone:
+    | "accent"
+    | "danger"
+    | "warning";
 }
 
-const TaskPanel: React.FC<TaskPanelProps> = ({
+const TaskPanel: React.FC<
+  TaskPanelProps
+> = ({
   title,
   count,
   tasks,
@@ -564,54 +1035,106 @@ const TaskPanel: React.FC<TaskPanelProps> = ({
   tone,
 }) => {
   return (
-    <article className={`dashboard-panel dashboard-task-panel tone-${tone}`}>
+    <article
+      className={`dashboard-panel dashboard-task-panel tone-${tone}`}
+    >
       <header className="dashboard-panel-header">
         <div>
-          <p>{title}</p>
-          <strong>{loading ? "—" : count}</strong>
+          <p>
+            {title}
+          </p>
+
+          <strong>
+            {loading
+              ? "—"
+              : count}
+          </strong>
         </div>
 
-        <button type="button" onClick={onOpen} aria-label={`Open ${title}`}>
+        <button
+          type="button"
+          onClick={onOpen}
+          aria-label={`Open ${title}`}
+        >
           View
         </button>
       </header>
 
       {loading ? (
         <LoadingRows />
-      ) : tasks.length === 0 ? (
-        <p className="dashboard-empty">{emptyMessage}</p>
+      ) : tasks.length ===
+        0 ? (
+        <p className="dashboard-empty">
+          {emptyMessage}
+        </p>
       ) : (
         <ul className="dashboard-list">
-          {tasks.slice(0, 5).map((task) => (
-            <li key={task.id}>
-              <button type="button" onClick={onOpen}>
-                <span>{task.title || "Untitled task"}</span>
-                <small>{formatTaskDueDate(task.dueDate)}</small>
-              </button>
-            </li>
-          ))}
+          {tasks
+            .slice(0, 5)
+            .map(
+              (task) => (
+                <li
+                  key={
+                    task.id
+                  }
+                >
+                  <button
+                    type="button"
+                    onClick={
+                      onOpen
+                    }
+                  >
+                    <span>
+                      {task.title ||
+                        "Untitled task"}
+                    </span>
+
+                    <small>
+                      {formatTaskDueDate(
+                        task.dueDate
+                      )}
+                    </small>
+                  </button>
+                </li>
+              )
+            )}
         </ul>
       )}
 
-      {!loading && tasks.length > 5 && (
-        <button className="dashboard-panel-more" type="button" onClick={onOpen}>
-          +{tasks.length - 5} more
-        </button>
-      )}
+      {!loading &&
+        tasks.length > 5 && (
+          <button
+            className="dashboard-panel-more"
+            type="button"
+            onClick={
+              onOpen
+            }
+          >
+            +
+            {tasks.length -
+              5}{" "}
+            more
+          </button>
+        )}
     </article>
   );
 };
 
 interface DocumentPanelProps {
   title: string;
-  documents: SuiteDocument[];
-  dateField: "createdAt" | "updatedAt";
+  documents:
+    SuiteDocument[];
+  dateField:
+    | "createdAt"
+    | "updatedAt";
   emptyMessage: string;
   loading: boolean;
   onOpen: () => void;
 }
 
-const DocumentPanel: React.FC<DocumentPanelProps> = ({
+const DocumentPanel: React.FC<
+  DocumentPanelProps
+> = ({
   title,
   documents,
   dateField,
@@ -622,26 +1145,56 @@ const DocumentPanel: React.FC<DocumentPanelProps> = ({
   return (
     <article className="dashboard-panel dashboard-document-panel">
       <header className="dashboard-panel-title-row">
-        <h4>{title}</h4>
-        <button type="button" onClick={onOpen}>
+        <h4>
+          {title}
+        </h4>
+
+        <button
+          type="button"
+          onClick={onOpen}
+        >
           View all
         </button>
       </header>
 
       {loading ? (
         <LoadingRows />
-      ) : documents.length === 0 ? (
-        <p className="dashboard-empty">{emptyMessage}</p>
+      ) : documents.length ===
+        0 ? (
+        <p className="dashboard-empty">
+          {emptyMessage}
+        </p>
       ) : (
         <ul className="dashboard-list dashboard-document-list">
-          {documents.map((document) => (
-            <li key={document.id}>
-              <button type="button" onClick={onOpen}>
-                <span>{document.title || "Untitled document"}</span>
-                <small>{formatDocumentDate(document[dateField])}</small>
-              </button>
-            </li>
-          ))}
+          {documents.map(
+            (document) => (
+              <li
+                key={
+                  document.id
+                }
+              >
+                <button
+                  type="button"
+                  onClick={
+                    onOpen
+                  }
+                >
+                  <span>
+                    {document.title ||
+                      "Untitled document"}
+                  </span>
+
+                  <small>
+                    {formatDocumentDate(
+                      document[
+                        dateField
+                      ]
+                    )}
+                  </small>
+                </button>
+              </li>
+            )
+          )}
         </ul>
       )}
     </article>
@@ -652,10 +1205,14 @@ interface StatCardProps {
   label: string;
   value: string;
   detail: string;
-  progress?: number | null;
+  progress?:
+    | number
+    | null;
 }
 
-const StatCard: React.FC<StatCardProps> = ({
+const StatCard: React.FC<
+  StatCardProps
+> = ({
   label,
   value,
   detail,
@@ -663,34 +1220,62 @@ const StatCard: React.FC<StatCardProps> = ({
 }) => {
   return (
     <article className="dashboard-stat-card">
-      <p>{label}</p>
-      <strong>{value}</strong>
-      <small>{detail}</small>
+      <p>
+        {label}
+      </p>
 
-      {typeof progress === "number" && (
+      <strong>
+        {value}
+      </strong>
+
+      <small>
+        {detail}
+      </small>
+
+      {typeof progress ===
+        "number" && (
         <div
           className="dashboard-storage-track"
           role="progressbar"
-          aria-label={label}
-          aria-valuemin={0}
-          aria-valuemax={100}
-          aria-valuenow={Math.round(progress)}
+          aria-label={
+            label
+          }
+          aria-valuemin={
+            0
+          }
+          aria-valuemax={
+            100
+          }
+          aria-valuenow={Math.round(
+            progress
+          )}
         >
-          <span style={{ width: `${Math.max(1, progress)}%` }} />
+          <span
+            style={{
+              width: `${Math.max(
+                1,
+                progress
+              )}%`,
+            }}
+          />
         </div>
       )}
     </article>
   );
 };
 
-const LoadingRows: React.FC = () => {
-  return (
-    <div className="dashboard-loading-rows" aria-label="Loading">
-      <span />
-      <span />
-      <span />
-    </div>
-  );
-};
+const LoadingRows: React.FC =
+  () => {
+    return (
+      <div
+        className="dashboard-loading-rows"
+        aria-label="Loading"
+      >
+        <span />
+        <span />
+        <span />
+      </div>
+    );
+  };
 
 export default DashboardPage;
