@@ -1,337 +1,541 @@
 // apps/web/src/pages/TasksPage.tsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+
 import {
-  fetchTasks,
   createTask,
-  updateTask,
   deleteTask,
+  fetchTasks,
   Task,
   TaskPriority,
+  updateTask,
 } from "../api/tasks";
+import {
+  formatTaskDueDate,
+  getDueDateKey,
+  isDueDateOverdue,
+  isDueDateToday,
+  isDueDateUpcoming,
+  toDateInputValue,
+} from "../utils/taskDates";
 
-type TaskFilter = "all" | "today" | "overdue" | "completed";
+import "../styles/tasks.css";
 
-function isoToDateInput(iso?: string | null): string {
-  if (!iso) return "";
-  return iso.slice(0, 10);
+type TaskFilter = "all" | "today" | "upcoming" | "overdue" | "completed";
+
+const PRIORITIES: TaskPriority[] = [
+  "critical",
+  "high",
+  "medium",
+  "low",
+];
+
+const PRIORITY_RANK: Record<TaskPriority, number> = {
+  critical: 0,
+  high: 1,
+  medium: 2,
+  low: 3,
+};
+
+function priorityLabel(priority: TaskPriority): string {
+  return priority.charAt(0).toUpperCase() + priority.slice(1);
 }
 
-function todayKey(): string {
-  return new Date().toISOString().slice(0, 10);
+function taskDueTone(task: Task): "overdue" | "today" | "upcoming" | "none" {
+  if (task.status === "done" || !task.dueDate) {
+    return "none";
+  }
+
+  if (isDueDateOverdue(task.dueDate)) {
+    return "overdue";
+  }
+
+  if (isDueDateToday(task.dueDate)) {
+    return "today";
+  }
+
+  return "upcoming";
 }
 
-function getTaskDateKey(task: Task): string | null {
-  if (!task.dueDate) return null;
-  return String(task.dueDate).slice(0, 10);
-}
+function sortTasks(tasks: Task[]): Task[] {
+  return [...tasks].sort((left, right) => {
+    const priorityDifference =
+      PRIORITY_RANK[left.priority] - PRIORITY_RANK[right.priority];
 
-function isOverdue(task: Task): boolean {
-  const key = getTaskDateKey(task);
-  if (!key) return false;
-  return key < todayKey();
-}
+    if (priorityDifference !== 0) {
+      return priorityDifference;
+    }
 
-function isDueToday(task: Task): boolean {
-  const key = getTaskDateKey(task);
-  if (!key) return false;
-  return key === todayKey();
+    const leftDue = getDueDateKey(left.dueDate) ?? "9999-12-31";
+    const rightDue = getDueDateKey(right.dueDate) ?? "9999-12-31";
+
+    if (leftDue !== rightDue) {
+      return leftDue.localeCompare(rightDue);
+    }
+
+    const leftCreated = left.createdAt ?? "";
+    const rightCreated = right.createdAt ?? "";
+
+    if (leftCreated !== rightCreated) {
+      return rightCreated.localeCompare(leftCreated);
+    }
+
+    return left.title.localeCompare(right.title);
+  });
 }
 
 const TasksPage: React.FC = () => {
+  const newTitleRef = useRef<HTMLInputElement>(null);
+
   const [tasks, setTasks] = useState<Task[]>([]);
   const [loading, setLoading] = useState(false);
+  const [savingNewTask, setSavingNewTask] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const [newTitle, setNewTitle] = useState("");
+  const [newDueDate, setNewDueDate] = useState("");
+  const [newPriority, setNewPriority] =
+    useState<TaskPriority>("medium");
   const [filter, setFilter] = useState<TaskFilter>("all");
 
   useEffect(() => {
-    (async () => {
+    let cancelled = false;
+
+    async function loadTasks(): Promise<void> {
       try {
         setLoading(true);
         setError(null);
+
         const loaded = await fetchTasks();
-        setTasks(loaded);
-      } catch (err) {
-        console.error("Error loading tasks:", err);
-        setError("Unable to load tasks.");
+
+        if (!cancelled) {
+          setTasks(loaded);
+        }
+      } catch (loadError) {
+        console.error("Error loading tasks:", loadError);
+
+        if (!cancelled) {
+          setError("Unable to load tasks.");
+        }
       } finally {
-        setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
-    })();
+    }
+
+    void loadTasks();
+
+    if (
+      typeof window !== "undefined" &&
+      new URLSearchParams(window.location.search).get("create") === "1"
+    ) {
+      window.requestAnimationFrame(() => newTitleRef.current?.focus());
+    }
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  async function handleAddTask(e: React.FormEvent) {
-    e.preventDefault();
-    const trimmed = newTitle.trim();
-    if (!trimmed) return;
+  function replaceTask(updated: Task): void {
+    setTasks((current) =>
+      current.map((task) => (task.id === updated.id ? updated : task))
+    );
+  }
+
+  async function handleAddTask(event: React.FormEvent): Promise<void> {
+    event.preventDefault();
+
+    const title = newTitle.trim();
+
+    if (!title || savingNewTask) {
+      return;
+    }
+
+    try {
+      setSavingNewTask(true);
+      setError(null);
+
+      const created = await createTask(title, {
+        priority: newPriority,
+        dueDate: newDueDate || null,
+      });
+
+      setTasks((current) => [
+        created,
+        ...current.filter((task) => task.id !== created.id),
+      ]);
+      setNewTitle("");
+      setNewDueDate("");
+      setNewPriority("medium");
+      newTitleRef.current?.focus();
+    } catch (createError) {
+      console.error("Error creating task:", createError);
+      setError("Unable to create task.");
+    } finally {
+      setSavingNewTask(false);
+    }
+  }
+
+  async function handleStatusChange(
+    task: Task,
+    nextStatus: Task["status"]
+  ): Promise<void> {
+    if (task.status === nextStatus) {
+      return;
+    }
+
+    const previousTasks = tasks;
+
+    setTasks((current) =>
+      current.map((entry) =>
+        entry.id === task.id ? { ...entry, status: nextStatus } : entry
+      )
+    );
+
     try {
       setError(null);
-      const created = await createTask(trimmed);
-      setTasks((prev) => [created, ...prev]);
-      setNewTitle("");
-    } catch (err) {
-      console.error("Error creating task:", err);
-      setError("Unable to create task.");
+      const updated = await updateTask(task.id, { status: nextStatus });
+      replaceTask(updated);
+    } catch (updateError) {
+      console.error("Error updating task status:", updateError);
+      setTasks(previousTasks);
+      setError("Unable to update task status.");
     }
   }
 
-  async function handleStatusChange(task: Task, nextStatus: Task["status"]) {
-    if (task.status === nextStatus) return;
-    const prevTasks = tasks;
-    setTasks((curr) =>
-      curr.map((t) => (t.id === task.id ? { ...t, status: nextStatus } : t))
-    );
-    try {
-      await updateTask(task.id, { status: nextStatus });
-    } catch (err) {
-      console.error("Error updating task status:", err);
-      setError("Unable to update task.");
-      setTasks(prevTasks);
+  async function handlePriorityChange(
+    task: Task,
+    priority: TaskPriority
+  ): Promise<void> {
+    if (task.priority === priority) {
+      return;
     }
-  }
 
-  async function handlePriorityChange(task: Task, value: TaskPriority) {
-    const prevTasks = tasks;
-    setTasks((curr) =>
-      curr.map((t) => (t.id === task.id ? { ...t, priority: value } : t))
-    );
-    try {
-      await updateTask(task.id, { priority: value });
-    } catch (err) {
-      console.error("Error updating task priority:", err);
-      setError("Unable to update priority.");
-      setTasks(prevTasks);
-    }
-  }
+    const previousTasks = tasks;
 
-  async function handleDueDateChange(task: Task, value: string) {
-    const prevTasks = tasks;
-    const nextDue = value || null;
-
-    setTasks((curr) =>
-      curr.map((t) => (t.id === task.id ? { ...t, dueDate: nextDue } : t))
+    setTasks((current) =>
+      current.map((entry) =>
+        entry.id === task.id ? { ...entry, priority } : entry
+      )
     );
 
     try {
-      await updateTask(task.id, { dueDate: nextDue });
-    } catch (err) {
-      console.error("Error updating task due date:", err);
-      setError("Unable to update due date.");
-      setTasks(prevTasks);
+      setError(null);
+      const updated = await updateTask(task.id, { priority });
+      replaceTask(updated);
+    } catch (updateError) {
+      console.error("Error updating task priority:", updateError);
+      setTasks(previousTasks);
+      setError("Unable to update task priority.");
     }
   }
 
-  async function handleTitleChange(task: Task, nextTitle: string) {
-    const trimmed = nextTitle.trim();
-    if (!trimmed || trimmed === task.title) return;
+  async function handleDueDateChange(
+    task: Task,
+    value: string
+  ): Promise<void> {
+    const dueDate = value || null;
+    const previousTasks = tasks;
 
-    const prevTasks = tasks;
-    setTasks((curr) =>
-      curr.map((t) => (t.id === task.id ? { ...t, title: trimmed } : t))
+    setTasks((current) =>
+      current.map((entry) =>
+        entry.id === task.id ? { ...entry, dueDate } : entry
+      )
     );
 
     try {
-      await updateTask(task.id, { title: trimmed });
-    } catch (err) {
-      console.error("Error updating task title:", err);
-      setError("Unable to update title.");
-      setTasks(prevTasks);
+      setError(null);
+      const updated = await updateTask(task.id, { dueDate });
+      replaceTask(updated);
+    } catch (updateError) {
+      console.error("Error updating task due date:", updateError);
+      setTasks(previousTasks);
+      setError("Unable to update task due date.");
     }
   }
 
-  async function handleDelete(taskId: string) {
-    const prevTasks = tasks;
-    setTasks((curr) => curr.filter((t) => t.id !== taskId));
+  async function handleTitleChange(
+    task: Task,
+    nextTitle: string
+  ): Promise<void> {
+    const title = nextTitle.trim();
+
+    if (!title || title === task.title) {
+      return;
+    }
+
+    const previousTasks = tasks;
+
+    setTasks((current) =>
+      current.map((entry) =>
+        entry.id === task.id ? { ...entry, title } : entry
+      )
+    );
+
     try {
+      setError(null);
+      const updated = await updateTask(task.id, { title });
+      replaceTask(updated);
+    } catch (updateError) {
+      console.error("Error updating task title:", updateError);
+      setTasks(previousTasks);
+      setError("Unable to update task title.");
+    }
+  }
+
+  async function handleDelete(taskId: string): Promise<void> {
+    const previousTasks = tasks;
+
+    setTasks((current) => current.filter((task) => task.id !== taskId));
+
+    try {
+      setError(null);
       await deleteTask(taskId);
-    } catch (err) {
-      console.error("Error deleting task:", err);
+    } catch (deleteError) {
+      console.error("Error deleting task:", deleteError);
+      setTasks(previousTasks);
       setError("Unable to delete task.");
-      setTasks(prevTasks);
     }
   }
 
-  const todayCount = useMemo(
-    () => tasks.filter((t) => t.status !== "done" && isDueToday(t)).length,
-    [tasks]
-  );
-  const overdueCount = useMemo(
-    () => tasks.filter((t) => t.status !== "done" && isOverdue(t)).length,
-    [tasks]
-  );
-  const completedCount = useMemo(
-    () => tasks.filter((t) => t.status === "done").length,
-    [tasks]
-  );
+  const counts = useMemo(() => {
+    const active = tasks.filter((task) => task.status !== "done");
+
+    return {
+      today: active.filter((task) => isDueDateToday(task.dueDate)).length,
+      overdue: active.filter((task) => isDueDateOverdue(task.dueDate)).length,
+      upcoming: active.filter((task) => isDueDateUpcoming(task.dueDate)).length,
+      completed: tasks.filter((task) => task.status === "done").length,
+      critical: active.filter((task) => task.priority === "critical").length,
+    };
+  }, [tasks]);
 
   const filteredTasks = useMemo(() => {
     return tasks.filter((task) => {
       if (filter === "completed") {
         return task.status === "done";
       }
+
+      if (task.status === "done") {
+        return filter === "all";
+      }
+
       if (filter === "today") {
-        return task.status !== "done" && isDueToday(task);
+        return isDueDateToday(task.dueDate);
       }
+
+      if (filter === "upcoming") {
+        return isDueDateUpcoming(task.dueDate);
+      }
+
       if (filter === "overdue") {
-        return task.status !== "done" && isOverdue(task);
+        return isDueDateOverdue(task.dueDate);
       }
+
       return true;
     });
-  }, [tasks, filter]);
+  }, [filter, tasks]);
 
-  const todoTasks = filteredTasks.filter((t) => t.status === "todo");
-  const inProgressTasks = filteredTasks.filter(
-    (t) => t.status === "in_progress"
+  const todoTasks = useMemo(
+    () => sortTasks(filteredTasks.filter((task) => task.status === "todo")),
+    [filteredTasks]
   );
-  const doneTasks = filteredTasks.filter((t) => t.status === "done");
+
+  const inProgressTasks = useMemo(
+    () =>
+      sortTasks(
+        filteredTasks.filter((task) => task.status === "in_progress")
+      ),
+    [filteredTasks]
+  );
+
+  const doneTasks = useMemo(
+    () => sortTasks(filteredTasks.filter((task) => task.status === "done")),
+    [filteredTasks]
+  );
 
   return (
-    <div>
-      <h2>Tasks</h2>
-      <p className="workspace-subtitle">
-        Plan your work, track progress, and keep an eye on due dates and
-        priority.
-      </p>
+    <div className="tasks-v2-page">
+      <header className="tasks-v2-header">
+        <div>
+          <p className="tasks-v2-eyebrow">Tasks v2</p>
+          <h2>Tasks</h2>
+          <p>
+            Plan work by urgency, track due dates, and move tasks through each
+            stage.
+          </p>
+        </div>
+      </header>
 
-      <div
-        style={{
-          marginTop: 12,
-          marginBottom: 12,
-          display: "flex",
-          flexDirection: "column",
-          gap: 8,
-        }}
-      >
-        <div style={{ fontSize: 13 }}>
-          <span style={{ marginRight: 16 }}>Today: {todayCount}</span>
-          <span style={{ marginRight: 16 }}>Overdue: {overdueCount}</span>
-          <span>Completed: {completedCount}</span>
+      <section className="tasks-v2-summary" aria-label="Task summary">
+        <SummaryCard label="Due today" value={counts.today} tone="today" />
+        <SummaryCard label="Overdue" value={counts.overdue} tone="overdue" />
+        <SummaryCard label="Upcoming" value={counts.upcoming} tone="upcoming" />
+        <SummaryCard
+          label="Critical"
+          value={counts.critical}
+          tone="critical"
+        />
+        <SummaryCard
+          label="Completed"
+          value={counts.completed}
+          tone="completed"
+        />
+      </section>
+
+      <section className="tasks-v2-create" aria-labelledby="new-task-heading">
+        <div className="tasks-v2-section-heading">
+          <div>
+            <p className="tasks-v2-eyebrow">Capture</p>
+            <h3 id="new-task-heading">New task</h3>
+          </div>
         </div>
 
-        <div
-          style={{
-            display: "flex",
-            flexWrap: "wrap",
-            gap: 8,
-            fontSize: 13,
-          }}
-        >
-          {(["all", "today", "overdue", "completed"] as TaskFilter[]).map(
-            (f) => (
-              <button
-                key={f}
-                type="button"
-                onClick={() => setFilter(f)}
-                style={{
-                  padding: "6px 12px",
-                  borderRadius: 999,
-                  border:
-                    filter === f
-                      ? "1px solid rgba(255,255,255,0.7)"
-                      : "1px solid rgba(255,255,255,0.18)",
-                  background:
-                    filter === f ? "rgba(63,100,255,0.32)" : "transparent",
-                  color: "#f5f5f5",
-                  cursor: "pointer",
-                }}
-              >
-                {f === "all"
-                  ? "All"
-                  : f === "today"
-                  ? "Today"
-                  : f === "overdue"
-                  ? "Overdue"
-                  : "Completed"}
-              </button>
-            )
-          )}
+        <form onSubmit={(event) => void handleAddTask(event)}>
+          <label className="tasks-v2-title-field">
+            <span>Task title</span>
+            <input
+              ref={newTitleRef}
+              type="text"
+              value={newTitle}
+              onChange={(event) => setNewTitle(event.target.value)}
+              placeholder="What needs to be done?"
+              autoComplete="off"
+            />
+          </label>
+
+          <label>
+            <span>Priority</span>
+            <select
+              value={newPriority}
+              onChange={(event) =>
+                setNewPriority(event.target.value as TaskPriority)
+              }
+            >
+              {PRIORITIES.map((priority) => (
+                <option key={priority} value={priority}>
+                  {priorityLabel(priority)}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label>
+            <span>Due date</span>
+            <input
+              type="date"
+              value={newDueDate}
+              onChange={(event) => setNewDueDate(event.target.value)}
+            />
+          </label>
+
+          <button
+            className="tasks-v2-add-button"
+            type="submit"
+            disabled={!newTitle.trim() || savingNewTask}
+          >
+            {savingNewTask ? "Adding…" : "Add task"}
+          </button>
+        </form>
+      </section>
+
+      <section className="tasks-v2-controls" aria-label="Task filters">
+        <div className="tasks-v2-filter-row">
+          {(
+            [
+              ["all", "All"],
+              ["today", "Today"],
+              ["upcoming", "Upcoming"],
+              ["overdue", "Overdue"],
+              ["completed", "Completed"],
+            ] as Array<[TaskFilter, string]>
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              className={filter === value ? "is-active" : ""}
+              onClick={() => setFilter(value)}
+            >
+              {label}
+            </button>
+          ))}
         </div>
-      </div>
 
-      <form
-        onSubmit={handleAddTask}
-        style={{
-          marginBottom: 18,
-          display: "flex",
-          gap: 10,
-          alignItems: "center",
-        }}
-      >
-        <input
-          type="text"
-          value={newTitle}
-          onChange={(e) => setNewTitle(e.target.value)}
-          placeholder="New task..."
-          style={{
-            flex: 1,
-            padding: "10px 12px",
-            borderRadius: 999,
-            border: "1px solid rgba(255,255,255,0.18)",
-            background: "#050713",
-            color: "#f5f5f5",
-            fontSize: 14,
-          }}
-        />
-        <button
-          type="submit"
-          style={{
-            padding: "10px 18px",
-            borderRadius: 999,
-            border: "none",
-            cursor: "pointer",
-            background: "linear-gradient(135deg,#3f64ff,#7f3dff)",
-            color: "#ffffff",
-            fontSize: 14,
-            fontWeight: 500,
-          }}
-        >
-          Add
-        </button>
-      </form>
+        <p>
+          Tasks are ordered by priority, then due date. Critical work appears
+          first.
+        </p>
+      </section>
 
-      {loading && <p style={{ fontSize: 13 }}>Loading tasks...</p>}
-      {error && <p style={{ fontSize: 13, color: "#ff7b88" }}>{error}</p>}
+      {error && (
+        <div className="tasks-v2-error" role="alert">
+          {error}
+        </div>
+      )}
 
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-          gap: 16,
-        }}
-      >
-        <TasksColumn
-          title="To-Do"
-          tasks={todoTasks}
-          emptyText="No tasks in this column."
-          onStatusChange={handleStatusChange}
-          onPriorityChange={handlePriorityChange}
-          onDueDateChange={handleDueDateChange}
-          onTitleChange={handleTitleChange}
-          onDelete={handleDelete}
-        />
-        <TasksColumn
-          title="In Progress"
-          tasks={inProgressTasks}
-          emptyText="No tasks in progress."
-          onStatusChange={handleStatusChange}
-          onPriorityChange={handlePriorityChange}
-          onDueDateChange={handleDueDateChange}
-          onTitleChange={handleTitleChange}
-          onDelete={handleDelete}
-        />
-        <TasksColumn
-          title="Done"
-          tasks={doneTasks}
-          emptyText="No completed tasks yet."
-          onStatusChange={handleStatusChange}
-          onPriorityChange={handlePriorityChange}
-          onDueDateChange={handleDueDateChange}
-          onTitleChange={handleTitleChange}
-          onDelete={handleDelete}
-        />
-      </div>
+      {loading ? (
+        <div className="tasks-v2-loading" aria-label="Loading tasks">
+          <span />
+          <span />
+          <span />
+        </div>
+      ) : (
+        <section className="tasks-v2-board" aria-label="Task board">
+          <TasksColumn
+            title="To-Do"
+            tasks={todoTasks}
+            emptyText="No tasks in this column."
+            onStatusChange={handleStatusChange}
+            onPriorityChange={handlePriorityChange}
+            onDueDateChange={handleDueDateChange}
+            onTitleChange={handleTitleChange}
+            onDelete={handleDelete}
+          />
+
+          <TasksColumn
+            title="In Progress"
+            tasks={inProgressTasks}
+            emptyText="No tasks in progress."
+            onStatusChange={handleStatusChange}
+            onPriorityChange={handlePriorityChange}
+            onDueDateChange={handleDueDateChange}
+            onTitleChange={handleTitleChange}
+            onDelete={handleDelete}
+          />
+
+          <TasksColumn
+            title="Done"
+            tasks={doneTasks}
+            emptyText="No completed tasks yet."
+            onStatusChange={handleStatusChange}
+            onPriorityChange={handlePriorityChange}
+            onDueDateChange={handleDueDateChange}
+            onTitleChange={handleTitleChange}
+            onDelete={handleDelete}
+          />
+        </section>
+      )}
     </div>
+  );
+};
+
+interface SummaryCardProps {
+  label: string;
+  value: number;
+  tone: "today" | "overdue" | "upcoming" | "critical" | "completed";
+}
+
+const SummaryCard: React.FC<SummaryCardProps> = ({
+  label,
+  value,
+  tone,
+}) => {
+  return (
+    <article className={`tasks-v2-summary-card tone-${tone}`}>
+      <p>{label}</p>
+      <strong>{value}</strong>
+    </article>
   );
 };
 
@@ -339,11 +543,17 @@ interface TasksColumnProps {
   title: string;
   tasks: Task[];
   emptyText: string;
-  onStatusChange: (task: Task, nextStatus: Task["status"]) => void;
-  onPriorityChange: (task: Task, value: TaskPriority) => void;
-  onDueDateChange: (task: Task, value: string) => void;
-  onTitleChange: (task: Task, value: string) => void;
-  onDelete: (id: string) => void;
+  onStatusChange: (
+    task: Task,
+    nextStatus: Task["status"]
+  ) => Promise<void>;
+  onPriorityChange: (
+    task: Task,
+    priority: TaskPriority
+  ) => Promise<void>;
+  onDueDateChange: (task: Task, value: string) => Promise<void>;
+  onTitleChange: (task: Task, value: string) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
 }
 
 const TasksColumn: React.FC<TasksColumnProps> = ({
@@ -357,51 +567,46 @@ const TasksColumn: React.FC<TasksColumnProps> = ({
   onDelete,
 }) => {
   return (
-    <div
-      style={{
-        borderRadius: 12,
-        border: "1px solid rgba(255,255,255,0.08)",
-        padding: 12,
-        background: "radial-gradient(circle at top, #131731 0, #050713 60%)",
-      }}
-    >
-      <h3 style={{ marginTop: 0, marginBottom: 4 }}>{title}</h3>
-      <p
-        style={{
-          marginTop: 0,
-          marginBottom: 10,
-          fontSize: 12,
-          color: "#9da2c8",
-        }}
-      >
-        {tasks.length} task{tasks.length === 1 ? "" : "s"}
-      </p>
+    <article className="tasks-v2-column">
+      <header>
+        <h3>{title}</h3>
+        <span>{tasks.length}</span>
+      </header>
+
       {tasks.length === 0 ? (
-        <p style={{ fontSize: 12, color: "#9da2c8" }}>{emptyText}</p>
+        <p className="tasks-v2-empty">{emptyText}</p>
       ) : (
-        tasks.map((task) => (
-          <TaskCard
-            key={task.id}
-            task={task}
-            onStatusChange={onStatusChange}
-            onPriorityChange={onPriorityChange}
-            onDueDateChange={onDueDateChange}
-            onTitleChange={onTitleChange}
-            onDelete={onDelete}
-          />
-        ))
+        <div className="tasks-v2-card-list">
+          {tasks.map((task) => (
+            <TaskCard
+              key={task.id}
+              task={task}
+              onStatusChange={onStatusChange}
+              onPriorityChange={onPriorityChange}
+              onDueDateChange={onDueDateChange}
+              onTitleChange={onTitleChange}
+              onDelete={onDelete}
+            />
+          ))}
+        </div>
       )}
-    </div>
+    </article>
   );
 };
 
 interface TaskCardProps {
   task: Task;
-  onStatusChange: (task: Task, nextStatus: Task["status"]) => void;
-  onPriorityChange: (task: Task, value: TaskPriority) => void;
-  onDueDateChange: (task: Task, value: string) => void;
-  onTitleChange: (task: Task, value: string) => void;
-  onDelete: (id: string) => void;
+  onStatusChange: (
+    task: Task,
+    nextStatus: Task["status"]
+  ) => Promise<void>;
+  onPriorityChange: (
+    task: Task,
+    priority: TaskPriority
+  ) => Promise<void>;
+  onDueDateChange: (task: Task, value: string) => Promise<void>;
+  onTitleChange: (task: Task, value: string) => Promise<void>;
+  onDelete: (id: string) => Promise<void>;
 }
 
 const TaskCard: React.FC<TaskCardProps> = ({
@@ -414,239 +619,161 @@ const TaskCard: React.FC<TaskCardProps> = ({
 }) => {
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [draftTitle, setDraftTitle] = useState(task.title);
+  const dueTone = taskDueTone(task);
 
   useEffect(() => {
     setDraftTitle(task.title);
   }, [task.title]);
 
-  function startEditing() {
+  function startEditing(): void {
     setDraftTitle(task.title);
     setIsEditingTitle(true);
   }
 
-  async function saveTitle() {
-    const trimmed = draftTitle.trim();
-    if (!trimmed || trimmed === task.title) {
-      setIsEditingTitle(false);
+  async function saveTitle(): Promise<void> {
+    const title = draftTitle.trim();
+
+    if (!title || title === task.title) {
       setDraftTitle(task.title);
+      setIsEditingTitle(false);
       return;
     }
-    await onTitleChange(task, trimmed);
+
+    await onTitleChange(task, title);
     setIsEditingTitle(false);
   }
 
-  function cancelEditing() {
+  function cancelEditing(): void {
     setDraftTitle(task.title);
     setIsEditingTitle(false);
   }
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
-    if (e.key === "Enter") {
-      e.preventDefault();
-      saveTitle();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
+  function handleTitleKeyDown(
+    event: React.KeyboardEvent<HTMLInputElement>
+  ): void {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      void saveTitle();
+    }
+
+    if (event.key === "Escape") {
+      event.preventDefault();
       cancelEditing();
     }
   }
 
   return (
-    <div
-      style={{
-        marginBottom: 10,
-        padding: 10,
-        borderRadius: 10,
-        border: "1px solid rgba(255,255,255,0.16)",
-        background: "#050713",
-        fontSize: 13,
-      }}
+    <article
+      className={`tasks-v2-card priority-${task.priority}`}
+      data-status={task.status}
     >
-      {/* Title row */}
-      {!isEditingTitle ? (
-        <button
-          type="button"
-          onClick={startEditing}
-          style={{
-            all: "unset",
-            display: "block",
-            marginBottom: 6,
-            fontWeight: 500,
-            color: "#f5f5f5",
-            wordBreak: "break-word",
-            cursor: "text",
-          }}
-        >
-          {task.title || "Untitled task"}
-        </button>
-      ) : (
-        <div
-          style={{
-            marginBottom: 6,
-            display: "flex",
-            flexDirection: "column",
-            gap: 6,
-          }}
-        >
+      <div className="tasks-v2-card-topline">
+        <span className={`tasks-v2-priority priority-${task.priority}`}>
+          {priorityLabel(task.priority)}
+        </span>
+
+        {task.dueDate && (
+          <span className={`tasks-v2-due tone-${dueTone}`}>
+            {formatTaskDueDate(task.dueDate)}
+          </span>
+        )}
+      </div>
+
+      {isEditingTitle ? (
+        <div className="tasks-v2-title-editor">
           <input
             type="text"
             value={draftTitle}
-            onChange={(e) => setDraftTitle(e.target.value)}
-            onKeyDown={handleKeyDown}
+            onChange={(event) => setDraftTitle(event.target.value)}
+            onKeyDown={handleTitleKeyDown}
             autoFocus
-            style={{
-              padding: "6px 8px",
-              borderRadius: 8,
-              border: "1px solid rgba(255,255,255,0.24)",
-              background: "#050713",
-              color: "#f5f5f5",
-              fontSize: 13,
-            }}
+            aria-label="Edit task title"
           />
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "flex-end",
-              gap: 6,
-            }}
-          >
-            <button
-              type="button"
-              onClick={cancelEditing}
-              style={{
-                padding: "4px 10px",
-                borderRadius: 999,
-                border: "1px solid rgba(255,255,255,0.24)",
-                background: "transparent",
-                color: "#d0d2ff",
-                fontSize: 11,
-                cursor: "pointer",
-              }}
-            >
+
+          <div>
+            <button type="button" onClick={cancelEditing}>
               Cancel
             </button>
             <button
+              className="is-primary"
               type="button"
-              onClick={saveTitle}
-              style={{
-                padding: "4px 10px",
-                borderRadius: 999,
-                border: "none",
-                background: "linear-gradient(135deg,#3f64ff,#7f3dff)",
-                color: "#ffffff",
-                fontSize: 11,
-                cursor: "pointer",
-              }}
+              onClick={() => void saveTitle()}
             >
               Save
             </button>
           </div>
         </div>
+      ) : (
+        <button
+          className="tasks-v2-card-title"
+          type="button"
+          onClick={startEditing}
+          title="Click to edit"
+        >
+          {task.title || "Untitled task"}
+        </button>
       )}
 
-      {/* Body controls */}
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: 8,
-        }}
-      >
-        <label
-          style={{
-            fontSize: 11,
-            color: "#9da2c8",
-            display: "flex",
-            flexDirection: "column",
-            gap: 4,
-          }}
-        >
-          <span>Due date</span>
-          <input
-            type="date"
-            value={isoToDateInput(task.dueDate ?? null)}
-            onChange={(e) => onDueDateChange(task, e.target.value)}
-            style={{
-              padding: "4px 6px",
-              borderRadius: 6,
-              border: "1px solid rgba(255,255,255,0.24)",
-              background: "#050713",
-              color: "#f5f5f5",
-              fontSize: 12,
-            }}
-          />
-        </label>
-
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 6,
-          }}
-        >
+      <div className="tasks-v2-card-fields">
+        <label>
+          <span>Status</span>
           <select
             value={task.status}
-            onChange={(e) =>
-              onStatusChange(task, e.target.value as Task["status"])
+            onChange={(event) =>
+              void onStatusChange(
+                task,
+                event.target.value as Task["status"]
+              )
             }
-            style={{
-              padding: "4px 6px",
-              borderRadius: 999,
-              border: "1px solid rgba(255,255,255,0.24)",
-              background: "#050713",
-              color: "#f5f5f5",
-              fontSize: 12,
-            }}
           >
             <option value="todo">To-Do</option>
             <option value="in_progress">In Progress</option>
             <option value="done">Done</option>
           </select>
+        </label>
 
+        <label>
+          <span>Priority</span>
           <select
             value={task.priority}
-            onChange={(e) =>
-              onPriorityChange(task, e.target.value as TaskPriority)
+            onChange={(event) =>
+              void onPriorityChange(
+                task,
+                event.target.value as TaskPriority
+              )
             }
-            style={{
-              padding: "4px 6px",
-              borderRadius: 999,
-              border: "1px solid rgba(255,255,255,0.24)",
-              background: "#050713",
-              color: "#f5f5f5",
-              fontSize: 12,
-            }}
           >
-            <option value="low">Low priority</option>
-            <option value="normal">Normal priority</option>
-            <option value="high">High priority</option>
+            {PRIORITIES.map((priority) => (
+              <option key={priority} value={priority}>
+                {priorityLabel(priority)}
+              </option>
+            ))}
           </select>
-        </div>
+        </label>
 
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "flex-end",
-          }}
-        >
-          <button
-            type="button"
-            onClick={() => onDelete(task.id)}
-            style={{
-              padding: "4px 10px",
-              borderRadius: 999,
-              border: "none",
-              background: "rgba(255, 107, 120, 0.16)",
-              color: "#ff9aa7",
-              fontSize: 12,
-              cursor: "pointer",
-              whiteSpace: "nowrap",
-            }}
-          >
-            Delete
-          </button>
-        </div>
+        <label className="tasks-v2-due-field">
+          <span>Due date</span>
+          <input
+            type="date"
+            value={toDateInputValue(task.dueDate)}
+            onChange={(event) =>
+              void onDueDateChange(task, event.target.value)
+            }
+          />
+        </label>
       </div>
-    </div>
+
+      <footer className="tasks-v2-card-footer">
+        <button
+          className="tasks-v2-delete"
+          type="button"
+          onClick={() => void onDelete(task.id)}
+          aria-label={`Delete ${task.title}`}
+        >
+          Delete
+        </button>
+      </footer>
+    </article>
   );
 };
 
