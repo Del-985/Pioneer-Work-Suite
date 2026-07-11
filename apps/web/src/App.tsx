@@ -21,17 +21,19 @@ import {
   deleteTask,
   fetchTasks,
   Task,
-  trySyncTasksIfOnline,
   updateTask,
 } from "./api/tasks";
 
 import {
   Document as SuiteDocument,
   fetchDocuments,
-  trySyncDocumentsIfOnline,
 } from "./api/documents";
 
 import UpdateBanner from "./components/UpdateBanner";
+import StatusBar from "./components/StatusBar";
+
+import { startSyncCoordinator } from "./api/sync";
+
 import {
   disconnectCloudSession,
   getWorkspaceName,
@@ -48,8 +50,6 @@ import {
 } from "./api/settings";
 
 type SidebarMode = "tasks" | "documents";
-
-const APP_VERSION = import.meta.env.VITE_APP_VERSION || "0.0.0";
 
 function toSidebarMode(
   preference: AppSettings["sidebar"]["rightSidebarDefault"]
@@ -572,33 +572,8 @@ const App: React.FC = () => {
   }
 
   useEffect(() => {
-    if (!cloudConnected || typeof window === "undefined") {
-      return;
-    }
-
-    let disposed = false;
-
-    const sync = () => {
-      if (disposed) {
-        return;
-      }
-
-      void trySyncTasksIfOnline();
-      void trySyncDocumentsIfOnline();
-    };
-
-    sync();
-
-    window.addEventListener("online", sync);
-
-    const interval = window.setInterval(sync, 60_000);
-
-    return () => {
-      disposed = true;
-      window.removeEventListener("online", sync);
-      window.clearInterval(interval);
-    };
-  }, [cloudConnected]);
+    return startSyncCoordinator();
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -1100,25 +1075,7 @@ const App: React.FC = () => {
         )}
       </div>
 
-      <span
-        aria-label={`Pioneer Work Suite version ${APP_VERSION}`}
-        style={{
-          position: "fixed",
-          right: 10,
-          bottom: 8,
-          zIndex: 10000,
-          padding: "3px 7px",
-          borderRadius: 999,
-          background: "rgba(5, 7, 19, 0.82)",
-          border: "1px solid rgba(255,255,255,0.12)",
-          color: "#8d94bd",
-          fontSize: 10,
-          lineHeight: 1,
-          pointerEvents: "none",
-        }}
-      >
-        v{APP_VERSION}
-      </span>
+      <StatusBar />
     </div>
   );
 };
