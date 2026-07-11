@@ -1,287 +1,717 @@
-// apps/web/src/api/sync.ts
-
-import {
-  getPendingTaskSyncCount,
-  refreshPendingTaskSyncCount,
-  syncOfflineTaskQueue,
-} from "./tasks";
-import {
-  getPendingDocumentSyncCount,
-  refreshPendingDocumentSyncCount,
-  syncOfflineDocumentQueue,
-} from "./documents";
-import {
-  getPendingEventSyncCount,
-  refreshPendingEventSyncCount,
-  syncOfflineEventQueue,
-} from "./events";
+// apps/web/src/api/events.ts
+import { http } from "./http";
+import { hasCloudSession } from "./session";
 import {
   hasBrowserWindow,
   isBrowserOffline,
-  SYNC_STATE_EVENT,
+  isRecoverableOfflineError,
+  notifySyncStateChanged,
 } from "./syncSupport";
 import {
-  CLOUD_AUTH_REQUIRED_EVENT,
-  SESSION_CHANGED_EVENT,
-  hasCloudSession,
-  isCloudReconnectRequired,
-} from "./session";
+  migrateLegacyLocalStorage,
+  readStoredEventQueue,
+  readStoredEvents,
+  writeStoredEventQueue,
+  writeStoredEvents,
+} from "./storage";
 
-export type SyncPhase =
-  | "local-only"
-  | "offline"
-  | "reconnect-required"
-  | "idle"
-  | "pending"
-  | "syncing"
-  | "error";
+export type EventKind = string;
 
-export interface SyncSnapshot {
-  phase: SyncPhase;
-  cloudConnected: boolean;
-  online: boolean;
-  pendingTasks: number;
-  pendingDocuments: number;
-  pendingEvents: number;
-  pendingTotal: number;
-  lastSuccessfulSyncAt: string | null;
-  errorMessage: string | null;
+export interface CalendarEvent {
+  id: string;
+  title: string;
+  description: string;
+  start: string;
+  end: string;
+  allDay: boolean;
+  kind: EventKind;
+  createdAt: string;
+  updatedAt: string;
 }
 
-type SyncListener = (snapshot: SyncSnapshot) => void;
-
-const listeners = new Set<SyncListener>();
-
-let isSyncing = false;
-let syncPromise: Promise<SyncSnapshot> | null = null;
-let lastSuccessfulSyncAt: string | null = null;
-let errorMessage: string | null = null;
-
-
-function isOnline(): boolean {
-  return !isBrowserOffline();
+export interface EventQueryParams {
+  from?: string;
+  to?: string;
 }
 
-function readCachedPendingCounts() {
-  return {
-    pendingTasks: getPendingTaskSyncCount(),
-    pendingDocuments: getPendingDocumentSyncCount(),
-    pendingEvents: getPendingEventSyncCount(),
-  };
+export type EventPayload = Pick<
+  CalendarEvent,
+  "title" | "description" | "start" | "end" | "allDay" | "kind"
+>;
+
+export type EventPatch = Partial<EventPayload>;
+
+interface CreateEventOp {
+  kind: "create";
+  tempId: string;
+  payload: EventPayload;
+  timestamp: number;
 }
 
-function derivePhase(
-  pendingTotal: number,
-  cloudConnected: boolean,
-  online: boolean
-): SyncPhase {
-  if (isCloudReconnectRequired()) {
-    return "reconnect-required";
-  }
-
-  if (!cloudConnected) {
-    return "local-only";
-  }
-
-  if (!online) {
-    return "offline";
-  }
-
-  if (isSyncing) {
-    return "syncing";
-  }
-
-  if (errorMessage) {
-    return "error";
-  }
-
-  if (pendingTotal > 0) {
-    return "pending";
-  }
-
-  return "idle";
+interface UpdateEventOp {
+  kind: "update";
+  id: string;
+  patch: EventPatch;
+  timestamp: number;
 }
 
-function makeSnapshot(
-  counts = readCachedPendingCounts()
-): SyncSnapshot {
-  const cloudConnected = hasCloudSession();
-  const online = isOnline();
-  const pendingTotal =
-    counts.pendingTasks +
-    counts.pendingDocuments +
-    counts.pendingEvents;
+interface DeleteEventOp {
+  kind: "delete";
+  id: string;
+  timestamp: number;
+}
+
+type EventOp = CreateEventOp | UpdateEventOp | DeleteEventOp;
+
+let storageInitialization: Promise<void> | null = null;
+let pendingEventSyncCount = 0;
+
+
+
+function nowIso(): string {
+  return new Date().toISOString();
+}
+
+function makeOfflineEventId(): string {
+  return `offline-event-${Date.now()}-${Math.random()
+    .toString(36)
+    .slice(2)}`;
+}
+
+function isOfflineEventId(id: string): boolean {
+  return id.startsWith("offline-event-");
+}
+
+function normalizeEvent(raw: any): CalendarEvent {
+  const now = nowIso();
 
   return {
-    phase: derivePhase(pendingTotal, cloudConnected, online),
-    cloudConnected,
-    online,
-    ...counts,
-    pendingTotal,
-    lastSuccessfulSyncAt,
-    errorMessage,
+    id: String(raw?.id ?? makeOfflineEventId()),
+    title: String(raw?.title ?? "Untitled event"),
+    description: String(raw?.description ?? ""),
+    start: raw?.start ? String(raw.start) : now,
+    end: raw?.end ? String(raw.end) : now,
+    allDay: Boolean(raw?.allDay),
+    kind: String(raw?.kind ?? "event"),
+    createdAt: raw?.createdAt ? String(raw.createdAt) : now,
+    updatedAt: raw?.updatedAt ? String(raw.updatedAt) : now,
   };
 }
 
-let snapshot = makeSnapshot();
+function sortEvents(events: CalendarEvent[]): CalendarEvent[] {
+  return [...events].sort((a, b) => {
+    const aTime = new Date(a.start).getTime();
+    const bTime = new Date(b.start).getTime();
 
-function publish(nextSnapshot: SyncSnapshot): SyncSnapshot {
-  snapshot = nextSnapshot;
+    return aTime - bTime;
+  });
+}
 
-  for (const listener of listeners) {
-    listener(snapshot);
+function eventTouchesRange(
+  event: CalendarEvent,
+  from?: string,
+  to?: string
+): boolean {
+  const eventStart = new Date(event.start);
+  const eventEnd = new Date(event.end);
+
+  if (Number.isNaN(eventStart.getTime()) || Number.isNaN(eventEnd.getTime())) {
+    return false;
   }
 
-  return snapshot;
-}
+  const rangeStart = from ? new Date(from) : null;
+  const rangeEnd = to ? new Date(to) : null;
 
-async function readPendingCounts() {
-  const [pendingTasks, pendingDocuments, pendingEvents] = await Promise.all([
-    refreshPendingTaskSyncCount(),
-    refreshPendingDocumentSyncCount(),
-    refreshPendingEventSyncCount(),
-  ]);
-
-  return {
-    pendingTasks,
-    pendingDocuments,
-    pendingEvents,
-  };
-}
-
-export function getSyncSnapshot(): SyncSnapshot {
-  return snapshot;
-}
-
-export function subscribeToSyncStatus(listener: SyncListener): () => void {
-  listeners.add(listener);
-  listener(snapshot);
-
-  return () => {
-    listeners.delete(listener);
-  };
-}
-
-export async function refreshSyncStatus(): Promise<SyncSnapshot> {
-  try {
-    const counts = await readPendingCounts();
-    return publish(makeSnapshot(counts));
-  } catch (error) {
-    console.error("Unable to refresh sync status:", error);
-    errorMessage = "Unable to read the local sync queues.";
-    return publish(makeSnapshot());
-  }
-}
-
-export async function syncAllNow(): Promise<SyncSnapshot> {
-  if (syncPromise) {
-    return syncPromise;
+  if (rangeStart && Number.isNaN(rangeStart.getTime())) {
+    return true;
   }
 
-  const run = async (): Promise<SyncSnapshot> => {
-    errorMessage = null;
+  if (rangeEnd && Number.isNaN(rangeEnd.getTime())) {
+    return true;
+  }
 
-    if (
-      !hasCloudSession() ||
-      isCloudReconnectRequired() ||
-      !isOnline()
-    ) {
-      return refreshSyncStatus();
+  if (rangeStart && eventEnd < rangeStart) {
+    return false;
+  }
+
+  if (rangeEnd && eventStart >= rangeEnd) {
+    return false;
+  }
+
+  return true;
+}
+
+async function ensureEventStorageReady(): Promise<void> {
+  if (!storageInitialization) {
+    storageInitialization = (async () => {
+      await migrateLegacyLocalStorage();
+      await refreshPendingEventSyncCount();
+    })();
+  }
+
+  await storageInitialization;
+}
+
+// ---------- IndexedDB cache ----------
+
+async function readEventsCache(): Promise<CalendarEvent[]> {
+  await ensureEventStorageReady();
+
+  const events = await readStoredEvents<CalendarEvent>();
+
+  return sortEvents(events.map(normalizeEvent));
+}
+
+async function writeEventsCache(events: CalendarEvent[]): Promise<void> {
+  await writeStoredEvents(sortEvents(events.map(normalizeEvent)));
+}
+
+async function mergeEventIntoCache(event: CalendarEvent): Promise<void> {
+  const normalized = normalizeEvent(event);
+  const events = await readEventsCache();
+
+  const index = events.findIndex((entry) => entry.id === normalized.id);
+
+  if (index === -1) {
+    events.push(normalized);
+  } else {
+    events[index] = {
+      ...events[index],
+      ...normalized,
+    };
+  }
+
+  await writeEventsCache(events);
+}
+
+async function removeEventFromCache(id: string): Promise<void> {
+  const events = await readEventsCache();
+
+  await writeEventsCache(events.filter((event) => event.id !== id));
+}
+
+export async function getCachedEvents(): Promise<CalendarEvent[]> {
+  return readEventsCache();
+}
+
+// ---------- IndexedDB queue ----------
+
+async function readQueue(): Promise<EventOp[]> {
+  await ensureEventStorageReady();
+
+  const queue = await readStoredEventQueue<EventOp>();
+
+  return queue.filter((operation) => {
+    return (
+      operation &&
+      typeof operation === "object" &&
+      (operation.kind === "create" ||
+        operation.kind === "update" ||
+        operation.kind === "delete")
+    );
+  });
+}
+
+async function writeQueue(queue: EventOp[]): Promise<void> {
+  await writeStoredEventQueue(queue);
+
+  pendingEventSyncCount = queue.length;
+  notifySyncStateChanged();
+}
+
+export function getPendingEventSyncCount(): number {
+  return pendingEventSyncCount;
+}
+
+export async function refreshPendingEventSyncCount(): Promise<number> {
+  const queue = await readStoredEventQueue<EventOp>();
+
+  pendingEventSyncCount = queue.length;
+
+  return pendingEventSyncCount;
+}
+
+async function enqueueCreate(event: CalendarEvent): Promise<void> {
+  const queue = await readQueue();
+
+  queue.push({
+    kind: "create",
+    tempId: event.id,
+    payload: {
+      title: event.title,
+      description: event.description,
+      start: event.start,
+      end: event.end,
+      allDay: event.allDay,
+      kind: event.kind,
+    },
+    timestamp: Date.now(),
+  });
+
+  await writeQueue(queue);
+}
+
+async function enqueueUpdate(id: string, patch: EventPatch): Promise<void> {
+  const queue = await readQueue();
+
+  const createIndex = queue.findIndex(
+    (operation) => operation.kind === "create" && operation.tempId === id
+  );
+
+  if (createIndex !== -1) {
+    const create = queue[createIndex] as CreateEventOp;
+
+    queue[createIndex] = {
+      ...create,
+      payload: {
+        ...create.payload,
+        ...patch,
+      },
+      timestamp: Date.now(),
+    };
+
+    await writeQueue(queue);
+    return;
+  }
+
+  if (
+    queue.some(
+      (operation) => operation.kind === "delete" && operation.id === id
+    )
+  ) {
+    return;
+  }
+
+  const updateIndex = queue.findIndex(
+    (operation) => operation.kind === "update" && operation.id === id
+  );
+
+  if (updateIndex !== -1) {
+    const existing = queue[updateIndex] as UpdateEventOp;
+
+    queue[updateIndex] = {
+      ...existing,
+      patch: {
+        ...existing.patch,
+        ...patch,
+      },
+      timestamp: Date.now(),
+    };
+  } else {
+    queue.push({
+      kind: "update",
+      id,
+      patch,
+      timestamp: Date.now(),
+    });
+  }
+
+  await writeQueue(queue);
+}
+
+async function enqueueDelete(id: string): Promise<void> {
+  const queue = (await readQueue()).filter((operation) => {
+    if (operation.kind === "create" && operation.tempId === id) {
+      return false;
     }
 
-    isSyncing = true;
-    publish(makeSnapshot());
+    if (operation.kind === "update" && operation.id === id) {
+      return false;
+    }
 
-    const results = await Promise.allSettled([
-      syncOfflineTaskQueue(),
-      syncOfflineDocumentQueue(),
-      syncOfflineEventQueue(),
-    ]);
+    if (operation.kind === "delete" && operation.id === id) {
+      return false;
+    }
 
-    const rejected = results.find(
-      (result): result is PromiseRejectedResult =>
-        result.status === "rejected"
+    return true;
+  });
+
+  if (!isOfflineEventId(id)) {
+    queue.push({
+      kind: "delete",
+      id,
+      timestamp: Date.now(),
+    });
+  }
+
+  await writeQueue(queue);
+}
+
+// ---------- Cloud-only API ----------
+
+async function fetchEventsOnlineOnly(
+  params?: EventQueryParams
+): Promise<CalendarEvent[]> {
+  const { data } = await http.get("/events", { params });
+
+  const rawEvents = Array.isArray(data)
+    ? data
+    : data && Array.isArray(data.events)
+      ? data.events
+      : [];
+
+  return sortEvents(rawEvents.map(normalizeEvent));
+}
+
+async function fetchEventOnlineOnly(id: string): Promise<CalendarEvent> {
+  const { data } = await http.get(`/events/${id}`);
+
+  return normalizeEvent(data?.event ?? data);
+}
+
+async function createEventOnlineOnly(
+  payload: EventPayload
+): Promise<CalendarEvent> {
+  const { data } = await http.post("/events", payload);
+
+  return normalizeEvent(data?.event ?? data);
+}
+
+async function updateEventOnlineOnly(
+  id: string,
+  patch: EventPatch
+): Promise<CalendarEvent> {
+  const { data } = await http.put(`/events/${id}`, patch);
+
+  return normalizeEvent(data?.event ?? data);
+}
+
+async function deleteEventOnlineOnly(id: string): Promise<void> {
+  await http.delete(`/events/${id}`);
+}
+
+// ---------- Public API ----------
+
+export async function fetchEvents(
+  params?: EventQueryParams
+): Promise<CalendarEvent[]> {
+  await ensureEventStorageReady();
+
+  if (!hasCloudSession() || isBrowserOffline()) {
+    const cached = await readEventsCache();
+
+    return cached.filter((event) =>
+      eventTouchesRange(event, params?.from, params?.to)
+    );
+  }
+
+  try {
+    const remoteEvents = await fetchEventsOnlineOnly(params);
+    const localEvents = await readEventsCache();
+    const queue = await readQueue();
+
+    const pendingUpdates = new Set(
+      queue
+        .filter(
+          (operation): operation is UpdateEventOp =>
+            operation.kind === "update"
+        )
+        .map((operation) => operation.id)
     );
 
-    const counts = await readPendingCounts();
-    const pendingTotal =
-      counts.pendingTasks +
-      counts.pendingDocuments +
-      counts.pendingEvents;
+    const pendingDeletes = new Set(
+      queue
+        .filter(
+          (operation): operation is DeleteEventOp =>
+            operation.kind === "delete"
+        )
+        .map((operation) => operation.id)
+    );
 
-    if (rejected) {
-      console.error("Cloud synchronization failed:", rejected.reason);
-      errorMessage = "Cloud synchronization failed. Local changes are safe.";
-    } else if (pendingTotal > 0 && isOnline() && hasCloudSession()) {
-      errorMessage =
-        "Some local changes could not be uploaded. They will be retried.";
-    } else {
-      lastSuccessfulSyncAt = new Date().toISOString();
-      errorMessage = null;
+    const merged = new Map<string, CalendarEvent>();
+
+    /*
+     * Preserve locally cached events outside the currently requested month.
+     * A calendar month fetch should not erase records from other months.
+     */
+    for (const event of localEvents) {
+      if (!eventTouchesRange(event, params?.from, params?.to)) {
+        merged.set(event.id, event);
+      }
     }
 
-    return publish(makeSnapshot(counts));
-  };
+    for (const event of remoteEvents) {
+      if (!pendingDeletes.has(event.id)) {
+        merged.set(event.id, event);
+      }
+    }
 
-  syncPromise = run()
-    .catch((error) => {
-      console.error("Unable to synchronize cloud data:", error);
-      errorMessage = "Cloud synchronization failed. Local changes are safe.";
-      return publish(makeSnapshot());
-    })
-    .finally(() => {
-      isSyncing = false;
-      syncPromise = null;
-      publish(makeSnapshot());
-    });
+    for (const event of localEvents) {
+      if (
+        isOfflineEventId(event.id) ||
+        pendingUpdates.has(event.id) ||
+        pendingDeletes.has(event.id)
+      ) {
+        if (!pendingDeletes.has(event.id)) {
+          merged.set(event.id, event);
+        }
+      }
+    }
 
-  return syncPromise;
+    const allEvents = sortEvents([...merged.values()]);
+
+    await writeEventsCache(allEvents);
+
+    return allEvents.filter((event) =>
+      eventTouchesRange(event, params?.from, params?.to)
+    );
+  } catch (error) {
+    if (isRecoverableOfflineError(error)) {
+      const cached = await readEventsCache();
+
+      return cached.filter((event) =>
+        eventTouchesRange(event, params?.from, params?.to)
+      );
+    }
+
+    throw error;
+  }
 }
 
-export function startSyncCoordinator(
-  intervalMilliseconds = 60_000
-): () => void {
-  if (!hasBrowserWindow()) {
-    return () => undefined;
+export async function fetchEvent(id: string): Promise<CalendarEvent> {
+  await ensureEventStorageReady();
+
+  const cached = (await readEventsCache()).find((event) => event.id === id);
+
+  if (!hasCloudSession() || isBrowserOffline()) {
+    if (cached) {
+      return cached;
+    }
+
+    throw new Error("This event is not available in local storage.");
   }
 
-  let disposed = false;
+  try {
+    const event = await fetchEventOnlineOnly(id);
 
-  const refresh = () => {
-    if (!disposed) {
-      void refreshSyncStatus();
+    await mergeEventIntoCache(event);
+
+    return event;
+  } catch (error) {
+    if (isRecoverableOfflineError(error) && cached) {
+      return cached;
     }
+
+    throw error;
+  }
+}
+
+export async function createEvent(
+  payload: EventPayload
+): Promise<CalendarEvent> {
+  await ensureEventStorageReady();
+
+  const localEvent: CalendarEvent = {
+    id: makeOfflineEventId(),
+    title: payload.title.trim() || "Untitled event",
+    description: payload.description ?? "",
+    start: payload.start,
+    end: payload.end,
+    allDay: Boolean(payload.allDay),
+    kind: payload.kind || "event",
+    createdAt: nowIso(),
+    updatedAt: nowIso(),
   };
 
-  const sync = () => {
-    if (!disposed) {
-      void syncAllNow();
+  if (!hasCloudSession() || isBrowserOffline()) {
+    await mergeEventIntoCache(localEvent);
+    await enqueueCreate(localEvent);
+
+    return localEvent;
+  }
+
+  try {
+    const created = await createEventOnlineOnly({
+      ...payload,
+      title: localEvent.title,
+      description: localEvent.description,
+      kind: localEvent.kind,
+    });
+
+    await mergeEventIntoCache(created);
+
+    return created;
+  } catch (error) {
+    if (!isRecoverableOfflineError(error)) {
+      throw error;
     }
-  };
 
-  const handleAuthRequired = (event: Event) => {
-    const customEvent = event as CustomEvent<string>;
-    errorMessage = customEvent.detail || "Reconnect to resume cloud syncing.";
-    refresh();
-  };
+    await mergeEventIntoCache(localEvent);
+    await enqueueCreate(localEvent);
 
-  window.addEventListener(SYNC_STATE_EVENT, refresh);
-  window.addEventListener(SESSION_CHANGED_EVENT, sync);
-  window.addEventListener(CLOUD_AUTH_REQUIRED_EVENT, handleAuthRequired);
-  window.addEventListener("online", sync);
-  window.addEventListener("offline", refresh);
+    return localEvent;
+  }
+}
 
-  const interval = window.setInterval(sync, intervalMilliseconds);
+export async function updateEvent(
+  id: string,
+  updates: EventPatch
+): Promise<CalendarEvent> {
+  await ensureEventStorageReady();
 
-  void syncAllNow();
+  const existing = (await readEventsCache()).find((event) => event.id === id);
 
-  return () => {
-    disposed = true;
-    window.clearInterval(interval);
-    window.removeEventListener(SYNC_STATE_EVENT, refresh);
-    window.removeEventListener(SESSION_CHANGED_EVENT, sync);
-    window.removeEventListener(CLOUD_AUTH_REQUIRED_EVENT, handleAuthRequired);
-    window.removeEventListener("online", sync);
-    window.removeEventListener("offline", refresh);
-  };
+  const optimistic = normalizeEvent({
+    ...(existing ?? {
+      id,
+      title: "Untitled event",
+      description: "",
+      start: nowIso(),
+      end: nowIso(),
+      allDay: false,
+      kind: "event",
+      createdAt: nowIso(),
+    }),
+    ...updates,
+    updatedAt: nowIso(),
+  });
+
+  await mergeEventIntoCache(optimistic);
+
+  if (!hasCloudSession() || isBrowserOffline()) {
+    await enqueueUpdate(id, updates);
+
+    return optimistic;
+  }
+
+  try {
+    const updated = await updateEventOnlineOnly(id, updates);
+
+    await mergeEventIntoCache(updated);
+
+    return updated;
+  } catch (error) {
+    if (!isRecoverableOfflineError(error)) {
+      throw error;
+    }
+
+    await enqueueUpdate(id, updates);
+
+    return optimistic;
+  }
+}
+
+export async function deleteEvent(id: string): Promise<void> {
+  await ensureEventStorageReady();
+
+  await removeEventFromCache(id);
+
+  if (!hasCloudSession() || isBrowserOffline()) {
+    await enqueueDelete(id);
+    return;
+  }
+
+  try {
+    await deleteEventOnlineOnly(id);
+  } catch (error: any) {
+    if (error?.response?.status === 404) {
+      return;
+    }
+
+    if (!isRecoverableOfflineError(error)) {
+      throw error;
+    }
+
+    await enqueueDelete(id);
+  }
+}
+
+// ---------- Queue sync ----------
+
+export async function syncOfflineEventQueue(): Promise<void> {
+  await ensureEventStorageReady();
+
+  if (!hasBrowserWindow() || !hasCloudSession() || isBrowserOffline()) {
+    return;
+  }
+
+  const queue = await readQueue();
+
+  if (queue.length === 0) {
+    return;
+  }
+
+  const remaining: EventOp[] = [];
+
+  for (let index = 0; index < queue.length; index += 1) {
+    const operation = queue[index];
+
+    try {
+      if (operation.kind === "create") {
+        const created = await createEventOnlineOnly(operation.payload);
+
+        const cached = await readEventsCache();
+        const cachedIndex = cached.findIndex(
+          (event) => event.id === operation.tempId
+        );
+
+        if (cachedIndex !== -1) {
+          cached[cachedIndex] = created;
+          await writeEventsCache(cached);
+        } else {
+          await mergeEventIntoCache(created);
+        }
+
+        for (
+          let laterIndex = index + 1;
+          laterIndex < queue.length;
+          laterIndex += 1
+        ) {
+          const later = queue[laterIndex];
+
+          if (later.kind === "update" && later.id === operation.tempId) {
+            later.id = created.id;
+          }
+
+          if (later.kind === "delete" && later.id === operation.tempId) {
+            later.id = created.id;
+          }
+        }
+
+        continue;
+      }
+
+      if (operation.kind === "update") {
+        if (isOfflineEventId(operation.id)) {
+          remaining.push(operation);
+          continue;
+        }
+
+        const updated = await updateEventOnlineOnly(
+          operation.id,
+          operation.patch
+        );
+
+        await mergeEventIntoCache(updated);
+        continue;
+      }
+
+      if (operation.kind === "delete") {
+        if (isOfflineEventId(operation.id)) {
+          await removeEventFromCache(operation.id);
+          continue;
+        }
+
+        await deleteEventOnlineOnly(operation.id);
+        await removeEventFromCache(operation.id);
+      }
+    } catch (error) {
+      if (isRecoverableOfflineError(error)) {
+        remaining.push(operation, ...queue.slice(index + 1));
+        await writeQueue(remaining);
+        return;
+      }
+
+      console.error("[Event sync] operation failed:", operation, error);
+      remaining.push(operation);
+    }
+  }
+
+  await writeQueue(remaining);
+
+  try {
+    await fetchEvents();
+  } catch {
+    // IndexedDB remains usable until a later successful cloud sync.
+  }
 }
