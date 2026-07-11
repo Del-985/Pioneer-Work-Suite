@@ -1,7 +1,12 @@
 // apps/web/src/api/documents.ts
 import { http } from "./http";
 import { hasCloudSession } from "./session";
-import { SYNC_STATE_EVENT } from "./tasks";
+import {
+  hasBrowserWindow,
+  isBrowserOffline,
+  isRecoverableOfflineError,
+  notifySyncStateChanged,
+} from "./syncSupport";
 import {
   migrateLegacyLocalStorage,
   readStoredDocumentQueue,
@@ -63,18 +68,9 @@ type DocumentOp =
   | DeleteDocumentOp;
 
 let storageInitialization: Promise<void> | null = null;
-let cachedDocuments: Document[] = [];
 let pendingDocumentSyncCount = 0;
 
-function hasWindow(): boolean {
-  return typeof window !== "undefined";
-}
 
-function notifySyncStateChanged(): void {
-  if (hasWindow()) {
-    window.dispatchEvent(new Event(SYNC_STATE_EVENT));
-  }
-}
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -149,71 +145,11 @@ async function ensureDocumentStorageReady(): Promise<void> {
     storageInitialization = (async () => {
       await migrateLegacyLocalStorage();
 
-      const storedDocuments =
-        await readStoredDocuments<Document>();
-
-      cachedDocuments = sortDocuments(
-        storedDocuments.map(normalizeDocument)
-      );
-
       await refreshPendingDocumentSyncCount();
     })();
   }
 
   await storageInitialization;
-}
-
-function isProbablyOfflineError(error: any): boolean {
-  if (!hasWindow()) {
-    return false;
-  }
-
-  if (
-    typeof navigator !== "undefined" &&
-    navigator.onLine === false
-  ) {
-    return true;
-  }
-
-  if (!error || typeof error !== "object") {
-    return false;
-  }
-
-  const status = error?.response?.status;
-
-  if (typeof status === "number") {
-    return (
-      status === 500 ||
-      status === 502 ||
-      status === 503 ||
-      status === 504
-    );
-  }
-
-  if (error.isAxiosError && !error.response) {
-    return true;
-  }
-
-  if (
-    typeof error.code === "string" &&
-    (error.code === "ERR_NETWORK" ||
-      error.code === "ECONNABORTED")
-  ) {
-    return true;
-  }
-
-  if (typeof error.message === "string") {
-    const message = error.message.toLowerCase();
-
-    return (
-      message.includes("network") ||
-      message.includes("failed to fetch") ||
-      message.includes("timeout") ||
-      message.includes("service unavailable")
-    );
-  }
-
-  return false;
 }
 
 // ---------- IndexedDB cache ----------
@@ -224,11 +160,9 @@ async function readDocumentsCache(): Promise<Document[]> {
   const storedDocuments =
     await readStoredDocuments<Document>();
 
-  cachedDocuments = sortDocuments(
+  return sortDocuments(
     storedDocuments.map(normalizeDocument)
   );
-
-  return [...cachedDocuments];
 }
 
 async function writeDocumentsCache(
@@ -239,7 +173,6 @@ async function writeDocumentsCache(
   );
 
   await writeStoredDocuments(normalized);
-  cachedDocuments = normalized;
 }
 
 async function mergeDocumentIntoCache(
@@ -274,9 +207,6 @@ async function removeDocumentFromCache(
   );
 }
 
-export function getCachedDocuments(): Document[] {
-  return [...cachedDocuments];
-}
 
 // ---------- IndexedDB queue ----------
 
@@ -364,15 +294,6 @@ export async function refreshPendingDocumentSyncCount(): Promise<number> {
   return pendingDocumentSyncCount;
 }
 
-export function hasPendingDocumentSync(
-  id?: string
-): boolean {
-  if (!id) {
-    return pendingDocumentSyncCount > 0;
-  }
-
-  return false;
-}
 
 async function enqueueCreate(
   operation: CreateDocumentOp
@@ -546,7 +467,7 @@ export async function fetchDocuments(): Promise<Document[]> {
 
   if (
     !hasCloudSession() ||
-    (hasWindow() && navigator.onLine === false)
+    isBrowserOffline()
   ) {
     return readDocumentsCache();
   }
@@ -612,7 +533,7 @@ export async function fetchDocuments(): Promise<Document[]> {
 
     return documents;
   } catch (error) {
-    if (isProbablyOfflineError(error)) {
+    if (isRecoverableOfflineError(error)) {
       return readDocumentsCache();
     }
 
@@ -644,7 +565,7 @@ export async function createDocument(
 
   if (
     !hasCloudSession() ||
-    (hasWindow() && navigator.onLine === false)
+    isBrowserOffline()
   ) {
     await mergeDocumentIntoCache(localDocument);
 
@@ -666,7 +587,7 @@ export async function createDocument(
 
     return created;
   } catch (error) {
-    if (!isProbablyOfflineError(error)) {
+    if (!isRecoverableOfflineError(error)) {
       throw error;
     }
 
@@ -730,7 +651,7 @@ export async function updateDocument(
 
   if (
     !hasCloudSession() ||
-    (hasWindow() && navigator.onLine === false)
+    isBrowserOffline()
   ) {
     await enqueueUpdate(
       id,
@@ -751,7 +672,7 @@ export async function updateDocument(
 
     return updated;
   } catch (error) {
-    if (!isProbablyOfflineError(error)) {
+    if (!isRecoverableOfflineError(error)) {
       throw error;
     }
 
@@ -772,7 +693,7 @@ export async function deleteDocument(
 
   if (
     !hasCloudSession() ||
-    (hasWindow() && navigator.onLine === false)
+    isBrowserOffline()
   ) {
     await enqueueDelete(id);
     return;
@@ -785,7 +706,7 @@ export async function deleteDocument(
       return;
     }
 
-    if (!isProbablyOfflineError(error)) {
+    if (!isRecoverableOfflineError(error)) {
       throw error;
     }
 
@@ -799,9 +720,9 @@ export async function syncOfflineDocumentQueue(): Promise<void> {
   await ensureDocumentStorageReady();
 
   if (
-    !hasWindow() ||
+    !hasBrowserWindow() ||
     !hasCloudSession() ||
-    navigator.onLine === false
+    isBrowserOffline()
   ) {
     return;
   }
@@ -900,7 +821,7 @@ export async function syncOfflineDocumentQueue(): Promise<void> {
         );
       }
     } catch (error) {
-      if (isProbablyOfflineError(error)) {
+      if (isRecoverableOfflineError(error)) {
         remaining.push(
           operation,
           ...queue.slice(index + 1)
