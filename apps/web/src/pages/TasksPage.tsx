@@ -457,7 +457,7 @@ const TasksPage: React.FC = () => {
             type="submit"
             disabled={!newTitle.trim() || savingNewTask}
           >
-            {savingNewTask ? "Addingâ¦" : "Add task"}
+            {savingNewTask ? "Adding...¦" : "Add task"}
           </button>
         </form>
       </section>
