@@ -523,11 +523,16 @@ const DocumentsPage: React.FC = () => {
 
         setDocuments(sorted);
 
-        const createRequested =
-          typeof window !== "undefined" &&
-          new URLSearchParams(
-            window.location.search
-          ).get("create") === "1";
+        const searchParams =
+  typeof window !== "undefined"
+    ? new URLSearchParams(window.location.search)
+    : new URLSearchParams();
+
+const createRequested =
+  searchParams.get("create") === "1";
+
+const requestedDocumentId =
+  searchParams.get("document");
 
         if (
           createRequested &&
@@ -568,10 +573,15 @@ const DocumentsPage: React.FC = () => {
           getRememberedDocumentId();
 
         const initial =
-          sorted.find(
-            (document) =>
-              document.id === rememberedId
-          ) ?? sorted[0];
+  sorted.find(
+    (document) =>
+      document.id === requestedDocumentId
+  ) ??
+  sorted.find(
+    (document) =>
+      document.id === rememberedId
+  ) ??
+  sorted[0];
 
         setSelectedDocumentState(initial);
       } catch (error) {
