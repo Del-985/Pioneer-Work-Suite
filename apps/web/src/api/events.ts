@@ -769,13 +769,3 @@ export async function syncOfflineEventQueue(): Promise<void> {
     // IndexedDB remains usable until a later successful cloud sync.
   }
 }
-
-export async function trySyncEventsIfOnline(): Promise<void> {
-  await ensureEventStorageReady();
-
-  if (!hasWindow() || !hasCloudSession() || !navigator.onLine) {
-    return;
-  }
-
-  await syncOfflineEventQueue();
-}
