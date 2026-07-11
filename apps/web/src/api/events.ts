@@ -1,7 +1,12 @@
 // apps/web/src/api/events.ts
 import { http } from "./http";
 import { hasCloudSession } from "./session";
-import { SYNC_STATE_EVENT } from "./tasks";
+import {
+  hasBrowserWindow,
+  isBrowserOffline,
+  isRecoverableOfflineError,
+  notifySyncStateChanged,
+} from "./syncSupport";
 import {
   migrateLegacyLocalStorage,
   readStoredEventQueue,
@@ -61,15 +66,7 @@ type EventOp = CreateEventOp | UpdateEventOp | DeleteEventOp;
 let storageInitialization: Promise<void> | null = null;
 let pendingEventSyncCount = 0;
 
-function hasWindow(): boolean {
-  return typeof window !== "undefined";
-}
 
-function notifySyncStateChanged(): void {
-  if (hasWindow()) {
-    window.dispatchEvent(new Event(SYNC_STATE_EVENT));
-  }
-}
 
 function nowIso(): string {
   return new Date().toISOString();
@@ -153,57 +150,6 @@ async function ensureEventStorageReady(): Promise<void> {
   }
 
   await storageInitialization;
-}
-
-function isProbablyOfflineError(error: any): boolean {
-  if (!hasWindow()) {
-    return false;
-  }
-
-  if (navigator.onLine === false) {
-    return true;
-  }
-
-  if (!error || typeof error !== "object") {
-    return false;
-  }
-
-  const status = error?.response?.status;
-
-  if (typeof status === "number") {
-    return (
-      status === 401 ||
-      status === 403 ||
-      status === 500 ||
-      status === 502 ||
-      status === 503 ||
-      status === 504
-    );
-  }
-
-  if (error.isAxiosError && !error.response) {
-    return true;
-  }
-
-  if (
-    typeof error.code === "string" &&
-    (error.code === "ERR_NETWORK" || error.code === "ECONNABORTED")
-  ) {
-    return true;
-  }
-
-  if (typeof error.message === "string") {
-    const message = error.message.toLowerCase();
-
-    return (
-      message.includes("network") ||
-      message.includes("failed to fetch") ||
-      message.includes("timeout") ||
-      message.includes("service unavailable")
-    );
-  }
-
-  return false;
 }
 
 // ---------- IndexedDB cache ----------
@@ -441,7 +387,7 @@ export async function fetchEvents(
 ): Promise<CalendarEvent[]> {
   await ensureEventStorageReady();
 
-  if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
+  if (!hasCloudSession() || isBrowserOffline()) {
     const cached = await readEventsCache();
 
     return cached.filter((event) =>
@@ -510,7 +456,7 @@ export async function fetchEvents(
       eventTouchesRange(event, params?.from, params?.to)
     );
   } catch (error) {
-    if (isProbablyOfflineError(error)) {
+    if (isRecoverableOfflineError(error)) {
       const cached = await readEventsCache();
 
       return cached.filter((event) =>
@@ -527,7 +473,7 @@ export async function fetchEvent(id: string): Promise<CalendarEvent> {
 
   const cached = (await readEventsCache()).find((event) => event.id === id);
 
-  if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
+  if (!hasCloudSession() || isBrowserOffline()) {
     if (cached) {
       return cached;
     }
@@ -542,7 +488,7 @@ export async function fetchEvent(id: string): Promise<CalendarEvent> {
 
     return event;
   } catch (error) {
-    if (isProbablyOfflineError(error) && cached) {
+    if (isRecoverableOfflineError(error) && cached) {
       return cached;
     }
 
@@ -567,7 +513,7 @@ export async function createEvent(
     updatedAt: nowIso(),
   };
 
-  if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
+  if (!hasCloudSession() || isBrowserOffline()) {
     await mergeEventIntoCache(localEvent);
     await enqueueCreate(localEvent);
 
@@ -586,7 +532,7 @@ export async function createEvent(
 
     return created;
   } catch (error) {
-    if (!isProbablyOfflineError(error)) {
+    if (!isRecoverableOfflineError(error)) {
       throw error;
     }
 
@@ -622,7 +568,7 @@ export async function updateEvent(
 
   await mergeEventIntoCache(optimistic);
 
-  if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
+  if (!hasCloudSession() || isBrowserOffline()) {
     await enqueueUpdate(id, updates);
 
     return optimistic;
@@ -635,7 +581,7 @@ export async function updateEvent(
 
     return updated;
   } catch (error) {
-    if (!isProbablyOfflineError(error)) {
+    if (!isRecoverableOfflineError(error)) {
       throw error;
     }
 
@@ -650,7 +596,7 @@ export async function deleteEvent(id: string): Promise<void> {
 
   await removeEventFromCache(id);
 
-  if (!hasCloudSession() || (hasWindow() && navigator.onLine === false)) {
+  if (!hasCloudSession() || isBrowserOffline()) {
     await enqueueDelete(id);
     return;
   }
@@ -662,7 +608,7 @@ export async function deleteEvent(id: string): Promise<void> {
       return;
     }
 
-    if (!isProbablyOfflineError(error)) {
+    if (!isRecoverableOfflineError(error)) {
       throw error;
     }
 
@@ -675,7 +621,7 @@ export async function deleteEvent(id: string): Promise<void> {
 export async function syncOfflineEventQueue(): Promise<void> {
   await ensureEventStorageReady();
 
-  if (!hasWindow() || !hasCloudSession() || navigator.onLine === false) {
+  if (!hasBrowserWindow() || !hasCloudSession() || isBrowserOffline()) {
     return;
   }
 
@@ -750,7 +696,7 @@ export async function syncOfflineEventQueue(): Promise<void> {
         await removeEventFromCache(operation.id);
       }
     } catch (error) {
-      if (isProbablyOfflineError(error)) {
+      if (isRecoverableOfflineError(error)) {
         remaining.push(operation, ...queue.slice(index + 1));
         await writeQueue(remaining);
         return;
