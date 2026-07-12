@@ -18,6 +18,12 @@ import {
   updateDocument,
 } from "../api/documents";
 import {
+  useShortcuts,
+} from "../keyboard/useShortcuts";
+import type {
+  ShortcutDefinition,
+} from "../keyboard/keyboardTypes";
+import {
   calculateDocumentStatistics,
   exportDocumentAsHtml,
   exportDocumentAsText,
@@ -524,15 +530,14 @@ const DocumentsPage: React.FC = () => {
         setDocuments(sorted);
 
         const searchParams =
-  typeof window !== "undefined"
-    ? new URLSearchParams(window.location.search)
-    : new URLSearchParams();
+          typeof window !== "undefined"
+            ? new URLSearchParams(window.location.search)
+            : new URLSearchParams();
 
-const createRequested =
-  searchParams.get("create") === "1";
-
-const requestedDocumentId =
-  searchParams.get("document");
+        const createRequested =
+          searchParams.get("create") === "1";
+        const requestedDocumentId =
+          searchParams.get("document");
 
         if (
           createRequested &&
@@ -573,15 +578,15 @@ const requestedDocumentId =
           getRememberedDocumentId();
 
         const initial =
-  sorted.find(
-    (document) =>
-      document.id === requestedDocumentId
-  ) ??
-  sorted.find(
-    (document) =>
-      document.id === rememberedId
-  ) ??
-  sorted[0];
+          sorted.find(
+            (document) =>
+              document.id === requestedDocumentId
+          ) ??
+          sorted.find(
+            (document) =>
+              document.id === rememberedId
+          ) ??
+          sorted[0];
 
         setSelectedDocumentState(initial);
       } catch (error) {
@@ -662,104 +667,130 @@ const requestedDocumentId =
       );
   }, [hasLocalChanges]);
 
-  useEffect(() => {
-    function handleKeydown(
-      event: KeyboardEvent
-    ): void {
-      if (!selectedDocument) {
-        return;
-      }
+  const documentShortcuts =
+    useMemo<ShortcutDefinition[]>(
+      () => [
+        {
+          id: "document-save",
+          key: "s",
+          primary: true,
+          description:
+            "Save current document",
+          category: "Documents",
+          allowInEditable: true,
+          priority: 100,
+          enabled:
+            Boolean(selectedDocument) &&
+            !isSaving,
+          handler: () => {
+            void saveCurrentDocument();
+          },
+        },
+        {
+          id: "document-find",
+          key: "f",
+          primary: true,
+          description:
+            "Find in current document",
+          category: "Documents",
+          allowInEditable: true,
+          priority: 100,
+          enabled:
+            Boolean(selectedDocument),
+          handler: () => {
+            setFindOpen(true);
 
-      const primaryModifier =
-        event.ctrlKey || event.metaKey;
-      const key = event.key.toLowerCase();
+            window.setTimeout(() => {
+              document
+                .querySelector<HTMLInputElement>(
+                  "#document-find-input"
+                )
+                ?.focus();
+            }, 0);
+          },
+        },
+        {
+          id: "document-replace",
+          key: "f",
+          primary: true,
+          shift: true,
+          description:
+            "Find and replace",
+          category: "Documents",
+          allowInEditable: true,
+          priority: 110,
+          enabled:
+            Boolean(selectedDocument),
+          handler: () => {
+            setFindOpen(true);
+            setReplaceOpen(true);
 
-      if (
-        primaryModifier &&
-        !event.altKey &&
-        !event.shiftKey &&
-        key === "s"
-      ) {
-        event.preventDefault();
-
-        if (!isSaving) {
-          void saveCurrentDocument();
-        }
-
-        return;
-      }
-
-      if (
-        primaryModifier &&
-        !event.altKey &&
-        key === "f"
-      ) {
-        event.preventDefault();
-        setFindOpen(true);
-
-        if (event.shiftKey) {
-          setReplaceOpen(true);
-        }
-
-        window.setTimeout(() => {
-          document
-            .querySelector<HTMLInputElement>(
-              "#document-find-input"
-            )
-            ?.focus();
-        }, 0);
-
-        return;
-      }
-
-      const editor =
-        quillRef.current?.getEditor?.();
-
-      if (!editor) {
-        return;
-      }
-
-      if (
-        primaryModifier &&
-        event.altKey
-      ) {
-        if (
-          key === "1" ||
-          key === "2" ||
-          key === "3"
-        ) {
-          event.preventDefault();
-          editor.format(
-            "header",
-            Number(key),
-            "user"
-          );
-        } else if (key === "0") {
-          event.preventDefault();
-          editor.format(
-            "header",
-            false,
-            "user"
-          );
-        }
-      }
-    }
-
-    window.addEventListener(
-      "keydown",
-      handleKeydown
+            window.setTimeout(() => {
+              document
+                .querySelector<HTMLInputElement>(
+                  "#document-find-input"
+                )
+                ?.focus();
+            }, 0);
+          },
+        },
+        ...[1, 2, 3].map(
+          (
+            level
+          ): ShortcutDefinition => ({
+            id: `document-heading-${level}`,
+            key: String(level),
+            primary: true,
+            alt: true,
+            description:
+              `Apply heading ${level}`,
+            category: "Documents",
+            allowInEditable: true,
+            priority: 100,
+            enabled:
+              Boolean(selectedDocument),
+            handler: () => {
+              quillRef.current
+                ?.getEditor?.()
+                ?.format(
+                  "header",
+                  level,
+                  "user"
+                );
+            },
+          })
+        ),
+        {
+          id: "document-paragraph",
+          key: "0",
+          primary: true,
+          alt: true,
+          description:
+            "Apply paragraph style",
+          category: "Documents",
+          allowInEditable: true,
+          priority: 100,
+          enabled:
+            Boolean(selectedDocument),
+          handler: () => {
+            quillRef.current
+              ?.getEditor?.()
+              ?.format(
+                "header",
+                false,
+                "user"
+              );
+          },
+        },
+      ],
+      [
+        isSaving,
+        saveCurrentDocument,
+        selectedDocument,
+      ]
     );
 
-    return () =>
-      window.removeEventListener(
-        "keydown",
-        handleKeydown
-      );
-  }, [
-    isSaving,
-    saveCurrentDocument,
-    selectedDocument,
-  ]);
+  useShortcuts(documentShortcuts);
 
   useEffect(() => {
     if (!findOpen || !findState.query) {
