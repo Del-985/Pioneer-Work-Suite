@@ -12,6 +12,9 @@ import {
   openGlobalSearch,
 } from "./GlobalSearch";
 import KeyboardShortcutsDialog from "./KeyboardShortcutsDialog";
+import {
+  openCommandPalette,
+} from "./CommandPalette";
 
 import {
   shortcutRegistry,
@@ -22,9 +25,6 @@ import {
 import type {
   ShortcutDefinition,
 } from "../keyboard/keyboardTypes";
-
-export const OPEN_COMMAND_PALETTE_EVENT =
-  "pioneer:open-command-palette";
 
 export const OPEN_SHORTCUT_REFERENCE_EVENT =
   "pioneer:open-shortcut-reference";
@@ -98,21 +98,17 @@ const KeyboardShortcutsManager: React.FC =
               setReferenceOpen(true),
           },
           {
-            id: "command-palette-reserved",
+            id: "command-palette",
             key: "p",
             primary: true,
             shift: true,
             description:
               "Open Command Palette",
-            category: "Reserved",
-            enabled: false,
-            handler: () => {
-              window.dispatchEvent(
-                new Event(
-                  OPEN_COMMAND_PALETTE_EVENT
-                )
-              );
-            },
+            category: "Interface",
+            allowInEditable: true,
+            priority: 30,
+            handler:
+              openCommandPalette,
           },
         ],
         [navigate]
