@@ -18,6 +18,12 @@ import {
   updateDocument,
 } from "../api/documents";
 import {
+  useCommands,
+} from "../commands/useCommands";
+import type {
+  CommandDefinition,
+} from "../commands/commandTypes";
+import {
   useShortcuts,
 } from "../keyboard/useShortcuts";
 import type {
@@ -1321,6 +1327,321 @@ const DocumentsPage: React.FC = () => {
 
     return <span>Saved</span>;
   }
+
+  const documentCommands =
+    useMemo<CommandDefinition[]>(
+      () => [
+        {
+          id: "documents-create",
+          title: "Create new document",
+          category: "Documents",
+          description:
+            "Create a blank document in the current workspace",
+          keywords: [
+            "new doc",
+            "write",
+          ],
+          shortcut: [
+            "Ctrl",
+            "Shift",
+            "N",
+          ],
+          enabled: !creating,
+          disabledReason:
+            "A document is already being created.",
+          run: () =>
+            handleCreateDocument(),
+        },
+        {
+          id: "documents-save-current",
+          title: "Save current document",
+          category: "Documents",
+          description:
+            "Save the selected document",
+          keywords: [
+            "write",
+            "commit changes",
+          ],
+          shortcut: [
+            "Ctrl",
+            "S",
+          ],
+          enabled:
+            Boolean(selectedDocument) &&
+            !isSaving,
+          disabledReason:
+            !selectedDocument
+              ? "Select a document first."
+              : "The document is currently saving.",
+          run: () =>
+            saveCurrentDocument(),
+        },
+        {
+          id: "documents-find",
+          title: "Find in current document",
+          category: "Documents",
+          description:
+            "Search within the active document",
+          shortcut: [
+            "Ctrl",
+            "F",
+          ],
+          enabled:
+            Boolean(selectedDocument),
+          disabledReason:
+            "Select a document first.",
+          run: () => {
+            setFindOpen(true);
+
+            window.setTimeout(() => {
+              document
+                .querySelector<HTMLInputElement>(
+                  "#document-find-input"
+                )
+                ?.focus();
+            }, 0);
+          },
+        },
+        {
+          id: "documents-find-replace",
+          title: "Find and replace",
+          category: "Documents",
+          description:
+            "Search and replace within the active document",
+          shortcut: [
+            "Ctrl",
+            "Shift",
+            "F",
+          ],
+          enabled:
+            Boolean(selectedDocument),
+          disabledReason:
+            "Select a document first.",
+          run: () => {
+            setFindOpen(true);
+            setReplaceOpen(true);
+
+            window.setTimeout(() => {
+              document
+                .querySelector<HTMLInputElement>(
+                  "#document-find-input"
+                )
+                ?.focus();
+            }, 0);
+          },
+        },
+        {
+          id: "documents-duplicate",
+          title: "Duplicate current document",
+          category: "Documents",
+          description:
+            "Create a copy of the active document",
+          keywords: [
+            "copy document",
+            "clone",
+          ],
+          enabled:
+            Boolean(selectedDocument) &&
+            !duplicating,
+          disabledReason:
+            !selectedDocument
+              ? "Select a document first."
+              : "The document is currently being duplicated.",
+          run: () =>
+            handleDuplicate(),
+        },
+        {
+          id: "documents-export-text",
+          title:
+            "Export current document as TXT",
+          category: "Documents",
+          description:
+            "Download a plain-text copy",
+          keywords: [
+            "download",
+            "text",
+          ],
+          enabled:
+            Boolean(selectedDocument),
+          disabledReason:
+            "Select a document first.",
+          run: () =>
+            exportDocumentAsText(
+              editTitle,
+              editContent
+            ),
+        },
+        {
+          id: "documents-export-html",
+          title:
+            "Export current document as HTML",
+          category: "Documents",
+          description:
+            "Download a formatted HTML copy",
+          keywords: [
+            "download",
+            "web",
+          ],
+          enabled:
+            Boolean(selectedDocument),
+          disabledReason:
+            "Select a document first.",
+          run: () =>
+            exportDocumentAsHtml(
+              editTitle,
+              editContent
+            ),
+        },
+        {
+          id: "documents-toggle-pin",
+          title: selectedDocument?.isPinned
+            ? "Unpin current document"
+            : "Pin current document",
+          category: "Documents",
+          description:
+            "Change the active document's pinned state",
+          keywords: [
+            "favorite",
+            "keep",
+          ],
+          enabled:
+            Boolean(selectedDocument),
+          disabledReason:
+            "Select a document first.",
+          run: () => {
+            if (selectedDocument) {
+              return handleTogglePinned(
+                selectedDocument
+              );
+            }
+          },
+        },
+        {
+          id: "documents-toggle-favorite",
+          title:
+            selectedDocument?.isFavorite
+              ? "Remove current document from favorites"
+              : "Add current document to favorites",
+          category: "Documents",
+          description:
+            "Change the active document's favorite state",
+          keywords: [
+            "star",
+            "bookmark",
+          ],
+          enabled:
+            Boolean(selectedDocument),
+          disabledReason:
+            "Select a document first.",
+          run: () => {
+            if (selectedDocument) {
+              return handleToggleFavorite(
+                selectedDocument
+              );
+            }
+          },
+        },
+        {
+          id: "documents-view-all",
+          title: "Documents: Show all",
+          category: "Documents",
+          description:
+            "Show the complete document library",
+          enabled:
+            libraryView !== "all",
+          disabledReason:
+            "The complete library is already shown.",
+          run: () =>
+            setLibraryView("all"),
+        },
+        {
+          id: "documents-view-recent",
+          title: "Documents: Show recent",
+          category: "Documents",
+          description:
+            "Show recently edited documents",
+          enabled:
+            libraryView !== "recent",
+          disabledReason:
+            "Recent documents are already shown.",
+          run: () =>
+            setLibraryView("recent"),
+        },
+        {
+          id: "documents-view-pinned",
+          title: "Documents: Show pinned",
+          category: "Documents",
+          description:
+            "Filter the library to pinned documents",
+          enabled:
+            libraryView !== "pinned",
+          disabledReason:
+            "Pinned documents are already shown.",
+          run: () =>
+            setLibraryView("pinned"),
+        },
+        {
+          id: "documents-view-favorites",
+          title:
+            "Documents: Show favorites",
+          category: "Documents",
+          description:
+            "Filter the library to favorite documents",
+          enabled:
+            libraryView !== "favorites",
+          disabledReason:
+            "Favorite documents are already shown.",
+          run: () =>
+            setLibraryView("favorites"),
+        },
+        {
+          id: "documents-focus-library-search",
+          title:
+            "Focus document library search",
+          category: "Documents",
+          description:
+            "Move focus to the document filter",
+          keywords: [
+            "filter docs",
+            "library",
+          ],
+          run: () => {
+            document
+              .querySelector<HTMLInputElement>(
+                'input[aria-label="Search documents"]'
+              )
+              ?.focus();
+          },
+        },
+        {
+          id: "documents-clear-library-search",
+          title:
+            "Clear document library search",
+          category: "Documents",
+          description:
+            "Remove the current document filter",
+          enabled:
+            Boolean(librarySearch.trim()),
+          disabledReason:
+            "The document search is already empty.",
+          run: () =>
+            setLibrarySearch(""),
+        },
+      ],
+      [
+        creating,
+        duplicating,
+        editContent,
+        editTitle,
+        isSaving,
+        librarySearch,
+        libraryView,
+        saveCurrentDocument,
+        selectedDocument,
+      ]
+    );
+
+  useCommands(documentCommands);
 
   return (
     <div className="documents-v2-page">
