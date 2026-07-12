@@ -50,26 +50,22 @@ const GlobalSearch: React.FC = () => {
     const show = () => {
       setOpen(true);
       setError(null);
-      window.setTimeout(() => inputRef.current?.focus(), 0);
+      window.setTimeout(
+        () => inputRef.current?.focus(),
+        0
+      );
     };
 
-    const shortcut = (event: KeyboardEvent) => {
-      if (
-        (event.ctrlKey || event.metaKey) &&
-        !event.altKey &&
-        event.key.toLowerCase() === "k"
-      ) {
-        event.preventDefault();
-        show();
-      }
-    };
-
-    window.addEventListener(GLOBAL_SEARCH_OPEN_EVENT, show);
-    window.addEventListener("keydown", shortcut);
+    window.addEventListener(
+      GLOBAL_SEARCH_OPEN_EVENT,
+      show
+    );
 
     return () => {
-      window.removeEventListener(GLOBAL_SEARCH_OPEN_EVENT, show);
-      window.removeEventListener("keydown", shortcut);
+      window.removeEventListener(
+        GLOBAL_SEARCH_OPEN_EVENT,
+        show
+      );
     };
   }, []);
 
@@ -93,13 +89,11 @@ const GlobalSearch: React.FC = () => {
 
       try {
         const result = await searchWorkspace(trimmed);
-
         if (requestRef.current === requestId) {
           setSnapshot(result);
         }
       } catch (searchError) {
         console.error("Global search failed:", searchError);
-
         if (requestRef.current === requestId) {
           setSnapshot(EMPTY);
           setError("Unable to search the workspace.");
@@ -150,25 +144,17 @@ const GlobalSearch: React.FC = () => {
 
     if (event.key === "ArrowDown") {
       event.preventDefault();
-
-      setActiveIndex(
-        (current) => (current + 1) % visibleResults.length
-      );
+      setActiveIndex((current) => (current + 1) % visibleResults.length);
     } else if (event.key === "ArrowUp") {
       event.preventDefault();
-
       setActiveIndex(
         (current) =>
           (current - 1 + visibleResults.length) % visibleResults.length
       );
     } else if (event.key === "Enter") {
       event.preventDefault();
-
       const result = visibleResults[activeIndex];
-
-      if (result) {
-        choose(result);
-      }
+      if (result) choose(result);
     }
   }
 
@@ -178,9 +164,7 @@ const GlobalSearch: React.FC = () => {
     <div
       className="global-search-overlay"
       onMouseDown={(event) => {
-        if (event.target === event.currentTarget) {
-          close();
-        }
+        if (event.target === event.currentTarget) close();
       }}
     >
       <section
@@ -195,19 +179,13 @@ const GlobalSearch: React.FC = () => {
             <p>Workspace search</p>
             <h2 id="global-search-title">Search everything</h2>
           </div>
-
-          <button
-            type="button"
-            onClick={close}
-            aria-label="Close search"
-          >
+          <button type="button" onClick={close} aria-label="Close search">
             ×
           </button>
         </header>
 
         <div className="global-search__input-row">
           <span aria-hidden="true">⌕</span>
-
           <input
             ref={inputRef}
             type="search"
@@ -217,14 +195,10 @@ const GlobalSearch: React.FC = () => {
             aria-label="Search tasks and documents"
             autoComplete="off"
           />
-
           <kbd>Ctrl K</kbd>
         </div>
 
-        <nav
-          className="global-search__filters"
-          aria-label="Result type"
-        >
+        <nav className="global-search__filters" aria-label="Result type">
           {[
             ["all", "All", snapshot.results.length],
             ["task", "Tasks", snapshot.taskCount],
@@ -241,30 +215,20 @@ const GlobalSearch: React.FC = () => {
           ))}
         </nav>
 
-        <div
-          className="global-search__results"
-          role="listbox"
-        >
+        <div className="global-search__results" role="listbox">
           {!query.trim() ? (
             <Empty
               title="Start typing to search"
               detail="Search task titles, priorities, statuses, due dates, document titles, and document content."
             />
           ) : loading ? (
-            <div
-              className="global-search__loading"
-              aria-label="Searching"
-            >
+            <div className="global-search__loading" aria-label="Searching">
               <span />
               <span />
               <span />
             </div>
           ) : error ? (
-            <Empty
-              title="Search unavailable"
-              detail={error}
-              error
-            />
+            <Empty title="Search unavailable" detail={error} error />
           ) : visibleResults.length === 0 ? (
             <Empty
               title="No matching results"
@@ -285,23 +249,18 @@ const GlobalSearch: React.FC = () => {
                 onMouseEnter={() => setActiveIndex(index)}
                 onClick={() => choose(result)}
               >
-                <span
-                  className={`global-search__kind kind-${result.kind}`}
-                >
+                <span className={`global-search__kind kind-${result.kind}`}>
                   {result.kind === "task" ? "Task" : "Document"}
                 </span>
-
                 <span className="global-search__result-main">
                   <strong>{result.title}</strong>
                   <small>{result.subtitle}</small>
-
                   {result.preview && (
                     <span className="global-search__preview">
                       {result.preview}
                     </span>
                   )}
                 </span>
-
                 <span aria-hidden="true">→</span>
               </button>
             ))
@@ -309,21 +268,9 @@ const GlobalSearch: React.FC = () => {
         </div>
 
         <footer className="global-search__footer">
-          <span>
-            <kbd>↑</kbd>
-            <kbd>↓</kbd>
-            Navigate
-          </span>
-
-          <span>
-            <kbd>Enter</kbd>
-            Open
-          </span>
-
-          <span>
-            <kbd>Esc</kbd>
-            Close
-          </span>
+          <span><kbd>↑</kbd><kbd>↓</kbd> Navigate</span>
+          <span><kbd>Enter</kbd> Open</span>
+          <span><kbd>Esc</kbd> Close</span>
         </footer>
       </section>
     </div>
@@ -334,18 +281,8 @@ const Empty: React.FC<{
   title: string;
   detail: string;
   error?: boolean;
-}> = ({
-  title,
-  detail,
-  error = false,
-}) => (
-  <div
-    className={
-      error
-        ? "global-search__empty is-error"
-        : "global-search__empty"
-    }
-  >
+}> = ({ title, detail, error = false }) => (
+  <div className={error ? "global-search__empty is-error" : "global-search__empty"}>
     <strong>{title}</strong>
     <p>{detail}</p>
   </div>
