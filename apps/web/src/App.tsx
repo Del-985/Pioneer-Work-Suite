@@ -23,6 +23,9 @@ import RightSidebar, {
   type RightSidebarMode,
 } from "./components/RightSidebar";
 import GlobalSearch, { openGlobalSearch } from "./components/GlobalSearch";
+import KeyboardShortcutsManager, {
+  openShortcutReference,
+} from "./components/KeyboardShortcutsManager";
 
 import "./styles/app-shell.css";
 
