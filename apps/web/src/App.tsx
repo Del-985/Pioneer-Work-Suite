@@ -26,6 +26,7 @@ import GlobalSearch, { openGlobalSearch } from "./components/GlobalSearch";
 import KeyboardShortcutsManager, {
   openShortcutReference,
 } from "./components/KeyboardShortcutsManager";
+import CommandPaletteManager from "./components/CommandPaletteManager";
 
 import "./styles/app-shell.css";
 
@@ -177,6 +178,30 @@ const App: React.FC = () => {
       <UpdateBanner />
       <GlobalSearch />
       <KeyboardShortcutsManager />
+      <CommandPaletteManager
+        rightSidebarOpen={
+          isRightSidebarOpen
+        }
+        rightSidebarMode={
+          sidebarMode
+        }
+        cloudConnected={
+          cloudConnected
+        }
+        onToggleRightSidebar={
+          handleSidebarToggle
+        }
+        onSetRightSidebarMode={
+          handleSidebarModeChange
+        }
+        onToggleCloud={() => {
+          if (cloudConnected) {
+            handleDisconnectCloud();
+          } else {
+            navigate("/login");
+          }
+        }}
+      />
 
       <aside className="sidebar-left">
         <div className="sidebar-logo">
@@ -210,6 +235,28 @@ const App: React.FC = () => {
           >
             Search
             <span>Ctrl K</span>
+          </button>
+          <button
+            className="nav-item sidebar-search-button"
+            type="button"
+            onClick={() =>
+              window.dispatchEvent(
+                new Event(
+                  "pioneer:open-command-palette"
+                )
+              )
+            }
+          >
+            Commands
+            <span>Ctrl Shift P</span>
+          </button>
+          <button
+            className="nav-item sidebar-search-button"
+            type="button"
+            onClick={openShortcutReference}
+          >
+            Shortcuts
+            <span>Ctrl /</span>
           </button>
         </nav>
 
