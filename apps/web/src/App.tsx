@@ -36,15 +36,16 @@ import UpdateBanner from "./components/UpdateBanner";
 import type {
   RightSidebarMode,
 } from "./types/rightSidebar";
+import {
+  normalizeRightSidebarMode,
+} from "./types/rightSidebar";
 
 import "./styles/app-shell.css";
 
 function toSidebarMode(
   preference: AppSettings["sidebar"]["rightSidebarDefault"]
 ): RightSidebarMode {
-  return preference === "documents"
-    ? "documents"
-    : "tasks";
+  return normalizeRightSidebarMode(preference);
 }
 
 const App: React.FC = () => {

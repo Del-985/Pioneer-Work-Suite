@@ -269,19 +269,19 @@
 }
 
 .tasks-v2-card.priority-critical::before {
-  background: #ff4d62;
+  background: var(--priority-critical);
 }
 
 .tasks-v2-card.priority-high::before {
-  background: #ff9a55;
+  background: var(--priority-high);
 }
 
 .tasks-v2-card.priority-medium::before {
-  background: #6f8cff;
+  background: var(--priority-medium);
 }
 
 .tasks-v2-card.priority-low::before {
-  background: #67c98b;
+  background: var(--priority-low);
 }
 
 .tasks-v2-card[data-status="done"] {
@@ -311,22 +311,22 @@
 
 .tasks-v2-priority.priority-critical {
   background: rgba(255, 77, 98, 0.14);
-  color: #ff8694;
+  color: var(--priority-critical-text);
 }
 
 .tasks-v2-priority.priority-high {
   background: rgba(255, 154, 85, 0.14);
-  color: #ffb27e;
+  color: var(--priority-high-text);
 }
 
 .tasks-v2-priority.priority-medium {
   background: var(--accent-soft);
-  color: var(--accent-text);
+  color: var(--priority-medium-text);
 }
 
 .tasks-v2-priority.priority-low {
   background: rgba(103, 201, 139, 0.13);
-  color: var(--success);
+  color: var(--priority-low-text);
 }
 
 .tasks-v2-due {

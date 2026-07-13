@@ -24,6 +24,9 @@ import {
   updateSettings,
 } from "../api/settings";
 import { APP_VERSION } from "../config/appMetadata";
+import {
+  RIGHT_SIDEBAR_MODE_OPTIONS,
+} from "../types/rightSidebar";
 
 type DiagnosticState = {
   loading: boolean;
@@ -467,14 +470,11 @@ const SettingsPage: React.FC = () => {
             style={selectStyle}
             disabled={saving}
           >
-            <option value="tasks">Tasks</option>
-            <option value="documents">Documents</option>
-            <option value="calendar" disabled>
-              Calendar — planned
-            </option>
-            <option value="mail" disabled>
-              Mail — planned
-            </option>
+            {RIGHT_SIDEBAR_MODE_OPTIONS.map((option) => (
+              <option key={option.value} value={option.value}>
+                {option.label}
+              </option>
+            ))}
           </select>
         </div>
 

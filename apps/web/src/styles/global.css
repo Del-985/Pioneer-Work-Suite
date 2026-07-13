@@ -90,6 +90,15 @@
   --success: #68d890;
   --warning: #ffd07a;
 
+  --priority-critical: #ff4d62;
+  --priority-critical-text: #ff8694;
+  --priority-high: #ff9a55;
+  --priority-high-text: #ffb27e;
+  --priority-medium: #6f8cff;
+  --priority-medium-text: var(--accent-text);
+  --priority-low: #67c98b;
+  --priority-low-text: var(--success);
+
   --shadow-panel: 0 18px 45px rgba(0, 0, 0, 0.6);
   --shadow-focus: 0 0 0 3px rgba(63, 100, 255, 0.22);
 

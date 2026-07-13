@@ -6,6 +6,41 @@ import {
   createEvent,
   CalendarEvent,
 } from "../api/events";
+import type {
+  EventUrgency,
+} from "../api/events";
+
+import "../styles/calendar.css";
+
+const EVENT_URGENCIES: EventUrgency[] = [
+  "critical",
+  "high",
+  "medium",
+  "low",
+];
+
+function urgencyLabel(urgency: EventUrgency): string {
+  return urgency.charAt(0).toUpperCase() + urgency.slice(1);
+}
+
+function highestEventUrgency(
+  events: CalendarEvent[]
+): EventUrgency | null {
+  const rank: Record<EventUrgency, number> = {
+    critical: 0,
+    high: 1,
+    medium: 2,
+    low: 3,
+  };
+
+  return events.reduce<EventUrgency | null>((current, event) => {
+    if (!event.urgency) return current;
+    if (!current || rank[event.urgency] < rank[current]) {
+      return event.urgency;
+    }
+    return current;
+  }, null);
+}
 
 function startOfMonth(date: Date): Date {
   return new Date(date.getFullYear(), date.getMonth(), 1);
@@ -83,6 +118,8 @@ const CalendarPage: React.FC = () => {
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [newEventTitle, setNewEventTitle] = useState("");
   const [newEventAllDay, setNewEventAllDay] = useState(true);
+  const [newEventUrgency, setNewEventUrgency] =
+    useState<EventUrgency | "">("");
   const [creatingEvent, setCreatingEvent] = useState(false);
 
   const today = useMemo(() => {
@@ -209,10 +246,12 @@ const CalendarPage: React.FC = () => {
         end: end.toISOString(),
         allDay: newEventAllDay,
         kind: "event",
+        urgency: newEventUrgency || null,
       });
 
       setEvents((prev) => [...prev, created]);
       setNewEventTitle("");
+      setNewEventUrgency("");
     } catch (err) {
       console.error("Error creating event:", err);
       setError("Unable to create event.");
@@ -413,6 +452,24 @@ const CalendarPage: React.FC = () => {
             />
             All-day
           </label>
+          <label className="calendar-event-urgency-field">
+            <span>Urgency</span>
+            <select
+              value={newEventUrgency}
+              onChange={(event) =>
+                setNewEventUrgency(
+                  event.target.value as EventUrgency | ""
+                )
+              }
+            >
+              <option value="">None</option>
+              {EVENT_URGENCIES.map((urgency) => (
+                <option key={urgency} value={urgency}>
+                  {urgencyLabel(urgency)}
+                </option>
+              ))}
+            </select>
+          </label>
           <div
             style={{
               display: "flex",
@@ -425,6 +482,7 @@ const CalendarPage: React.FC = () => {
               onClick={() => {
                 setSelectedDay(null);
                 setNewEventTitle("");
+                setNewEventUrgency("");
               }}
               style={{
                 padding: "6px 10px",
@@ -504,6 +562,7 @@ const CalendarPage: React.FC = () => {
             const key = dateKey(day);
             const dayTasks = tasksByDayKey.get(key) || [];
             const dayEvents = eventsByDayKey.get(key) || [];
+            const eventUrgency = highestEventUrgency(dayEvents);
 
             const isToday = sameDay(day, today);
             const isSelected =
@@ -594,11 +653,16 @@ const CalendarPage: React.FC = () => {
                   )}
                   {dayEvents.length > 0 && (
                     <div
+                      className={
+                        "calendar-event-count " +
+                        (eventUrgency
+                          ? `urgency-${eventUrgency}`
+                          : "urgency-none")
+                      }
                       style={{
                         display: "inline-flex",
                         alignItems: "center",
                         gap: 4,
-                        color: "#d3a8ff",
                       }}
                     >
                       <span
@@ -606,7 +670,6 @@ const CalendarPage: React.FC = () => {
                           width: 6,
                           height: 6,
                           borderRadius: "50%",
-                          background: "#7f3dff",
                         }}
                       />
                       <span>
@@ -626,3 +689,4 @@ const CalendarPage: React.FC = () => {
 };
 
 export default CalendarPage;
+

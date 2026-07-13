@@ -18,6 +18,9 @@ import {
 import type {
   RightSidebarMode,
 } from "../types/rightSidebar";
+import {
+  RIGHT_SIDEBAR_MODE_OPTIONS,
+} from "../types/rightSidebar";
 
 import "../styles/dashboard.css";
 
@@ -989,22 +992,16 @@ const DashboardPage: React.FC<
             event: React.ChangeEvent<HTMLSelectElement>
           ) =>
             onSidebarModeChange(
-              event.target
-                .value ===
-                "documents"
-                ? "documents"
-                : "tasks"
+              event.target.value as RightSidebarMode
             )
           }
           aria-label="Right sidebar content"
         >
-          <option value="tasks">
-            Tasks
-          </option>
-
-          <option value="documents">
-            Documents
-          </option>
+          {RIGHT_SIDEBAR_MODE_OPTIONS.map((option) => (
+            <option key={option.value} value={option.value}>
+              {option.label}
+            </option>
+          ))}
         </select>
       </section>
     </div>

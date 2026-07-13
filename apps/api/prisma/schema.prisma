@@ -67,6 +67,7 @@ model Event {
   allDay      Boolean  @default(false)
 
   kind        String   @default("general")
+  urgency     String?
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
@@ -133,3 +134,4 @@ model MailMessage {
   threadKey   String?
   inReplyToId String?
 }
+

@@ -1,0 +1,57 @@
+.calendar-event-urgency-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--text-muted);
+  font-size: var(--font-size-sm);
+}
+
+.calendar-event-urgency-field select {
+  min-width: 130px;
+  padding: 6px 9px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface-input);
+  color: var(--text);
+}
+
+.calendar-event-count {
+  color: var(--accent-text);
+}
+
+.calendar-event-count > span:first-child {
+  background: var(--accent-2);
+}
+
+.calendar-event-count.urgency-critical {
+  color: var(--priority-critical-text);
+}
+
+.calendar-event-count.urgency-critical > span:first-child {
+  background: var(--priority-critical);
+}
+
+.calendar-event-count.urgency-high {
+  color: var(--priority-high-text);
+}
+
+.calendar-event-count.urgency-high > span:first-child {
+  background: var(--priority-high);
+}
+
+.calendar-event-count.urgency-medium {
+  color: var(--priority-medium-text);
+}
+
+.calendar-event-count.urgency-medium > span:first-child {
+  background: var(--priority-medium);
+}
+
+.calendar-event-count.urgency-low {
+  color: var(--priority-low-text);
+}
+
+.calendar-event-count.urgency-low > span:first-child {
+  background: var(--priority-low);
+}
+

@@ -9,6 +9,7 @@ const router = express.Router();
 router.use(authMiddleware);
 
 type EventKind = string; // keep free-form for now
+type EventUrgency = "critical" | "high" | "medium" | "low";
 
 interface EventResponse {
   id: string;
@@ -18,6 +19,7 @@ interface EventResponse {
   end: string;
   allDay: boolean;
   kind: EventKind;
+  urgency: EventUrgency | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -35,6 +37,7 @@ function mapEvent(ev: any): EventResponse {
     end: toIso(ev.end),
     allDay: Boolean(ev.allDay),
     kind: (ev.kind as EventKind) || "event",
+    urgency: normalizeUrgency(ev.urgency),
     createdAt: toIso(ev.createdAt),
     updatedAt: toIso(ev.updatedAt),
   };
@@ -45,6 +48,22 @@ function parseDateParam(value: unknown): Date | null {
   const d = new Date(String(value));
   if (Number.isNaN(d.getTime())) return null;
   return d;
+}
+
+function normalizeUrgency(value: unknown): EventUrgency | null {
+  return value === "critical" ||
+    value === "high" ||
+    value === "medium" ||
+    value === "low"
+    ? value
+    : null;
+}
+
+function hasValidUrgency(value: unknown): boolean {
+  return value === undefined ||
+    value === null ||
+    value === "" ||
+    normalizeUrgency(value) !== null;
 }
 
 // GET /events
@@ -89,7 +108,15 @@ router.post("/", async (req, res) => {
     return res.status(401).json({ error: "Unauthenticated" });
   }
 
-  const { title, description, start, end, allDay, kind } = req.body || {};
+  const {
+    title,
+    description,
+    start,
+    end,
+    allDay,
+    kind,
+    urgency,
+  } = req.body || {};
 
   if (!title || typeof title !== "string") {
     return res.status(400).json({ error: "Title is required" });
@@ -111,6 +138,10 @@ router.post("/", async (req, res) => {
       ? kind.trim()
       : "event";
 
+  if (!hasValidUrgency(urgency)) {
+    return res.status(400).json({ error: "Invalid event urgency" });
+  }
+
   try {
     const created = await prisma.event.create({
       data: {
@@ -122,6 +153,7 @@ router.post("/", async (req, res) => {
         end: endDate,
         allDay: finalAllDay,
         kind: finalKind,
+        urgency: normalizeUrgency(urgency),
       },
     });
 
@@ -165,7 +197,15 @@ router.put("/:id", async (req, res) => {
   }
 
   const { id } = req.params;
-  const { title, description, start, end, allDay, kind } = req.body || {};
+  const {
+    title,
+    description,
+    start,
+    end,
+    allDay,
+    kind,
+    urgency,
+  } = req.body || {};
 
   const data: any = {};
 
@@ -197,6 +237,14 @@ router.put("/:id", async (req, res) => {
 
   if (typeof kind === "string" && kind.trim().length > 0) {
     data.kind = kind.trim();
+  }
+
+  if (urgency !== undefined) {
+    if (!hasValidUrgency(urgency)) {
+      return res.status(400).json({ error: "Invalid event urgency" });
+    }
+
+    data.urgency = normalizeUrgency(urgency);
   }
 
   try {
@@ -255,3 +303,4 @@ router.delete("/:id", async (req, res) => {
 });
 
 export { router as eventsRouter };
+

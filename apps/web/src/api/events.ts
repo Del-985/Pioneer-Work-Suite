@@ -16,6 +16,13 @@ import {
 } from "./storage";
 
 export type EventKind = string;
+export const EVENTS_CHANGED_EVENT =
+  "pioneer:calendar-events-changed";
+export type EventUrgency =
+  | "critical"
+  | "high"
+  | "medium"
+  | "low";
 
 export interface CalendarEvent {
   id: string;
@@ -25,6 +32,7 @@ export interface CalendarEvent {
   end: string;
   allDay: boolean;
   kind: EventKind;
+  urgency: EventUrgency | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -36,7 +44,13 @@ export interface EventQueryParams {
 
 export type EventPayload = Pick<
   CalendarEvent,
-  "title" | "description" | "start" | "end" | "allDay" | "kind"
+  | "title"
+  | "description"
+  | "start"
+  | "end"
+  | "allDay"
+  | "kind"
+  | "urgency"
 >;
 
 export type EventPatch = Partial<EventPayload>;
@@ -82,6 +96,23 @@ function isOfflineEventId(id: string): boolean {
   return id.startsWith("offline-event-");
 }
 
+function normalizeEventUrgency(
+  value: unknown
+): EventUrgency | null {
+  return value === "critical" ||
+    value === "high" ||
+    value === "medium" ||
+    value === "low"
+    ? value
+    : null;
+}
+
+function notifyEventsChanged(): void {
+  if (hasBrowserWindow()) {
+    window.dispatchEvent(new Event(EVENTS_CHANGED_EVENT));
+  }
+}
+
 function normalizeEvent(raw: any): CalendarEvent {
   const now = nowIso();
 
@@ -93,6 +124,7 @@ function normalizeEvent(raw: any): CalendarEvent {
     end: raw?.end ? String(raw.end) : now,
     allDay: Boolean(raw?.allDay),
     kind: String(raw?.kind ?? "event"),
+    urgency: normalizeEventUrgency(raw?.urgency),
     createdAt: raw?.createdAt ? String(raw.createdAt) : now,
     updatedAt: raw?.updatedAt ? String(raw.updatedAt) : now,
   };
@@ -240,6 +272,7 @@ async function enqueueCreate(event: CalendarEvent): Promise<void> {
       end: event.end,
       allDay: event.allDay,
       kind: event.kind,
+      urgency: event.urgency,
     },
     timestamp: Date.now(),
   });
@@ -505,6 +538,7 @@ export async function createEvent(
     end: payload.end,
     allDay: Boolean(payload.allDay),
     kind: payload.kind || "event",
+    urgency: normalizeEventUrgency(payload.urgency),
     createdAt: nowIso(),
     updatedAt: nowIso(),
   };
@@ -512,6 +546,7 @@ export async function createEvent(
   if (!hasCloudSession() || isBrowserOffline()) {
     await mergeEventIntoCache(localEvent);
     await enqueueCreate(localEvent);
+    notifyEventsChanged();
 
     return localEvent;
   }
@@ -522,9 +557,11 @@ export async function createEvent(
       title: localEvent.title,
       description: localEvent.description,
       kind: localEvent.kind,
+      urgency: localEvent.urgency,
     });
 
     await mergeEventIntoCache(created);
+    notifyEventsChanged();
 
     return created;
   } catch (error) {
@@ -534,6 +571,7 @@ export async function createEvent(
 
     await mergeEventIntoCache(localEvent);
     await enqueueCreate(localEvent);
+    notifyEventsChanged();
 
     return localEvent;
   }
@@ -556,6 +594,7 @@ export async function updateEvent(
       end: nowIso(),
       allDay: false,
       kind: "event",
+      urgency: null,
       createdAt: nowIso(),
     }),
     ...updates,
@@ -563,6 +602,7 @@ export async function updateEvent(
   });
 
   await mergeEventIntoCache(optimistic);
+  notifyEventsChanged();
 
   if (!hasCloudSession() || isBrowserOffline()) {
     await enqueueUpdate(id, updates);
@@ -591,6 +631,7 @@ export async function deleteEvent(id: string): Promise<void> {
   await ensureEventStorageReady();
 
   await removeEventFromCache(id);
+  notifyEventsChanged();
 
   if (!hasCloudSession() || isBrowserOffline()) {
     await enqueueDelete(id);

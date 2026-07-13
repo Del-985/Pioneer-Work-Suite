@@ -1,5 +1,13 @@
 // apps/web/src/api/settings.ts
 
+import {
+  isRightSidebarMode,
+  normalizeRightSidebarMode,
+} from "../types/rightSidebar";
+import type {
+  RightSidebarMode,
+} from "../types/rightSidebar";
+
 export type ThemePreference = "dark" | "light" | "system";
 
 export type FontSizePreference =
@@ -10,11 +18,7 @@ export type FontSizePreference =
 
 export type UiDensityPreference = "compact" | "comfortable";
 
-export type SidebarContentPreference =
-  | "tasks"
-  | "documents"
-  | "calendar"
-  | "mail";
+export type SidebarContentPreference = RightSidebarMode;
 
 export type StartupPagePreference =
   | "dashboard"
@@ -124,12 +128,7 @@ function isUiDensityPreference(
 function isSidebarContentPreference(
   value: unknown
 ): value is SidebarContentPreference {
-  return (
-    value === "tasks" ||
-    value === "documents" ||
-    value === "calendar" ||
-    value === "mail"
-  );
+  return isRightSidebarMode(value);
 }
 
 function isStartupPagePreference(
@@ -220,9 +219,15 @@ function normalizeSettings(raw: unknown): AppSettings {
         sidebar.rightSidebarOpen;
     }
 
-    if (isSidebarContentPreference(sidebar.rightSidebarDefault)) {
+    if (
+      isSidebarContentPreference(sidebar.rightSidebarDefault) ||
+      sidebar.rightSidebarDefault === "documents" ||
+      sidebar.rightSidebarDefault === "mail"
+    ) {
       settings.sidebar.rightSidebarDefault =
-        sidebar.rightSidebarDefault;
+        normalizeRightSidebarMode(
+          sidebar.rightSidebarDefault
+        );
     }
 
     if (typeof sidebar.rememberOpenState === "boolean") {
@@ -280,7 +285,7 @@ function migrateLegacySettings(): AppSettings {
       legacySidebarMode === "documents"
     ) {
       settings.sidebar.rightSidebarDefault =
-        legacySidebarMode;
+        normalizeRightSidebarMode(legacySidebarMode);
     }
 
     writeStoredSettings(settings);

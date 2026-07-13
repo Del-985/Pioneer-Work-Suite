@@ -12,6 +12,7 @@ interface RightSidebarDocumentsPanelProps {
   documents: Document[];
   loading: boolean;
   error: string | null;
+  emptyMessage?: string;
   onOpenDocument: (id: string) => void;
   onOpenDocuments: () => void;
 }
@@ -22,6 +23,7 @@ const RightSidebarDocumentsPanel: React.FC<
   documents,
   loading,
   error,
+  emptyMessage = "No documents yet.",
   onOpenDocument,
   onOpenDocuments,
 }) => {
@@ -32,7 +34,7 @@ const RightSidebarDocumentsPanel: React.FC<
         error={error}
         empty={
           !loading && !error && documents.length === 0
-            ? "No documents yet."
+            ? emptyMessage
             : null
         }
       />

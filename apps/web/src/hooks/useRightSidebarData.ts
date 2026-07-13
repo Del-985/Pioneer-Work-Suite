@@ -15,6 +15,13 @@ import type {
   Document,
 } from "../api/documents";
 import {
+  EVENTS_CHANGED_EVENT,
+  fetchEvents,
+} from "../api/events";
+import type {
+  CalendarEvent,
+} from "../api/events";
+import {
   SYNC_STATE_EVENT,
 } from "../api/syncSupport";
 import {
@@ -27,7 +34,7 @@ import type {
   Task,
 } from "../api/tasks";
 import {
-  sortDocumentsByPinnedThenUpdated,
+  sortDocumentsByUpdated,
 } from "../utils/documentSort";
 import {
   getDueDateKey,
@@ -37,6 +44,9 @@ import {
 import {
   TASK_PRIORITY_RANK,
 } from "../utils/taskPriority";
+import type {
+  RightSidebarMode,
+} from "../types/rightSidebar";
 
 function sortSidebarTasks(tasks: Task[]): Task[] {
   return [...tasks].sort((left, right) => {
@@ -77,20 +87,28 @@ function sortSidebarTasks(tasks: Task[]): Task[] {
 
 export function useRightSidebarData(
   workspaceAccessible: boolean,
-  cloudConnected: boolean
+  cloudConnected: boolean,
+  mode: RightSidebarMode,
+  isOpen: boolean
 ) {
   const location = useLocation();
 
   const [tasks, setTasks] = useState<Task[]>([]);
   const [documents, setDocuments] =
     useState<Document[]>([]);
+  const [events, setEvents] =
+    useState<CalendarEvent[]>([]);
   const [tasksLoading, setTasksLoading] =
     useState(false);
   const [documentsLoading, setDocumentsLoading] =
     useState(false);
+  const [eventsLoading, setEventsLoading] =
+    useState(false);
   const [tasksError, setTasksError] =
     useState<string | null>(null);
   const [documentsError, setDocumentsError] =
+    useState<string | null>(null);
+  const [eventsError, setEventsError] =
     useState<string | null>(null);
   const [newTaskTitle, setNewTaskTitle] =
     useState("");
@@ -102,48 +120,105 @@ export function useRightSidebarData(
       if (!workspaceAccessible) {
         setTasks([]);
         setDocuments([]);
+        setEvents([]);
         setTasksError(null);
         setDocumentsError(null);
+        setEventsError(null);
         setTasksLoading(false);
         setDocumentsLoading(false);
+        setEventsLoading(false);
         return;
       }
 
-      setTasksLoading(true);
-      setDocumentsLoading(true);
-      setTasksError(null);
-      setDocumentsError(null);
+      if (!isOpen || mode === "none") {
+        return;
+      }
 
-      const [taskResult, documentResult] =
+      const needsTasks =
+        mode === "tasks" || mode === "statistics";
+      const needsDocuments =
+        mode === "recent_documents" ||
+        mode === "pinned_documents" ||
+        mode === "statistics";
+      const needsEvents =
+        mode === "calendar" || mode === "statistics";
+
+      if (needsTasks) {
+        setTasksLoading(true);
+        setTasksError(null);
+      }
+
+      if (needsDocuments) {
+        setDocumentsLoading(true);
+        setDocumentsError(null);
+      }
+
+      if (needsEvents) {
+        setEventsLoading(true);
+        setEventsError(null);
+      }
+
+      const [taskResult, documentResult, eventResult] =
         await Promise.allSettled([
-          fetchTasks(),
-          fetchDocuments(),
+          needsTasks ? fetchTasks() : Promise.resolve(null),
+          needsDocuments
+            ? fetchDocuments()
+            : Promise.resolve(null),
+          needsEvents ? fetchEvents() : Promise.resolve(null),
         ]);
 
-      if (taskResult.status === "fulfilled") {
-        setTasks(taskResult.value);
-      } else {
-        console.error(
-          "Unable to load sidebar tasks:",
-          taskResult.reason
-        );
-        setTasksError("Unable to load tasks.");
+      if (needsTasks) {
+        if (taskResult.status === "fulfilled") {
+          if (taskResult.value) {
+            setTasks(taskResult.value);
+          }
+        } else {
+          console.error(
+            "Unable to load sidebar tasks:",
+            taskResult.reason
+          );
+          setTasksError("Unable to load tasks.");
+        }
       }
 
-      if (documentResult.status === "fulfilled") {
-        setDocuments(documentResult.value);
-      } else {
-        console.error(
-          "Unable to load sidebar documents:",
-          documentResult.reason
-        );
-        setDocumentsError("Unable to load documents.");
+      if (needsDocuments) {
+        if (documentResult.status === "fulfilled") {
+          if (documentResult.value) {
+            setDocuments(documentResult.value);
+          }
+        } else {
+          console.error(
+            "Unable to load sidebar documents:",
+            documentResult.reason
+          );
+          setDocumentsError("Unable to load documents.");
+        }
       }
 
-      setTasksLoading(false);
-      setDocumentsLoading(false);
+      if (needsEvents) {
+        if (eventResult.status === "fulfilled") {
+          if (eventResult.value) {
+            setEvents(eventResult.value);
+          }
+        } else {
+          console.error(
+            "Unable to load sidebar events:",
+            eventResult.reason
+          );
+          setEventsError("Unable to load events.");
+        }
+      }
+
+      if (needsTasks) setTasksLoading(false);
+      if (needsDocuments) setDocumentsLoading(false);
+      if (needsEvents) setEventsLoading(false);
     },
-    [cloudConnected, workspaceAccessible]
+    [
+      cloudConnected,
+      isOpen,
+      mode,
+      workspaceAccessible,
+    ]
   );
 
   useEffect(() => {
@@ -156,9 +231,14 @@ export function useRightSidebarData(
     };
 
     window.addEventListener(SYNC_STATE_EVENT, refresh);
+    window.addEventListener(EVENTS_CHANGED_EVENT, refresh);
 
     return () => {
       window.removeEventListener(SYNC_STATE_EVENT, refresh);
+      window.removeEventListener(
+        EVENTS_CHANGED_EVENT,
+        refresh
+      );
     };
   }, [loadSidebarData]);
 
@@ -166,10 +246,32 @@ export function useRightSidebarData(
     () => sortSidebarTasks(tasks),
     [tasks]
   );
-  const sortedDocuments = useMemo(
-    () => sortDocumentsByPinnedThenUpdated(documents),
+  const recentDocuments = useMemo(
+    () => sortDocumentsByUpdated(documents),
     [documents]
   );
+  const pinnedDocuments = useMemo(
+    () =>
+      sortDocumentsByUpdated(
+        documents.filter((document) => document.isPinned)
+      ),
+    [documents]
+  );
+  const upcomingEvents = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return [...events]
+      .filter((event) => {
+        const end = new Date(event.end || event.start);
+        return !Number.isNaN(end.getTime()) && end >= today;
+      })
+      .sort(
+        (left, right) =>
+          new Date(left.start).getTime() -
+          new Date(right.start).getTime()
+      );
+  }, [events]);
   const taskSummary = useMemo(() => {
     const activeTasks = tasks.filter(
       (task) => task.status !== "done"
@@ -184,6 +286,22 @@ export function useRightSidebarData(
       ).length,
     };
   }, [tasks]);
+  const statistics = useMemo(
+    () => ({
+      activeTasks: tasks.filter(
+        (task) => task.status !== "done"
+      ).length,
+      completedTasks: tasks.filter(
+        (task) => task.status === "done"
+      ).length,
+      totalDocuments: documents.length,
+      pinnedDocuments: documents.filter(
+        (document) => document.isPinned
+      ).length,
+      upcomingEvents: upcomingEvents.length,
+    }),
+    [documents, tasks, upcomingEvents.length]
+  );
 
   async function createSidebarTask(
     event: React.FormEvent<HTMLFormElement>
@@ -274,12 +392,17 @@ export function useRightSidebarData(
 
   return {
     sortedTasks,
-    sortedDocuments,
+    recentDocuments,
+    pinnedDocuments,
+    upcomingEvents,
+    statistics,
     taskSummary,
     tasksLoading,
     documentsLoading,
+    eventsLoading,
     tasksError,
     documentsError,
+    eventsError,
     newTaskTitle,
     setNewTaskTitle,
     creatingTask,

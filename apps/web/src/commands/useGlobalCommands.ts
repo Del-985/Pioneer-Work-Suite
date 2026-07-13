@@ -14,6 +14,9 @@ import {
 import type {
   RightSidebarMode,
 } from "../types/rightSidebar";
+import {
+  RIGHT_SIDEBAR_MODE_OPTIONS,
+} from "../types/rightSidebar";
 import type {
   CommandDefinition,
 } from "./commandTypes";
@@ -160,34 +163,24 @@ export function useGlobalCommands({
         keywords: ["panel", "layout"],
         run: onToggleRightSidebar,
       },
-      {
-        id: "sidebar-show-tasks",
-        title: "Right sidebar: Show Tasks",
-        category: "Workspace",
+      ...RIGHT_SIDEBAR_MODE_OPTIONS.map((option) => ({
+        id: `sidebar-show-${option.value}`,
+        title: `Right sidebar: Show ${option.label}`,
+        category: "Workspace" as const,
         description:
-          rightSidebarMode === "tasks"
-            ? "Tasks are already selected"
-            : "Switch the side panel to Tasks",
-        keywords: ["panel", "task sidebar"],
-        enabled: rightSidebarMode !== "tasks",
+          rightSidebarMode === option.value
+            ? `${option.label} is already selected`
+            : `Switch the side panel to ${option.label}`,
+        keywords: [
+          "panel",
+          "sidebar",
+          option.label.toLocaleLowerCase(),
+        ],
+        enabled: rightSidebarMode !== option.value,
         disabledReason:
-          "Tasks are already shown in the right sidebar.",
-        run: () => onSetRightSidebarMode("tasks"),
-      },
-      {
-        id: "sidebar-show-documents",
-        title: "Right sidebar: Show Documents",
-        category: "Workspace",
-        description:
-          rightSidebarMode === "documents"
-            ? "Documents are already selected"
-            : "Switch the side panel to Documents",
-        keywords: ["panel", "document sidebar"],
-        enabled: rightSidebarMode !== "documents",
-        disabledReason:
-          "Documents are already shown in the right sidebar.",
-        run: () => onSetRightSidebarMode("documents"),
-      },
+          `${option.label} is already shown in the right sidebar.`,
+        run: () => onSetRightSidebarMode(option.value),
+      })),
       {
         id: "toggle-cloud",
         title: cloudConnected
