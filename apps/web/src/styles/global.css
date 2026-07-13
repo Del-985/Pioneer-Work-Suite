@@ -510,6 +510,12 @@ p {
   gap: var(--space-2);
 }
 
+.sidebar-nav > .nav-item {
+  align-self: stretch;
+  box-sizing: border-box;
+  text-align: left;
+}
+
 .nav-item {
   all: unset;
   display: block;

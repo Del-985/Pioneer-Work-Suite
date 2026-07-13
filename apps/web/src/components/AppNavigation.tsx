@@ -50,30 +50,30 @@ const AppNavigation: React.FC<AppNavigationProps> = ({
         ))}
 
         <button
-          className="nav-item sidebar-search-button"
+          className="nav-item"
           type="button"
           onClick={openGlobalSearch}
+          aria-keyshortcuts="Control+K Meta+K"
         >
           Search
-          <span>Ctrl K</span>
         </button>
 
         <button
-          className="nav-item sidebar-search-button"
+          className="nav-item"
           type="button"
           onClick={openCommandPalette}
+          aria-keyshortcuts="Control+Shift+P Meta+Shift+P"
         >
           Commands
-          <span>Ctrl Shift P</span>
         </button>
 
         <button
-          className="nav-item sidebar-search-button"
+          className="nav-item"
           type="button"
           onClick={openShortcutReference}
+          aria-keyshortcuts="Control+/ Meta+/"
         >
           Shortcuts
-          <span>Ctrl /</span>
         </button>
       </nav>
 
