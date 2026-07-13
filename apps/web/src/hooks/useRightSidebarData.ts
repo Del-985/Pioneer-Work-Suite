@@ -25,6 +25,7 @@ import {
   SYNC_STATE_EVENT,
 } from "../api/syncSupport";
 import {
+  TASKS_CHANGED_EVENT,
   createTask,
   deleteTask,
   fetchTasks,
@@ -232,6 +233,7 @@ export function useRightSidebarData(
 
     window.addEventListener(SYNC_STATE_EVENT, refresh);
     window.addEventListener(EVENTS_CHANGED_EVENT, refresh);
+    window.addEventListener(TASKS_CHANGED_EVENT, refresh);
 
     return () => {
       window.removeEventListener(SYNC_STATE_EVENT, refresh);
@@ -239,11 +241,15 @@ export function useRightSidebarData(
         EVENTS_CHANGED_EVENT,
         refresh
       );
+      window.removeEventListener(TASKS_CHANGED_EVENT, refresh);
     };
   }, [loadSidebarData]);
 
   const sortedTasks = useMemo(
-    () => sortSidebarTasks(tasks),
+    () =>
+      sortSidebarTasks(
+        tasks.filter((task) => !task.archivedAt)
+      ),
     [tasks]
   );
   const recentDocuments = useMemo(
@@ -274,7 +280,7 @@ export function useRightSidebarData(
   }, [events]);
   const taskSummary = useMemo(() => {
     const activeTasks = tasks.filter(
-      (task) => task.status !== "done"
+      (task) => !task.archivedAt && task.status !== "done"
     );
 
     return {
@@ -289,10 +295,10 @@ export function useRightSidebarData(
   const statistics = useMemo(
     () => ({
       activeTasks: tasks.filter(
-        (task) => task.status !== "done"
+        (task) => !task.archivedAt && task.status !== "done"
       ).length,
       completedTasks: tasks.filter(
-        (task) => task.status === "done"
+        (task) => !task.archivedAt && task.status === "done"
       ).length,
       totalDocuments: documents.length,
       pinnedDocuments: documents.filter(
@@ -411,4 +417,3 @@ export function useRightSidebarData(
     deleteSidebarTask,
   };
 }
-

@@ -1,6 +1,6 @@
 # Pioneer Work Suite repository structure
 
-This document describes the current source layout after the 0.1.10 architecture cleanup. Generated folders such as `node_modules`, `dist`, Prisma output, and Tauri build artifacts are intentionally omitted.
+This document describes the current source layout for 0.1.11 after the architecture cleanup and Tasks v2 expansion. Generated folders such as `node_modules`, `dist`, Prisma output, and Tauri build artifacts are intentionally omitted.
 
 ```text
 Pioneer-Work-Suite/
@@ -29,6 +29,7 @@ Pioneer-Work-Suite/
 |       |   |-- keyboard/
 |       |   |-- pages/
 |       |   |-- search/
+|       |   |-- status/
 |       |   |-- styles/
 |       |   |-- types/
 |       |   |-- utils/
@@ -64,6 +65,7 @@ Pioneer-Work-Suite/
 - `components/right-sidebar/` contains the sidebar's focused presentation panels and shared messages.
 - `commands/` owns the command registry, global commands, and page-level command lifecycle.
 - `keyboard/` owns keyboard shortcut matching, registration, and display metadata.
+- `status/` and `hooks/useStatusBarItems.ts` provide the page-context registry used by the application status bar.
 - `api/` owns local-first persistence, cloud requests, queues, synchronization, session state, and settings.
 - `pages/` owns feature-level screens; shared shell behavior should not be added there.
 - `config/`, `types/`, and `utils/` contain centralized metadata, shared contracts, and behavior-neutral helpers.
@@ -92,4 +94,3 @@ npm run build --workspace apps/web
 ```
 
 API and desktop production builds remain available through the root scripts and each workspace's package scripts. The API build runs the configured Prisma schema preparation step, so it should use the intended database environment.
-

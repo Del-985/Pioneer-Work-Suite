@@ -13,16 +13,19 @@ type TaskPriority = "critical" | "high" | "medium" | "low";
 interface TaskResponse {
   id: string;
   title: string;
+  description: string;
   status: TaskStatus;
   priority: TaskPriority;
+  tags: string[];
+  dueDate: string | null;
+  completedAt: string | null;
+  archivedAt: string | null;
   createdAt: string;
-  dueDate?: string | null;
+  updatedAt: string;
 }
 
 function normalizePriority(input: unknown): TaskPriority {
-  const value = String(input ?? "")
-    .trim()
-    .toLowerCase();
+  const value = String(input ?? "").trim().toLowerCase();
 
   if (
     value === "critical" ||
@@ -33,22 +36,29 @@ function normalizePriority(input: unknown): TaskPriority {
     return value;
   }
 
-  // Legacy Tasks v1 records used "normal".
-  if (value === "normal") {
-    return "medium";
-  }
-
-  return "medium";
+  return value === "normal" ? "medium" : "medium";
 }
 
-function parseDueDate(input: unknown): Date | null {
-  if (input === null || input === undefined || input === "") {
-    return null;
-  }
+function normalizeStatus(input: unknown): TaskStatus {
+  return input === "in_progress" || input === "done"
+    ? input
+    : "todo";
+}
 
+function normalizeTags(input: unknown): string[] {
+  if (!Array.isArray(input)) return [];
+
+  return [...new Set(
+    input
+      .map((tag) => String(tag).trim())
+      .filter(Boolean)
+      .map((tag) => tag.slice(0, 40))
+  )].slice(0, 50);
+}
+
+function parseDate(input: unknown): Date | null {
+  if (input === null || input === undefined || input === "") return null;
   const value = String(input).trim();
-
-  // Treat YYYY-MM-DD as a calendar date rather than local midnight.
   const parsed = /^\d{4}-\d{2}-\d{2}$/.test(value)
     ? new Date(`${value}T00:00:00.000Z`)
     : new Date(value);
@@ -56,36 +66,37 @@ function parseDueDate(input: unknown): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function toIso(value: unknown): string | null {
+  if (!value) return null;
+  const date = value instanceof Date ? value : new Date(String(value));
+  return Number.isNaN(date.getTime()) ? null : date.toISOString();
+}
+
 function mapTask(task: any): TaskResponse {
   return {
-    id: task.id,
-    title: task.title,
-    status: (task.status as TaskStatus) || "todo",
+    id: String(task.id),
+    title: String(task.title ?? ""),
+    description: String(task.description ?? ""),
+    status: normalizeStatus(task.status),
     priority: normalizePriority(task.priority),
-    createdAt:
-      task.createdAt instanceof Date
-        ? task.createdAt.toISOString()
-        : String(task.createdAt),
-    dueDate:
-      task.dueDate instanceof Date
-        ? task.dueDate.toISOString()
-        : task.dueDate ?? null,
+    tags: normalizeTags(task.tags),
+    dueDate: toIso(task.dueDate),
+    completedAt: toIso(task.completedAt),
+    archivedAt: toIso(task.archivedAt),
+    createdAt: toIso(task.createdAt) ?? new Date().toISOString(),
+    updatedAt: toIso(task.updatedAt) ?? new Date().toISOString(),
   };
 }
 
 router.get("/", async (req, res) => {
   const user = (req as any).user as User | undefined;
-
-  if (!user) {
-    return res.status(401).json({ error: "Unauthenticated" });
-  }
+  if (!user) return res.status(401).json({ error: "Unauthenticated" });
 
   try {
     const tasks = await prisma.task.findMany({
       where: { userId: user.id },
       orderBy: { createdAt: "desc" },
     });
-
     return res.json(tasks.map(mapTask));
   } catch (error) {
     console.error("Error in GET /tasks:", error);
@@ -95,30 +106,35 @@ router.get("/", async (req, res) => {
 
 router.post("/", async (req, res) => {
   const user = (req as any).user as User | undefined;
+  if (!user) return res.status(401).json({ error: "Unauthenticated" });
 
-  if (!user) {
-    return res.status(401).json({ error: "Unauthenticated" });
-  }
-
-  const { title, status, dueDate, priority } = req.body || {};
+  const {
+    title,
+    description,
+    status,
+    dueDate,
+    priority,
+    tags,
+  } = req.body || {};
 
   if (!title || typeof title !== "string" || !title.trim()) {
     return res.status(400).json({ error: "Title is required" });
   }
 
-  const statusValue: TaskStatus =
-    status === "in_progress" || status === "done" ? status : "todo";
-  const priorityValue = normalizePriority(priority);
-  const parsedDueDate = parseDueDate(dueDate);
+  const statusValue = normalizeStatus(status);
 
   try {
     const created = await prisma.task.create({
       data: {
-        title: title.trim(),
-        status: statusValue,
-        priority: priorityValue,
         userId: user.id,
-        dueDate: parsedDueDate,
+        title: title.trim(),
+        description:
+          typeof description === "string" ? description.trim() : "",
+        status: statusValue,
+        priority: normalizePriority(priority),
+        tags: normalizeTags(tags),
+        dueDate: parseDate(dueDate),
+        completedAt: statusValue === "done" ? new Date() : null,
       },
     });
 
@@ -131,49 +147,52 @@ router.post("/", async (req, res) => {
 
 router.put("/:id", async (req, res) => {
   const user = (req as any).user as User | undefined;
+  if (!user) return res.status(401).json({ error: "Unauthenticated" });
 
-  if (!user) {
-    return res.status(401).json({ error: "Unauthenticated" });
-  }
+  const existing = await prisma.task.findFirst({
+    where: { id: req.params.id, userId: user.id },
+  });
 
-  const { id } = req.params;
-  const { title, status, dueDate, priority } = req.body || {};
+  if (!existing) return res.status(404).json({ error: "Task not found" });
+
+  const patch = req.body || {};
   const data: any = {};
 
-  if (typeof title === "string" && title.trim().length > 0) {
-    data.title = title.trim();
+  if (typeof patch.title === "string" && patch.title.trim()) {
+    data.title = patch.title.trim();
   }
-
+  if (typeof patch.description === "string") {
+    data.description = patch.description.trim();
+  }
+  if (patch.priority !== undefined) {
+    data.priority = normalizePriority(patch.priority);
+  }
+  if (patch.tags !== undefined) {
+    data.tags = normalizeTags(patch.tags);
+  }
+  if (patch.dueDate !== undefined) {
+    data.dueDate = parseDate(patch.dueDate);
+  }
   if (
-    status === "todo" ||
-    status === "in_progress" ||
-    status === "done"
+    patch.status === "todo" ||
+    patch.status === "in_progress" ||
+    patch.status === "done"
   ) {
-    data.status = status;
+    data.status = patch.status;
+    data.completedAt =
+      patch.status === "done"
+        ? existing.completedAt ?? new Date()
+        : null;
   }
-
-  if (priority !== undefined) {
-    data.priority = normalizePriority(priority);
-  }
-
-  if (dueDate !== undefined) {
-    data.dueDate = parseDueDate(dueDate);
+  if (patch.archivedAt !== undefined) {
+    data.archivedAt = parseDate(patch.archivedAt);
   }
 
   try {
-    const existing = await prisma.task.findFirst({
-      where: { id, userId: user.id },
-    });
-
-    if (!existing) {
-      return res.status(404).json({ error: "Task not found" });
-    }
-
     const updated = await prisma.task.update({
       where: { id: existing.id },
       data,
     });
-
     return res.json(mapTask(updated));
   } catch (error) {
     console.error("Error in PUT /tasks/:id:", error);
@@ -183,26 +202,14 @@ router.put("/:id", async (req, res) => {
 
 router.delete("/:id", async (req, res) => {
   const user = (req as any).user as User | undefined;
-
-  if (!user) {
-    return res.status(401).json({ error: "Unauthenticated" });
-  }
-
-  const { id } = req.params;
+  if (!user) return res.status(401).json({ error: "Unauthenticated" });
 
   try {
     const existing = await prisma.task.findFirst({
-      where: { id, userId: user.id },
+      where: { id: req.params.id, userId: user.id },
     });
-
-    if (!existing) {
-      return res.status(404).json({ error: "Task not found" });
-    }
-
-    await prisma.task.delete({
-      where: { id: existing.id },
-    });
-
+    if (!existing) return res.status(404).json({ error: "Task not found" });
+    await prisma.task.delete({ where: { id: existing.id } });
     return res.status(204).send();
   } catch (error) {
     console.error("Error in DELETE /tasks/:id:", error);

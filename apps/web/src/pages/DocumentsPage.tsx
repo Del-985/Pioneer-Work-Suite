@@ -29,6 +29,8 @@ import {
 import type {
   ShortcutDefinition,
 } from "../keyboard/keyboardTypes";
+import { useStatusBarItems } from "../hooks/useStatusBarItems";
+import type { StatusBarItem } from "../status/statusRegistry";
 import {
   calculateDocumentStatistics,
   exportDocumentAsHtml,
@@ -158,6 +160,8 @@ const DocumentsPage: React.FC = () => {
     useState<string | null>(null);
   const [hasLocalChanges, setHasLocalChanges] =
     useState(false);
+  const [cursorPosition, setCursorPosition] =
+    useState({ line: 1, column: 1 });
 
   const [findOpen, setFindOpen] =
     useState(false);
@@ -187,6 +191,71 @@ const DocumentsPage: React.FC = () => {
       calculateDocumentStatistics(editContent),
     [editContent]
   );
+
+  const statusItems = useMemo<StatusBarItem[]>(() => {
+    if (!selectedDocument) {
+      return [
+        {
+          id: "document-selection",
+          label: "No document selected",
+          priority: 10,
+        },
+      ];
+    }
+
+    let saveLabel = "Saved";
+    let saveTone: StatusBarItem["tone"] = "success";
+
+    if (saveError) {
+      saveLabel = "Save failed";
+      saveTone = "danger";
+    } else if (isSaving) {
+      saveLabel = "Saving…";
+      saveTone = "warning";
+    } else if (hasLocalChanges) {
+      saveLabel = "Unsaved changes";
+      saveTone = "warning";
+    } else if (lastSavedAt) {
+      const savedDate = new Date(lastSavedAt);
+      if (!Number.isNaN(savedDate.getTime())) {
+        saveLabel = `Saved ${savedDate.toLocaleTimeString([], {
+          hour: "numeric",
+          minute: "2-digit",
+        })}`;
+      }
+    }
+
+    return [
+      {
+        id: "document-save",
+        label: saveLabel,
+        title: saveError ?? "Current document save status",
+        tone: saveTone,
+        priority: 30,
+      },
+      {
+        id: "document-words",
+        label: `${statistics.words} word${statistics.words === 1 ? "" : "s"}`,
+        priority: 20,
+      },
+      {
+        id: "document-cursor",
+        label: `Ln ${cursorPosition.line}, Col ${cursorPosition.column}`,
+        priority: 10,
+      },
+    ];
+  }, [
+    cursorPosition.column,
+    cursorPosition.line,
+    hasLocalChanges,
+    isSaving,
+    lastSavedAt,
+    saveError,
+    selectedDocument,
+    statistics.words,
+  ]);
+
+  useStatusBarItems("documents-page", statusItems);
 
   const filteredDocuments = useMemo(() => {
     const normalizedSearch =
@@ -2183,6 +2252,20 @@ const DocumentsPage: React.FC = () => {
                     setHasLocalChanges(true);
                     setSaveError(null);
                   }}
+                  onChangeSelection={(range) => {
+                    if (!range) return;
+
+                    const textBeforeCursor =
+                      quillRef.current
+                        ?.getEditor?.()
+                        ?.getText?.(0, range.index) ?? "";
+                    const lines = textBeforeCursor.split("\n");
+
+                    setCursorPosition({
+                      line: lines.length,
+                      column: (lines[lines.length - 1]?.length ?? 0) + 1,
+                    });
+                  }}
                   placeholder="Start writing your document here..."
                   theme="snow"
                   modules={quillModules}
@@ -2316,4 +2399,3 @@ const LibraryLoading: React.FC = () => {
 };
 
 export default DocumentsPage;
-

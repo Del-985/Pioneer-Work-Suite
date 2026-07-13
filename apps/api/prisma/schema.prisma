@@ -26,15 +26,22 @@ model User {
 }
 
 model Task {
-  id        String   @id @default(cuid())
-  user      User     @relation(fields: [userId], references: [id])
-  userId    String
+  id          String   @id @default(cuid())
+  user        User     @relation(fields: [userId], references: [id])
+  userId      String
 
-  title     String
-  status    String
-  priority  String   @default("normal")
-  dueDate   DateTime?
-  createdAt DateTime @default(now())
+  title       String
+  description String   @default("")
+  status      String
+  priority    String   @default("medium")
+  tags        String[] @default([])
+  dueDate     DateTime?
+  completedAt DateTime?
+  archivedAt  DateTime?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([userId, archivedAt, status])
 }
 
 model Document {
@@ -134,4 +141,3 @@ model MailMessage {
   threadKey   String?
   inReplyToId String?
 }
-

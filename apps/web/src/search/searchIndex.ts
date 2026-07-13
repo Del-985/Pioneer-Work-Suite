@@ -126,8 +126,11 @@ export async function searchWorkspace(
 
       return matchesAll(
         `${task.title}
+         ${task.description}
+         ${task.tags.join(" ")}
          ${task.priority}
          ${status}
+         ${task.archivedAt ? "archived" : "active"}
          ${due}`,
         tokens
       );
@@ -152,15 +155,22 @@ export async function searchWorkspace(
 
         subtitle: `${task.priority} • ${status} • ${due}`,
 
-        preview: "",
+        preview: buildPreview(
+          [task.description, task.tags.join(" ")]
+            .filter(Boolean)
+            .join(" — "),
+          tokens
+        ),
 
         score:
           scoreField(task.title, tokens, 18) +
+          scoreField(task.description, tokens, 8) +
+          scoreField(task.tags.join(" "), tokens, 10) +
           scoreField(task.priority, tokens, 6) +
           scoreField(status, tokens, 5) +
           scoreField(due, tokens, 4),
 
-        route: `/tasks?task=${encodeURIComponent(
+        route: `${task.archivedAt ? "/tasks/archive" : "/tasks"}?task=${encodeURIComponent(
           task.id
         )}`,
       };

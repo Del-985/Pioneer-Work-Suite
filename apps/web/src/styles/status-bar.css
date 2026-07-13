@@ -33,6 +33,30 @@
   white-space: nowrap;
 }
 
+.pioneer-status-bar__context {
+  flex: 1;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.pioneer-status-bar__context .pioneer-status-bar__item {
+  overflow: hidden;
+  max-width: 180px;
+  text-overflow: ellipsis;
+}
+
+.pioneer-status-bar__item.tone-success {
+  color: var(--success);
+}
+
+.pioneer-status-bar__item.tone-warning {
+  color: var(--warning);
+}
+
+.pioneer-status-bar__item.tone-danger {
+  color: var(--danger);
+}
+
 .pioneer-status-bar__separator {
   width: 1px;
   height: 12px;
@@ -118,5 +142,12 @@
   .pioneer-status-bar__separator {
     display: none;
   }
-}
 
+  .pioneer-status-bar__context {
+    display: none;
+  }
+
+  .pioneer-status-bar__last-sync {
+    display: none;
+  }
+}

@@ -85,6 +85,15 @@ const AppRoutes: React.FC<AppRoutesProps> = ({
       />
 
       <Route
+        path="/tasks/archive"
+        element={
+          <RequireAuth>
+            <TasksPage archivedOnly />
+          </RequireAuth>
+        }
+      />
+
+      <Route
         path="/calendar"
         element={
           <RequireAuth>
@@ -131,4 +140,3 @@ const AppRoutes: React.FC<AppRoutesProps> = ({
 };
 
 export default AppRoutes;
-

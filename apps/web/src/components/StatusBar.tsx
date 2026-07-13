@@ -11,6 +11,9 @@ import {
   syncAllNow,
 } from "../api/sync";
 import { APP_VERSION } from "../config/appMetadata";
+import {
+  useRegisteredStatusBarItems,
+} from "../hooks/useStatusBarItems";
 
 import "../styles/status-bar.css";
 
@@ -53,6 +56,7 @@ function formatLastSync(value: string | null): string {
 const StatusBar: React.FC = () => {
   const location = useLocation();
   const navigate = useNavigate();
+  const contextItems = useRegisteredStatusBarItems();
 
   const [sync, setSync] = useState<SyncSnapshot>(getSyncSnapshot);
 
@@ -85,7 +89,34 @@ const StatusBar: React.FC = () => {
         <span className="pioneer-status-bar__item">{pageName}</span>
       </div>
 
+      {contextItems.length > 0 && (
+        <div
+          className="pioneer-status-bar__group pioneer-status-bar__context"
+          aria-label="Current page status"
+        >
+          {contextItems.map((item) => (
+            <span
+              key={item.id}
+              className={`pioneer-status-bar__item tone-${
+                item.tone ?? "neutral"
+              }`}
+              title={item.title}
+            >
+              {item.label}
+            </span>
+          ))}
+        </div>
+      )}
+
       <div className="pioneer-status-bar__group">
+        {sync.lastSuccessfulSyncAt && (
+          <span
+            className="pioneer-status-bar__item pioneer-status-bar__last-sync"
+            title={formatLastSync(sync.lastSuccessfulSyncAt)}
+          >
+            {formatLastSync(sync.lastSuccessfulSyncAt)}
+          </span>
+        )}
         {sync.phase === "reconnect-required" ? (
           <button
             type="button"
@@ -122,4 +153,3 @@ const StatusBar: React.FC = () => {
 };
 
 export default StatusBar;
-
