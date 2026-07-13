@@ -1,0 +1,41 @@
+.ui-card {
+  padding: var(--space-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+}
+
+.ui-button {
+  min-height: 36px;
+  padding: 7px 13px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--surface-3);
+  color: var(--text);
+  cursor: pointer;
+  font: inherit;
+}
+
+.ui-button:hover:not(:disabled) { border-color: var(--accent-border); }
+.ui-button:disabled { cursor: not-allowed; opacity: 0.58; }
+.ui-button--primary { border-color: transparent; background: var(--accent-gradient); color: var(--text-on-accent); }
+.ui-button--danger { border-color: var(--danger-border); background: var(--danger-soft); color: var(--danger); }
+.ui-button--quiet { border-color: transparent; background: transparent; }
+
+.ui-section-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-4); }
+.ui-section-header h3 { margin: 0; color: var(--text-strong); }
+.ui-section-header p { margin: var(--space-1) 0 0; color: var(--text-muted); line-height: 1.5; }
+.ui-section-header__eyebrow { color: var(--accent-text) !important; font-size: var(--font-size-xs); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.ui-section-header__actions { flex: 0 0 auto; }
+
+.ui-dialog-backdrop { position: fixed; inset: 0; z-index: 12000; display: grid; place-items: center; padding: var(--space-4); background: rgba(0, 0, 0, .68); }
+.ui-dialog { width: min(460px, 100%); padding: var(--space-6); border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--surface-1); box-shadow: var(--shadow-panel); }
+.ui-dialog h2 { margin: 0; color: var(--text-strong); font-size: var(--font-size-xl); }
+.ui-dialog p { margin: var(--space-3) 0 0; color: var(--text-muted); line-height: 1.55; }
+.ui-dialog__actions { display: flex; justify-content: flex-end; gap: var(--space-2); margin-top: var(--space-6); }
+
+@media (max-width: 560px) {
+  .ui-section-header { flex-direction: column; }
+  .ui-dialog__actions { flex-direction: column-reverse; }
+  .ui-dialog__actions .ui-button { width: 100%; }
+}

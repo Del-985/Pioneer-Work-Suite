@@ -1,7 +1,7 @@
 // apps/web/src/search/searchIndex.ts
 
-import { fetchDocuments } from "../api/documents";
-import { fetchTasks } from "../api/tasks";
+import { DOCUMENTS_CHANGED_EVENT, fetchDocuments } from "../api/documents";
+import { TASKS_CHANGED_EVENT, fetchTasks } from "../api/tasks";
 import {
   htmlToPlainText,
   formatDocumentDate,
@@ -12,6 +12,38 @@ import type {
   SearchResult,
   SearchSnapshot,
 } from "./searchTypes";
+
+const SEARCH_CACHE_TTL = 15_000;
+let cachedCollections: {
+  tasks: Awaited<ReturnType<typeof fetchTasks>>;
+  documents: Awaited<ReturnType<typeof fetchDocuments>>;
+  loadedAt: number;
+} | null = null;
+
+export function invalidateSearchIndex(): void {
+  cachedCollections = null;
+}
+
+if (typeof window !== "undefined") {
+  window.addEventListener(TASKS_CHANGED_EVENT, invalidateSearchIndex);
+  window.addEventListener(DOCUMENTS_CHANGED_EVENT, invalidateSearchIndex);
+}
+
+async function readSearchCollections() {
+  if (
+    cachedCollections &&
+    Date.now() - cachedCollections.loadedAt < SEARCH_CACHE_TTL
+  ) {
+    return cachedCollections;
+  }
+
+  const [tasks, documents] = await Promise.all([
+    fetchTasks(),
+    fetchDocuments(),
+  ]);
+  cachedCollections = { tasks, documents, loadedAt: Date.now() };
+  return cachedCollections;
+}
 
 function normalize(value: unknown): string {
   return String(value ?? "")
@@ -106,10 +138,7 @@ export async function searchWorkspace(
     };
   }
 
-  const [tasks, documents] = await Promise.all([
-    fetchTasks(),
-    fetchDocuments(),
-  ]);
+  const { tasks, documents } = await readSearchCollections();
 
   const taskResults: SearchResult[] = tasks
     .filter((task) => {

@@ -173,8 +173,8 @@ const LoginPage: React.FC = () => {
             border: "none",
             cursor: "pointer",
             background:
-              "linear-gradient(135deg, var(--accent), var(--accent-secondary, #7f3dff))",
-            color: "#ffffff",
+              "linear-gradient(135deg, var(--accent), var(--accent-secondary, var(--accent-2)))",
+            color: "var(--text-on-accent)",
             fontWeight: 500,
             fontSize: 14,
           }}
@@ -288,7 +288,7 @@ const LoginPage: React.FC = () => {
           <p
             role="alert"
             style={{
-              color: "var(--danger, #ff7b88)",
+              color: "var(--danger, var(--danger))",
               fontSize: 13,
               margin: "2px 0 0",
             }}

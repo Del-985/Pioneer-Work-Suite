@@ -18,6 +18,23 @@ export type FontSizePreference =
 
 export type UiDensityPreference = "compact" | "comfortable";
 
+export type AccentPreference =
+  | "violet"
+  | "blue"
+  | "teal"
+  | "rose"
+  | "amber";
+
+export type EditorFontPreference = "system" | "serif" | "monospace";
+export type EditorLineSpacingPreference =
+  | "compact"
+  | "comfortable"
+  | "relaxed";
+export type TaskDefaultPriority = "critical" | "high" | "medium" | "low";
+export type TaskDefaultDueDate = "none" | "today" | "tomorrow";
+export type CompletedTaskBehavior = "show" | "hide";
+export type TaskArchiveBehavior = "manual" | "automatic";
+
 export type SidebarContentPreference = RightSidebarMode;
 
 export type StartupPagePreference =
@@ -37,6 +54,22 @@ export interface AppSettings {
     density: UiDensityPreference;
     animationsEnabled: boolean;
     highContrast: boolean;
+    accent: AccentPreference;
+  };
+
+  editor: {
+    autosaveInterval: 1000 | 3000 | 5000 | 10000;
+    tabSize: 2 | 4 | 8;
+    font: EditorFontPreference;
+    lineSpacing: EditorLineSpacingPreference;
+    defaultFontSize: 14 | 16 | 18 | 20;
+  };
+
+  tasks: {
+    defaultPriority: TaskDefaultPriority;
+    defaultDueDate: TaskDefaultDueDate;
+    completedTaskBehavior: CompletedTaskBehavior;
+    archiveBehavior: TaskArchiveBehavior;
   };
 
   sidebar: {
@@ -55,8 +88,10 @@ export interface AppSettings {
   };
 }
 
-type AppSettingsPatch = {
+export type AppSettingsPatch = {
   appearance?: Partial<AppSettings["appearance"]>;
+  editor?: Partial<AppSettings["editor"]>;
+  tasks?: Partial<AppSettings["tasks"]>;
   sidebar?: Partial<AppSettings["sidebar"]>;
   workspace?: Partial<AppSettings["workspace"]>;
   developer?: Partial<AppSettings["developer"]>;
@@ -76,6 +111,22 @@ export const DEFAULT_SETTINGS: AppSettings = {
     density: "comfortable",
     animationsEnabled: true,
     highContrast: false,
+    accent: "violet",
+  },
+
+  editor: {
+    autosaveInterval: 3000,
+    tabSize: 4,
+    font: "system",
+    lineSpacing: "comfortable",
+    defaultFontSize: 16,
+  },
+
+  tasks: {
+    defaultPriority: "medium",
+    defaultDueDate: "none",
+    completedTaskBehavior: "show",
+    archiveBehavior: "manual",
   },
 
   sidebar: {
@@ -127,6 +178,17 @@ function isUiDensityPreference(
   return value === "compact" || value === "comfortable";
 }
 
+function isOneOf<T extends string>(value: unknown, values: readonly T[]): value is T {
+  return typeof value === "string" && values.includes(value as T);
+}
+
+function isOneOfNumbers<T extends number>(
+  value: unknown,
+  values: readonly T[]
+): value is T {
+  return typeof value === "number" && values.includes(value as T);
+}
+
 function isSidebarContentPreference(
   value: unknown
 ): value is SidebarContentPreference {
@@ -152,6 +214,14 @@ function cloneDefaults(): AppSettings {
 
     appearance: {
       ...DEFAULT_SETTINGS.appearance,
+    },
+
+    editor: {
+      ...DEFAULT_SETTINGS.editor,
+    },
+
+    tasks: {
+      ...DEFAULT_SETTINGS.tasks,
     },
 
     sidebar: {
@@ -191,6 +261,9 @@ function normalizeSettings(raw: unknown): AppSettings {
     ? raw.developer
     : null;
 
+  const editor = isObject(raw.editor) ? raw.editor : null;
+  const tasks = isObject(raw.tasks) ? raw.tasks : null;
+
   if (appearance) {
     if (isThemePreference(appearance.theme)) {
       settings.appearance.theme = appearance.theme;
@@ -211,6 +284,43 @@ function normalizeSettings(raw: unknown): AppSettings {
 
     if (typeof appearance.highContrast === "boolean") {
       settings.appearance.highContrast = appearance.highContrast;
+    }
+
+    if (isOneOf(appearance.accent, ["violet", "blue", "teal", "rose", "amber"])) {
+      settings.appearance.accent = appearance.accent;
+    }
+  }
+
+  if (editor) {
+    if (isOneOfNumbers(editor.autosaveInterval, [1000, 3000, 5000, 10000])) {
+      settings.editor.autosaveInterval = editor.autosaveInterval;
+    }
+    if (isOneOfNumbers(editor.tabSize, [2, 4, 8])) {
+      settings.editor.tabSize = editor.tabSize;
+    }
+    if (isOneOf(editor.font, ["system", "serif", "monospace"])) {
+      settings.editor.font = editor.font;
+    }
+    if (isOneOf(editor.lineSpacing, ["compact", "comfortable", "relaxed"])) {
+      settings.editor.lineSpacing = editor.lineSpacing;
+    }
+    if (isOneOfNumbers(editor.defaultFontSize, [14, 16, 18, 20])) {
+      settings.editor.defaultFontSize = editor.defaultFontSize;
+    }
+  }
+
+  if (tasks) {
+    if (isOneOf(tasks.defaultPriority, ["critical", "high", "medium", "low"])) {
+      settings.tasks.defaultPriority = tasks.defaultPriority;
+    }
+    if (isOneOf(tasks.defaultDueDate, ["none", "today", "tomorrow"])) {
+      settings.tasks.defaultDueDate = tasks.defaultDueDate;
+    }
+    if (isOneOf(tasks.completedTaskBehavior, ["show", "hide"])) {
+      settings.tasks.completedTaskBehavior = tasks.completedTaskBehavior;
+    }
+    if (isOneOf(tasks.archiveBehavior, ["manual", "automatic"])) {
+      settings.tasks.archiveBehavior = tasks.archiveBehavior;
     }
   }
 
@@ -362,6 +472,11 @@ export function applySettingsToDocument(
   root.dataset.contrast = settings.appearance.highContrast
     ? "high"
     : "standard";
+  root.dataset.accent = settings.appearance.accent;
+  root.dataset.editorFont = settings.editor.font;
+  root.dataset.editorLineSpacing = settings.editor.lineSpacing;
+  root.style.setProperty("--editor-font-size", `${settings.editor.defaultFontSize}px`);
+  root.style.setProperty("--editor-tab-size", String(settings.editor.tabSize));
 }
 
 /**
@@ -428,6 +543,16 @@ export async function updateSettings(
     appearance: {
       ...current.appearance,
       ...patch.appearance,
+    },
+
+    editor: {
+      ...current.editor,
+      ...patch.editor,
+    },
+
+    tasks: {
+      ...current.tasks,
+      ...patch.tasks,
     },
 
     sidebar: {

@@ -1,239 +1,139 @@
-// apps/web/src/pages/SettingsPage.tsx
 import React, { useEffect, useState } from "react";
 
-import { fetchTasks, refreshPendingTaskSyncCount } from "../api/tasks";
-import {
-  fetchDocuments,
-  refreshPendingDocumentSyncCount,
-} from "../api/documents";
-import {
-  fetchEvents,
-  refreshPendingEventSyncCount,
-} from "../api/events";
+import { fetchDocuments, refreshPendingDocumentSyncCount } from "../api/documents";
+import { fetchEvents, refreshPendingEventSyncCount } from "../api/events";
 import { getWorkspaceName, hasCloudSession } from "../api/session";
 import {
-  AppSettings,
-  FontSizePreference,
-  SidebarContentPreference,
-  StartupPagePreference,
-  ThemePreference,
-  UiDensityPreference,
-  getSettingsSnapshot,
+  type AccentPreference,
+  type AppSettingsPatch,
+  type CompletedTaskBehavior,
+  type EditorFontPreference,
+  type EditorLineSpacingPreference,
+  type FontSizePreference,
+  type SidebarContentPreference,
+  type StartupPagePreference,
+  type TaskArchiveBehavior,
+  type TaskDefaultDueDate,
+  type TaskDefaultPriority,
+  type ThemePreference,
+  type UiDensityPreference,
   resetSettings,
-  subscribeToSettings,
   updateSettings,
 } from "../api/settings";
-import { APP_VERSION } from "../config/appMetadata";
+import { fetchTasks, refreshPendingTaskSyncCount } from "../api/tasks";
 import DeveloperConsole from "../components/developer/DeveloperConsole";
-import {
-  RIGHT_SIDEBAR_MODE_OPTIONS,
-} from "../types/rightSidebar";
+import { openShortcutReference } from "../components/KeyboardShortcutsManager";
+import Button from "../components/ui/Button";
+import Card from "../components/ui/Card";
+import SectionHeader from "../components/ui/SectionHeader";
+import { APP_VERSION } from "../config/appMetadata";
+import { useAppSettings } from "../hooks/useAppSettings";
+import { useConfirmation } from "../hooks/useConfirmation";
 import { toast } from "../toasts/toastStore";
+import { RIGHT_SIDEBAR_MODE_OPTIONS } from "../types/rightSidebar";
 
-type DiagnosticState = {
+import "../styles/settings.css";
+
+interface Diagnostics {
   loading: boolean;
   error: string | null;
-  workspaceName: string;
-  cloudConnected: boolean;
-  indexedDbAvailable: boolean;
   tasks: number;
   documents: number;
   events: number;
-  pendingTaskSync: number;
-  pendingDocumentSync: number;
-  pendingEventSync: number;
-  appVersion: string;
-};
-
-function isIndexedDbAvailable(): boolean {
-  return typeof window !== "undefined" && "indexedDB" in window;
+  pendingTasks: number;
+  pendingDocuments: number;
+  pendingEvents: number;
 }
 
-function makeInitialDiagnostics(): DiagnosticState {
-  return {
-    loading: true,
-    error: null,
-    workspaceName: "Student",
-    cloudConnected: false,
-    indexedDbAvailable: isIndexedDbAvailable(),
-    tasks: 0,
-    documents: 0,
-    events: 0,
-    pendingTaskSync: 0,
-    pendingDocumentSync: 0,
-    pendingEventSync: 0,
-    appVersion: APP_VERSION,
-  };
-}
-
-const sectionStyle: React.CSSProperties = {
-  borderRadius: 12,
-  border: "1px solid rgba(255,255,255,0.12)",
-  background: "#050713",
-  padding: 16,
+const EMPTY_DIAGNOSTICS: Diagnostics = {
+  loading: true,
+  error: null,
+  tasks: 0,
+  documents: 0,
+  events: 0,
+  pendingTasks: 0,
+  pendingDocuments: 0,
+  pendingEvents: 0,
 };
 
-const cardStyle: React.CSSProperties = {
-  borderRadius: 10,
-  border: "1px solid rgba(255,255,255,0.1)",
-  background: "rgba(255,255,255,0.025)",
-  padding: 12,
-};
-
-const labelStyle: React.CSSProperties = {
-  fontSize: 11,
-  textTransform: "uppercase",
-  letterSpacing: "0.08em",
-  color: "#8f97c4",
-  marginBottom: 5,
-};
-
-const valueStyle: React.CSSProperties = {
-  fontSize: 18,
-  fontWeight: 600,
-  color: "#f5f5f5",
-};
-
-const smallTextStyle: React.CSSProperties = {
-  fontSize: 12,
-  color: "#9da2c8",
-  lineHeight: 1.5,
-};
-
-const controlRowStyle: React.CSSProperties = {
-  display: "grid",
-  gridTemplateColumns: "minmax(180px, 1fr) minmax(180px, 260px)",
-  gap: 16,
-  alignItems: "center",
-  padding: "12px 0",
-  borderBottom: "1px solid rgba(255,255,255,0.07)",
-};
-
-const selectStyle: React.CSSProperties = {
-  width: "100%",
-  padding: "8px 10px",
-  borderRadius: 8,
-  border: "1px solid rgba(255,255,255,0.18)",
-  background: "#05070a",
-  color: "#f5f5f5",
-  fontSize: 13,
-};
-
-const buttonStyle: React.CSSProperties = {
-  padding: "7px 12px",
-  borderRadius: 999,
-  border: "1px solid rgba(255,255,255,0.2)",
-  background: "transparent",
-  color: "#f5f5f5",
-  fontSize: 12,
-  cursor: "pointer",
-};
-
-interface SettingDescriptionProps {
+interface SettingRowProps {
   title: string;
   description: string;
+  children: React.ReactNode;
 }
 
-const SettingDescription: React.FC<SettingDescriptionProps> = ({
-  title,
-  description,
-}) => {
-  return (
-    <div>
-      <div style={{ fontSize: 13, fontWeight: 600 }}>{title}</div>
-      <div style={{ ...smallTextStyle, marginTop: 3 }}>{description}</div>
+const SettingRow: React.FC<SettingRowProps> = ({ title, description, children }) => (
+  <div className="settings-row">
+    <div className="settings-row__copy">
+      <strong>{title}</strong>
+      <span>{description}</span>
     </div>
-  );
-};
+    <div className="settings-row__control">
+      {React.isValidElement(children) && children.type === "select"
+        ? React.cloneElement(
+            children as React.ReactElement<React.SelectHTMLAttributes<HTMLSelectElement>>,
+            { "aria-label": title }
+          )
+        : children}
+    </div>
+  </div>
+);
 
 interface ToggleProps {
   checked: boolean;
-  onChange: (checked: boolean) => void;
   label: string;
+  disabled?: boolean;
+  onChange: (checked: boolean) => void;
 }
 
-const Toggle: React.FC<ToggleProps> = ({ checked, onChange, label }) => {
-  return (
-    <label
-      style={{
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "flex-end",
-        gap: 8,
-        fontSize: 12,
-        color: "#d7d9f8",
-        cursor: "pointer",
-      }}
-    >
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(event) => onChange(event.target.checked)}
-      />
-      {label}
-    </label>
-  );
-};
+const Toggle: React.FC<ToggleProps> = ({ checked, label, disabled, onChange }) => (
+  <label className="settings-toggle">
+    <input
+      type="checkbox"
+      checked={checked}
+      disabled={disabled}
+      onChange={(event) => onChange(event.target.checked)}
+    />
+    <span>{label}</span>
+  </label>
+);
 
 const SettingsPage: React.FC = () => {
-  const [settings, setSettings] = useState<AppSettings>(
-    getSettingsSnapshot
-  );
-
-  const [diagnostics, setDiagnostics] = useState<DiagnosticState>(
-    makeInitialDiagnostics
-  );
-
+  const settings = useAppSettings();
+  const { confirm, confirmationDialog } = useConfirmation();
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
-  const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
+  const [diagnostics, setDiagnostics] = useState(EMPTY_DIAGNOSTICS);
 
-  useEffect(() => {
-    return subscribeToSettings((nextSettings) => {
-      setSettings(nextSettings);
-    });
-  }, []);
-
-  async function applySettings(
-    patch: Parameters<typeof updateSettings>[0]
-  ): Promise<void> {
+  async function applySettings(patch: AppSettingsPatch): Promise<void> {
     setSaving(true);
-    setSettingsMessage(null);
-
     try {
-      const updated = await updateSettings(patch);
-      setSettings(updated);
-      setSettingsMessage("Settings saved.");
+      await updateSettings(patch);
       toast.success("Settings saved");
     } catch (error) {
       console.error("Unable to save settings:", error);
-      setSettingsMessage("Unable to save settings.");
       toast.error("Unable to save settings");
     } finally {
       setSaving(false);
     }
   }
 
-  async function handleResetSettings(): Promise<void> {
-    const confirmed = window.confirm(
-      "Reset all application settings to their defaults?"
-    );
-
-    if (!confirmed) {
-      return;
-    }
+  async function handleReset(): Promise<void> {
+    const accepted = await confirm({
+      title: "Reset application settings?",
+      description:
+        "This restores every preference to its default. Tasks, documents, calendar events, and mail are not affected.",
+      confirmLabel: "Reset settings",
+      dangerous: true,
+    });
+    if (!accepted) return;
 
     setResetting(true);
-    setSettingsMessage(null);
-
     try {
-      const defaults = await resetSettings();
-      setSettings(defaults);
-      setSettingsMessage("Settings reset to defaults.");
+      await resetSettings();
       toast.success("Settings reset");
     } catch (error) {
       console.error("Unable to reset settings:", error);
-      setSettingsMessage("Unable to reset settings.");
       toast.error("Unable to reset settings");
     } finally {
       setResetting(false);
@@ -241,46 +141,29 @@ const SettingsPage: React.FC = () => {
   }
 
   async function loadDiagnostics(): Promise<void> {
-    setDiagnostics((current) => ({
-      ...current,
-      loading: true,
-      error: null,
-    }));
-
+    setDiagnostics((current) => ({ ...current, loading: true, error: null }));
     try {
-      const [
-        tasks,
-        documents,
-        events,
-        pendingTaskSync,
-        pendingDocumentSync,
-        pendingEventSync,
-      ] = await Promise.all([
-        fetchTasks(),
-        fetchDocuments(),
-        fetchEvents(),
-        refreshPendingTaskSyncCount(),
-        refreshPendingDocumentSyncCount(),
-        refreshPendingEventSyncCount(),
-      ]);
-
+      const [tasks, documents, events, pendingTasks, pendingDocuments, pendingEvents] =
+        await Promise.all([
+          fetchTasks(),
+          fetchDocuments(),
+          fetchEvents(),
+          refreshPendingTaskSyncCount(),
+          refreshPendingDocumentSyncCount(),
+          refreshPendingEventSyncCount(),
+        ]);
       setDiagnostics({
         loading: false,
         error: null,
-        workspaceName: getWorkspaceName(),
-        cloudConnected: hasCloudSession(),
-        indexedDbAvailable: isIndexedDbAvailable(),
         tasks: tasks.length,
         documents: documents.length,
         events: events.length,
-        pendingTaskSync,
-        pendingDocumentSync,
-        pendingEventSync,
-        appVersion: APP_VERSION,
+        pendingTasks,
+        pendingDocuments,
+        pendingEvents,
       });
     } catch (error) {
       console.error("Unable to load diagnostics:", error);
-
       setDiagnostics((current) => ({
         ...current,
         loading: false,
@@ -293,585 +176,177 @@ const SettingsPage: React.FC = () => {
     void loadDiagnostics();
   }, []);
 
-  const totalPendingSync =
-    diagnostics.pendingTaskSync +
-    diagnostics.pendingDocumentSync +
-    diagnostics.pendingEventSync;
+  const totalPending =
+    diagnostics.pendingTasks + diagnostics.pendingDocuments + diagnostics.pendingEvents;
 
   return (
-    <div>
-      <h2>Settings</h2>
+    <div className="settings-page">
+      <header className="settings-page__header">
+        <p>Workspace preferences</p>
+        <h2>Settings</h2>
+        <span>Customize the interface and choose practical defaults for documents and tasks.</span>
+      </header>
 
-      <p className="workspace-subtitle">
-        Customize the workspace, manage application behavior, and review local
-        developer diagnostics.
-      </p>
-
-      {settingsMessage && (
-        <div
-          style={{
-            marginTop: 14,
-            padding: "8px 10px",
-            borderRadius: 8,
-            border: "1px solid rgba(127, 150, 255, 0.3)",
-            background: "rgba(63, 100, 255, 0.1)",
-            color: "#cbd2ff",
-            fontSize: 12,
-          }}
-        >
-          {settingsMessage}
-        </div>
-      )}
-
-      <section style={{ ...sectionStyle, marginTop: 18 }}>
-        <h3 style={{ margin: 0, fontSize: 16 }}>Appearance</h3>
-
-        <p style={{ ...smallTextStyle, marginTop: 5 }}>
-          Change the overall appearance and spacing of the application.
-        </p>
-
-        <div style={controlRowStyle}>
-          <SettingDescription
-            title="Theme"
-            description="Choose dark mode, light mode, or follow the operating system."
-          />
-
-          <select
-            value={settings.appearance.theme}
-            onChange={(event) =>
-              void applySettings({
-                appearance: {
-                  theme: event.target.value as ThemePreference,
-                },
-              })
-            }
-            style={selectStyle}
-            disabled={saving}
-          >
-            <option value="dark">Dark</option>
-            <option value="light">Light</option>
-            <option value="system">System default</option>
-          </select>
-        </div>
-
-        <div style={controlRowStyle}>
-          <SettingDescription
-            title="Font size"
-            description="Adjust the base text size throughout the workspace."
-          />
-
-          <select
-            value={settings.appearance.fontSize}
-            onChange={(event) =>
-              void applySettings({
-                appearance: {
-                  fontSize: event.target.value as FontSizePreference,
-                },
-              })
-            }
-            style={selectStyle}
-            disabled={saving}
-          >
-            <option value="small">Small</option>
-            <option value="medium">Medium</option>
-            <option value="large">Large</option>
-            <option value="extra-large">Extra large</option>
-          </select>
-        </div>
-
-        <div style={controlRowStyle}>
-          <SettingDescription
-            title="Interface density"
-            description="Use tighter spacing or a more comfortable layout."
-          />
-
-          <select
-            value={settings.appearance.density}
-            onChange={(event) =>
-              void applySettings({
-                appearance: {
-                  density: event.target.value as UiDensityPreference,
-                },
-              })
-            }
-            style={selectStyle}
-            disabled={saving}
-          >
-            <option value="compact">Compact</option>
-            <option value="comfortable">Comfortable</option>
-          </select>
-        </div>
-
-        <div
-          style={controlRowStyle}
-        >
-          <SettingDescription
-            title="High contrast"
-            description="Increase border and focus visibility throughout the workspace."
-          />
-
-          <Toggle
-            checked={settings.appearance.highContrast}
-            onChange={(checked) =>
-              void applySettings({
-                appearance: {
-                  highContrast: checked,
-                },
-              })
-            }
-            label={settings.appearance.highContrast ? "Enabled" : "Disabled"}
-          />
-        </div>
-
-        <div
-          style={{
-            ...controlRowStyle,
-            borderBottom: "none",
-          }}
-        >
-          <SettingDescription
-            title="Animations"
-            description="Enable interface transitions and animated effects."
-          />
-
-          <Toggle
-            checked={settings.appearance.animationsEnabled}
-            onChange={(checked) =>
-              void applySettings({
-                appearance: {
-                  animationsEnabled: checked,
-                },
-              })
-            }
-            label={
-              settings.appearance.animationsEnabled ? "Enabled" : "Disabled"
-            }
-          />
-        </div>
-      </section>
-
-      <section style={{ ...sectionStyle, marginTop: 18 }}>
-        <h3 style={{ margin: 0, fontSize: 16 }}>Sidebar</h3>
-
-        <p style={{ ...smallTextStyle, marginTop: 5 }}>
-          Control the right-side workspace panel and its default content.
-        </p>
-
-        <div style={controlRowStyle}>
-          <SettingDescription
-            title="Show right sidebar"
-            description="Display or completely hide the right workspace panel."
-          />
-
-          <Toggle
-            checked={settings.sidebar.rightSidebarVisible}
-            onChange={(checked) =>
-              void applySettings({
-                sidebar: {
-                  rightSidebarVisible: checked,
-                },
-              })
-            }
-            label={
-              settings.sidebar.rightSidebarVisible ? "Visible" : "Hidden"
-            }
-          />
-        </div>
-
-        <div style={controlRowStyle}>
-          <SettingDescription
-            title="Default sidebar content"
-            description="Choose what the right sidebar displays when the app starts."
-          />
-
-          <select
-            value={settings.sidebar.rightSidebarDefault}
-            onChange={(event) =>
-              void applySettings({
-                sidebar: {
-                  rightSidebarDefault:
-                    event.target.value as SidebarContentPreference,
-                },
-              })
-            }
-            style={selectStyle}
-            disabled={saving}
-          >
-            {RIGHT_SIDEBAR_MODE_OPTIONS.map((option) => (
-              <option key={option.value} value={option.value}>
-                {option.label}
-              </option>
-            ))}
-          </select>
-        </div>
-
-        <div style={controlRowStyle}>
-          <SettingDescription
-            title="Remember sidebar state"
-            description="Remember whether the right sidebar was open or collapsed."
-          />
-
-          <Toggle
-            checked={settings.sidebar.rememberOpenState}
-            onChange={(checked) =>
-              void applySettings({
-                sidebar: {
-                  rememberOpenState: checked,
-                },
-              })
-            }
-            label={
-              settings.sidebar.rememberOpenState
-                ? "Remember state"
-                : "Use default"
-            }
-          />
-        </div>
-
-        {"rightSidebarOpen" in settings.sidebar && (
-          <div
-            style={{
-              ...controlRowStyle,
-              borderBottom: "none",
-            }}
-          >
-            <SettingDescription
-              title="Default sidebar state"
-              description="Choose whether the panel starts open or collapsed."
-            />
-
-            <Toggle
-              checked={Boolean(settings.sidebar.rightSidebarOpen)}
-              onChange={(checked) =>
-                void applySettings({
-                  sidebar: {
-                    rightSidebarOpen: checked,
-                  },
-                })
-              }
-              label={
-                settings.sidebar.rightSidebarOpen ? "Open" : "Collapsed"
-              }
-            />
-          </div>
-        )}
-      </section>
-
-      <section style={{ ...sectionStyle, marginTop: 18 }}>
-        <h3 style={{ margin: 0, fontSize: 16 }}>Workspace</h3>
-
-        <p style={{ ...smallTextStyle, marginTop: 5 }}>
-          Configure how the application behaves when it opens.
-        </p>
-
-        <div
-          style={{
-            ...controlRowStyle,
-            borderBottom: "none",
-          }}
-        >
-          <SettingDescription
-            title="Startup page"
-            description="Choose the first workspace page shown after launch."
-          />
-
+      <Card aria-labelledby="settings-general">
+        <SectionHeader
+          headingId="settings-general"
+          eyebrow="General"
+          title="Workspace behavior"
+          description="Choose where the app opens and how the supporting panel behaves."
+        />
+        <SettingRow title="Startup page" description="The first page shown after the workspace opens.">
           <select
             value={settings.workspace.startupPage}
-            onChange={(event) =>
-              void applySettings({
-                workspace: {
-                  startupPage:
-                    event.target.value as StartupPagePreference,
-                },
-              })
-            }
-            style={selectStyle}
             disabled={saving}
+            onChange={(event) => void applySettings({ workspace: { startupPage: event.target.value as StartupPagePreference } })}
           >
-            <option value="dashboard">Dashboard</option>
-            <option value="tasks">Tasks</option>
-            <option value="documents">Documents</option>
-            <option value="calendar">Calendar</option>
-            <option value="mail">Mail</option>
-            <option value="settings">Settings</option>
+            {['dashboard','tasks','documents','calendar','mail','settings'].map((value) => (
+              <option key={value} value={value}>{value[0].toUpperCase() + value.slice(1)}</option>
+            ))}
           </select>
+        </SettingRow>
+        <SettingRow title="Show right sidebar" description="Display the contextual workspace panel.">
+          <Toggle checked={settings.sidebar.rightSidebarVisible} disabled={saving} label={settings.sidebar.rightSidebarVisible ? "Visible" : "Hidden"} onChange={(value) => void applySettings({ sidebar: { rightSidebarVisible: value } })} />
+        </SettingRow>
+        <SettingRow title="Default sidebar content" description="The collection shown when the sidebar opens.">
+          <select value={settings.sidebar.rightSidebarDefault} disabled={saving} onChange={(event) => void applySettings({ sidebar: { rightSidebarDefault: event.target.value as SidebarContentPreference } })}>
+            {RIGHT_SIDEBAR_MODE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
+          </select>
+        </SettingRow>
+        <SettingRow title="Remember open state" description="Restore the sidebar's previous expanded or collapsed state.">
+          <Toggle checked={settings.sidebar.rememberOpenState} disabled={saving} label={settings.sidebar.rememberOpenState ? "Remember" : "Use default"} onChange={(value) => void applySettings({ sidebar: { rememberOpenState: value } })} />
+        </SettingRow>
+      </Card>
+
+      <Card aria-labelledby="settings-appearance">
+        <SectionHeader headingId="settings-appearance" eyebrow="Appearance" title="Look and feel" description="Adjust color, scale, spacing, contrast, and motion." />
+        <SettingRow title="Theme" description="Use dark, light, or the operating system theme.">
+          <select value={settings.appearance.theme} disabled={saving} onChange={(event) => void applySettings({ appearance: { theme: event.target.value as ThemePreference } })}>
+            <option value="dark">Dark</option><option value="light">Light</option><option value="system">System</option>
+          </select>
+        </SettingRow>
+        <SettingRow title="Accent" description="Choose the workspace highlight color.">
+          <select value={settings.appearance.accent} disabled={saving} onChange={(event) => void applySettings({ appearance: { accent: event.target.value as AccentPreference } })}>
+            <option value="violet">Violet</option><option value="blue">Blue</option><option value="teal">Teal</option><option value="rose">Rose</option><option value="amber">Amber</option>
+          </select>
+        </SettingRow>
+        <SettingRow title="Interface size" description="Scale text and controls throughout the application.">
+          <select value={settings.appearance.fontSize} disabled={saving} onChange={(event) => void applySettings({ appearance: { fontSize: event.target.value as FontSizePreference } })}>
+            <option value="small">Small</option><option value="medium">Medium</option><option value="large">Large</option><option value="extra-large">Extra large</option>
+          </select>
+        </SettingRow>
+        <SettingRow title="Density" description="Use tighter or more comfortable spacing.">
+          <select value={settings.appearance.density} disabled={saving} onChange={(event) => void applySettings({ appearance: { density: event.target.value as UiDensityPreference } })}>
+            <option value="compact">Compact</option><option value="comfortable">Comfortable</option>
+          </select>
+        </SettingRow>
+        <SettingRow title="High contrast" description="Increase border and focus visibility.">
+          <Toggle checked={settings.appearance.highContrast} disabled={saving} label={settings.appearance.highContrast ? "Enabled" : "Disabled"} onChange={(value) => void applySettings({ appearance: { highContrast: value } })} />
+        </SettingRow>
+        <SettingRow title="Animations" description="Enable transitions and motion effects.">
+          <Toggle checked={settings.appearance.animationsEnabled} disabled={saving} label={settings.appearance.animationsEnabled ? "Enabled" : "Disabled"} onChange={(value) => void applySettings({ appearance: { animationsEnabled: value } })} />
+        </SettingRow>
+      </Card>
+
+      <Card aria-labelledby="settings-editor">
+        <SectionHeader headingId="settings-editor" eyebrow="Editor" title="Document editing" description="These preferences are applied directly to the document editor." />
+        <SettingRow title="Autosave delay" description="How long the editor waits after your last change before saving.">
+          <select value={settings.editor.autosaveInterval} disabled={saving} onChange={(event) => void applySettings({ editor: { autosaveInterval: Number(event.target.value) as 1000 | 3000 | 5000 | 10000 } })}>
+            <option value={1000}>1 second</option><option value={3000}>3 seconds</option><option value={5000}>5 seconds</option><option value={10000}>10 seconds</option>
+          </select>
+        </SettingRow>
+        <SettingRow title="Editor font" description="Choose the writing surface's font family.">
+          <select value={settings.editor.font} disabled={saving} onChange={(event) => void applySettings({ editor: { font: event.target.value as EditorFontPreference } })}>
+            <option value="system">System</option><option value="serif">Serif</option><option value="monospace">Monospace</option>
+          </select>
+        </SettingRow>
+        <SettingRow title="Default font size" description="Set the base size of document content.">
+          <select value={settings.editor.defaultFontSize} disabled={saving} onChange={(event) => void applySettings({ editor: { defaultFontSize: Number(event.target.value) as 14 | 16 | 18 | 20 } })}>
+            <option value={14}>14 px</option><option value={16}>16 px</option><option value={18}>18 px</option><option value={20}>20 px</option>
+          </select>
+        </SettingRow>
+        <SettingRow title="Line spacing" description="Set the distance between lines of document text.">
+          <select value={settings.editor.lineSpacing} disabled={saving} onChange={(event) => void applySettings({ editor: { lineSpacing: event.target.value as EditorLineSpacingPreference } })}>
+            <option value="compact">Compact</option><option value="comfortable">Comfortable</option><option value="relaxed">Relaxed</option>
+          </select>
+        </SettingRow>
+        <SettingRow title="Tab size" description="Set the visual width of tab characters.">
+          <select value={settings.editor.tabSize} disabled={saving} onChange={(event) => void applySettings({ editor: { tabSize: Number(event.target.value) as 2 | 4 | 8 } })}>
+            <option value={2}>2 spaces</option><option value={4}>4 spaces</option><option value={8}>8 spaces</option>
+          </select>
+        </SettingRow>
+      </Card>
+
+      <Card aria-labelledby="settings-tasks">
+        <SectionHeader headingId="settings-tasks" eyebrow="Tasks" title="Task defaults" description="New tasks and completed work follow these preferences." />
+        <SettingRow title="Default priority" description="The priority assigned to every new task.">
+          <select value={settings.tasks.defaultPriority} disabled={saving} onChange={(event) => void applySettings({ tasks: { defaultPriority: event.target.value as TaskDefaultPriority } })}>
+            <option value="critical">Critical</option><option value="high">High</option><option value="medium">Medium</option><option value="low">Low</option>
+          </select>
+        </SettingRow>
+        <SettingRow title="Default due date" description="Optionally assign today or tomorrow to new tasks.">
+          <select value={settings.tasks.defaultDueDate} disabled={saving} onChange={(event) => void applySettings({ tasks: { defaultDueDate: event.target.value as TaskDefaultDueDate } })}>
+            <option value="none">No date</option><option value="today">Today</option><option value="tomorrow">Tomorrow</option>
+          </select>
+        </SettingRow>
+        <SettingRow title="Completed tasks" description="Show completed tasks on the All board or only in Completed.">
+          <select value={settings.tasks.completedTaskBehavior} disabled={saving} onChange={(event) => void applySettings({ tasks: { completedTaskBehavior: event.target.value as CompletedTaskBehavior } })}>
+            <option value="show">Show on All</option><option value="hide">Hide from All</option>
+          </select>
+        </SettingRow>
+        <SettingRow title="Archive behavior" description="Automatically archive tasks when they are completed.">
+          <select value={settings.tasks.archiveBehavior} disabled={saving} onChange={(event) => void applySettings({ tasks: { archiveBehavior: event.target.value as TaskArchiveBehavior } })}>
+            <option value="manual">Manual</option><option value="automatic">Automatic</option>
+          </select>
+        </SettingRow>
+      </Card>
+
+      <Card aria-labelledby="settings-shortcuts">
+        <SectionHeader
+          headingId="settings-shortcuts"
+          eyebrow="Keyboard"
+          title="Keyboard shortcuts"
+          description="Review every global and page-specific shortcut in one searchable dialog."
+          actions={<Button onClick={openShortcutReference}>View shortcuts</Button>}
+        />
+      </Card>
+
+      <Card aria-labelledby="settings-data">
+        <SectionHeader
+          headingId="settings-data"
+          eyebrow="Data"
+          title="Local workspace"
+          description="Local data remains available without the backend. Backup and restore arrive in 0.2.0."
+          actions={<Button disabled={diagnostics.loading} onClick={() => void loadDiagnostics()}>{diagnostics.loading ? "Refreshing…" : "Refresh"}</Button>}
+        />
+        {diagnostics.error && <p className="settings-error" role="alert">{diagnostics.error}</p>}
+        <div className="settings-diagnostic-grid">
+          <Diagnostic label="Tasks" value={diagnostics.tasks} />
+          <Diagnostic label="Documents" value={diagnostics.documents} />
+          <Diagnostic label="Events" value={diagnostics.events} />
+          <Diagnostic label="Pending sync" value={totalPending} />
         </div>
-      </section>
+      </Card>
 
-      <section style={{ ...sectionStyle, marginTop: 18 }}>
-        <h3 style={{ margin: 0, fontSize: 16 }}>Developer settings</h3>
-
-        <p style={{ ...smallTextStyle, marginTop: 5 }}>
-          Control whether local developer diagnostics appear on this page.
-        </p>
-
-        <div
-          style={{
-            ...controlRowStyle,
-            borderBottom: "none",
-          }}
-        >
-          <SettingDescription
-            title="Developer tools"
-            description="Show storage counts, sync queues, and application diagnostics."
-          />
-
-          <Toggle
-            checked={settings.developer.developerToolsVisible}
-            onChange={(checked) =>
-              void applySettings({
-                developer: {
-                  developerToolsVisible: checked,
-                },
-              })
-            }
-            label={
-              settings.developer.developerToolsVisible
-                ? "Visible"
-                : "Hidden"
-            }
-          />
+      <Card aria-labelledby="settings-about">
+        <SectionHeader headingId="settings-about" eyebrow="About" title="Pioneer Work Suite" description={`Version ${APP_VERSION} · ${getWorkspaceName()} · ${hasCloudSession() ? "Cloud connected" : "Local only"}`} />
+        <SettingRow title="Developer tools" description="Show diagnostics and the local application console.">
+          <Toggle checked={settings.developer.developerToolsVisible} disabled={saving} label={settings.developer.developerToolsVisible ? "Visible" : "Hidden"} onChange={(value) => void applySettings({ developer: { developerToolsVisible: value } })} />
+        </SettingRow>
+        <div className="settings-reset">
+          <div><strong>Reset preferences</strong><span>Restore all interface, editor, and task defaults.</span></div>
+          <Button tone="danger" disabled={resetting} onClick={() => void handleReset()}>{resetting ? "Resetting…" : "Reset settings"}</Button>
         </div>
-      </section>
+      </Card>
 
-      <section style={{ ...sectionStyle, marginTop: 18 }}>
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 12,
-            alignItems: "center",
-          }}
-        >
-          <div>
-            <h3 style={{ margin: 0, fontSize: 16 }}>Reset settings</h3>
-
-            <p style={{ ...smallTextStyle, margin: "4px 0 0" }}>
-              Restore application preferences to their original defaults.
-              Tasks, documents, and calendar events are not affected.
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={() => void handleResetSettings()}
-            disabled={resetting}
-            style={{
-              ...buttonStyle,
-              border: "1px solid rgba(255,123,136,0.35)",
-              color: "#ffadb6",
-              opacity: resetting ? 0.7 : 1,
-              cursor: resetting ? "default" : "pointer",
-            }}
-          >
-            {resetting ? "Resetting..." : "Reset settings"}
-          </button>
-        </div>
-      </section>
-
-      {settings.developer.developerToolsVisible && (
-        <>
-          <div
-            style={{
-              marginTop: 18,
-              display: "grid",
-              gridTemplateColumns:
-                "repeat(auto-fit, minmax(180px, 1fr))",
-              gap: 12,
-            }}
-          >
-            <section style={cardStyle}>
-              <div style={labelStyle}>Workspace</div>
-              <div style={valueStyle}>{diagnostics.workspaceName}</div>
-              <p style={{ ...smallTextStyle, marginBottom: 0 }}>
-                Local workspace profile currently active on this device.
-              </p>
-            </section>
-
-            <section style={cardStyle}>
-              <div style={labelStyle}>Cloud status</div>
-              <div style={valueStyle}>
-                {diagnostics.cloudConnected ? "Connected" : "Local only"}
-              </div>
-              <p style={{ ...smallTextStyle, marginBottom: 0 }}>
-                Backend and cloud features are expected to return in 0.2.0.
-              </p>
-            </section>
-
-            <section style={cardStyle}>
-              <div style={labelStyle}>Storage engine</div>
-              <div style={valueStyle}>
-                {diagnostics.indexedDbAvailable
-                  ? "IndexedDB"
-                  : "Unavailable"}
-              </div>
-              <p style={{ ...smallTextStyle, marginBottom: 0 }}>
-                Local data persists across application restarts and updates.
-              </p>
-            </section>
-
-            <section style={cardStyle}>
-              <div style={labelStyle}>App version</div>
-              <div style={valueStyle}>v{diagnostics.appVersion}</div>
-              <p style={{ ...smallTextStyle, marginBottom: 0 }}>
-                Version is read from the centralized application source.
-              </p>
-            </section>
-          </div>
-
-          <section style={{ ...sectionStyle, marginTop: 18 }}>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                gap: 12,
-                alignItems: "center",
-                marginBottom: 12,
-              }}
-            >
-              <div>
-                <h3 style={{ margin: 0, fontSize: 16 }}>
-                  Developer tools
-                </h3>
-
-                <p style={{ ...smallTextStyle, margin: "4px 0 0" }}>
-                  Read-only diagnostics for local storage, sync queues, and
-                  migration testing.
-                </p>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => void loadDiagnostics()}
-                disabled={diagnostics.loading}
-                style={{
-                  ...buttonStyle,
-                  cursor: diagnostics.loading ? "default" : "pointer",
-                  opacity: diagnostics.loading ? 0.7 : 1,
-                }}
-              >
-                {diagnostics.loading ? "Refreshing..." : "Refresh"}
-              </button>
-            </div>
-
-            {diagnostics.error && (
-              <p style={{ fontSize: 13, color: "#ff7b88" }}>
-                {diagnostics.error}
-              </p>
-            )}
-
-            <div
-              style={{
-                display: "grid",
-                gridTemplateColumns:
-                  "repeat(auto-fit, minmax(150px, 1fr))",
-                gap: 10,
-              }}
-            >
-              <div style={cardStyle}>
-                <div style={labelStyle}>Tasks</div>
-                <div style={valueStyle}>{diagnostics.tasks}</div>
-              </div>
-
-              <div style={cardStyle}>
-                <div style={labelStyle}>Documents</div>
-                <div style={valueStyle}>{diagnostics.documents}</div>
-              </div>
-
-              <div style={cardStyle}>
-                <div style={labelStyle}>Calendar events</div>
-                <div style={valueStyle}>{diagnostics.events}</div>
-              </div>
-
-              <div style={cardStyle}>
-                <div style={labelStyle}>Pending sync</div>
-                <div style={valueStyle}>{totalPendingSync}</div>
-              </div>
-            </div>
-
-            <div
-              style={{
-                marginTop: 14,
-                borderRadius: 10,
-                border: "1px solid rgba(255,255,255,0.1)",
-                overflow: "hidden",
-              }}
-            >
-              <table
-                style={{
-                  width: "100%",
-                  borderCollapse: "collapse",
-                  fontSize: 12,
-                }}
-              >
-                <tbody>
-                  <tr>
-                    <td style={{ padding: 8, color: "#9da2c8" }}>
-                      Pending task operations
-                    </td>
-                    <td style={{ padding: 8, textAlign: "right" }}>
-                      {diagnostics.pendingTaskSync}
-                    </td>
-                  </tr>
-
-                  <tr>
-                    <td style={{ padding: 8, color: "#9da2c8" }}>
-                      Pending document operations
-                    </td>
-                    <td style={{ padding: 8, textAlign: "right" }}>
-                      {diagnostics.pendingDocumentSync}
-                    </td>
-                  </tr>
-
-                  <tr>
-                    <td style={{ padding: 8, color: "#9da2c8" }}>
-                      Pending calendar event operations
-                    </td>
-                    <td style={{ padding: 8, textAlign: "right" }}>
-                      {diagnostics.pendingEventSync}
-                    </td>
-                  </tr>
-
-                  <tr>
-                    <td style={{ padding: 8, color: "#9da2c8" }}>
-                      IndexedDB available
-                    </td>
-                    <td style={{ padding: 8, textAlign: "right" }}>
-                      {diagnostics.indexedDbAvailable ? "Yes" : "No"}
-                    </td>
-                  </tr>
-
-                  <tr>
-                    <td style={{ padding: 8, color: "#9da2c8" }}>
-                      Cloud session token present
-                    </td>
-                    <td style={{ padding: 8, textAlign: "right" }}>
-                      {diagnostics.cloudConnected ? "Yes" : "No"}
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-
-            <p
-              style={{
-                ...smallTextStyle,
-                marginTop: 12,
-                marginBottom: 0,
-              }}
-            >
-              Destructive tools such as wiping storage, forcing migrations,
-              importing backups, and clearing sync queues are intentionally
-              excluded for now.
-            </p>
-          </section>
-
-          <DeveloperConsole />
-        </>
-      )}
+      {settings.developer.developerToolsVisible && <DeveloperConsole />}
+      {confirmationDialog}
     </div>
   );
 };
 
-export default SettingsPage;
+const Diagnostic: React.FC<{ label: string; value: number }> = ({ label, value }) => (
+  <div className="settings-diagnostic"><span>{label}</span><strong>{value}</strong></div>
+);
 
+export default SettingsPage;

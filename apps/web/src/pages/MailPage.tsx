@@ -9,6 +9,7 @@ import {
   MailFolder,
 } from "../api/mail";
 import { toast } from "../toasts/toastStore";
+import { useConfirmation } from "../hooks/useConfirmation";
 
 type MailView = "list-detail" | "compose";
 
@@ -20,6 +21,7 @@ const folderLabels: Record<MailFolder, string> = {
 };
 
 const MailPage: React.FC = () => {
+  const { confirm, confirmationDialog } = useConfirmation();
   // Folder & view state
   const [activeFolder, setActiveFolder] = useState<MailFolder>("inbox");
   const [view, setView] = useState<MailView>("list-detail");
@@ -206,8 +208,13 @@ const MailPage: React.FC = () => {
   }
 
   async function handleDelete(message: MailMessage) {
-    const confirmed = window.confirm("Delete this message?");
-    if (!confirmed) return;
+    const accepted = await confirm({
+      title: "Delete this message?",
+      description: "This permanently removes the selected message.",
+      confirmLabel: "Delete message",
+      dangerous: true,
+    });
+    if (!accepted) return;
 
     const previous = messages;
     setMessages((prev) => {
@@ -386,12 +393,12 @@ const MailPage: React.FC = () => {
                 padding: "6px 10px",
                 borderRadius: 999,
                 border: isActive
-                  ? "1px solid rgba(255,255,255,0.4)"
-                  : "1px solid rgba(255,255,255,0.14)",
+                  ? "1px solid var(--border-strong)"
+                  : "1px solid var(--border)",
                 background: isActive
-                  ? "linear-gradient(135deg, #3f64ff, #7f3dff)"
-                  : "rgba(5,7,19,0.9)",
-                color: isActive ? "#ffffff" : "#d4d7ff",
+                  ? "var(--accent-gradient)"
+                  : "var(--surface-overlay)",
+                color: isActive ? "var(--text-on-accent)" : "var(--accent-text)",
                 fontSize: 12,
                 cursor: "pointer",
                 display: "inline-flex",
@@ -408,8 +415,8 @@ const MailPage: React.FC = () => {
                     borderRadius: 999,
                     background: isActive
                       ? "rgba(0,0,0,0.25)"
-                      : "rgba(63,100,255,0.3)",
-                    color: "#ffffff",
+                      : "var(--accent-soft)",
+                    color: "var(--text-on-accent)",
                     fontSize: 11,
                     textAlign: "center",
                   }}
@@ -451,8 +458,8 @@ const MailPage: React.FC = () => {
               padding: "6px 12px",
               borderRadius: 999,
               border: "none",
-              background: "linear-gradient(135deg, #3f64ff, #7f3dff)",
-              color: "#ffffff",
+              background: "var(--accent-gradient)",
+              color: "var(--text-on-accent)",
               fontSize: 12,
               cursor: "pointer",
             }}
@@ -466,7 +473,7 @@ const MailPage: React.FC = () => {
               alignItems: "center",
               gap: 4,
               fontSize: 11,
-              color: "#9da2c8",
+              color: "var(--text-muted)",
             }}
           >
             <input
@@ -487,9 +494,9 @@ const MailPage: React.FC = () => {
             flex: "0 0 180px",
             padding: "6px 10px",
             borderRadius: 999,
-            border: "1px solid rgba(255,255,255,0.16)",
-            background: "#05070a",
-            color: "#f5f5f5",
+            border: "1px solid var(--border)",
+            background: "var(--surface-input)",
+            color: "var(--text)",
             fontSize: 12,
           }}
         />
@@ -500,7 +507,7 @@ const MailPage: React.FC = () => {
   function renderList() {
     if (listLoading) {
       return (
-        <p style={{ fontSize: 12, color: "#9da2c8", margin: 0 }}>
+        <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
           Loading messages…
         </p>
       );
@@ -508,7 +515,7 @@ const MailPage: React.FC = () => {
 
     if (listError) {
       return (
-        <p style={{ fontSize: 12, color: "#ff7b88", margin: 0 }}>
+        <p style={{ fontSize: 12, color: "var(--danger)", margin: 0 }}>
           {listError}
         </p>
       );
@@ -516,7 +523,7 @@ const MailPage: React.FC = () => {
 
     if (visibleMessages.length === 0) {
       return (
-        <p style={{ fontSize: 12, color: "#9da2c8", margin: 0 }}>
+        <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
           No messages in this view.
         </p>
       );
@@ -544,7 +551,7 @@ const MailPage: React.FC = () => {
                 padding: "6px 8px",
                 borderRadius: 8,
                 background: isActive
-                  ? "rgba(127,61,255,0.2)"
+                  ? "var(--accent-soft)"
                   : "transparent",
                 cursor: "pointer",
               }}
@@ -598,7 +605,7 @@ const MailPage: React.FC = () => {
                   <span
                     style={{
                       fontSize: 11,
-                      color: "#6f7598",
+                      color: "var(--text-faint)",
                       flexShrink: 0,
                     }}
                   >
@@ -608,7 +615,7 @@ const MailPage: React.FC = () => {
                 <span
                   style={{
                     fontSize: 11,
-                    color: "#9da2c8",
+                    color: "var(--text-muted)",
                     whiteSpace: "nowrap",
                     overflow: "hidden",
                     textOverflow: "ellipsis",
@@ -649,10 +656,10 @@ const MailPage: React.FC = () => {
           style={{
             padding: 12,
             borderRadius: 10,
-            border: "1px solid rgba(255,255,255,0.08)",
-            background: "#050713",
+            border: "1px solid var(--border-subtle)",
+            background: "var(--surface-1)",
             fontSize: 13,
-            color: "#9da2c8",
+            color: "var(--text-muted)",
           }}
         >
           Select a message from the list to read it.
@@ -667,8 +674,8 @@ const MailPage: React.FC = () => {
         style={{
           padding: 12,
           borderRadius: 10,
-          border: "1px solid rgba(255,255,255,0.08)",
-          background: "#050713",
+          border: "1px solid var(--border-subtle)",
+          background: "var(--surface-1)",
           display: "flex",
           flexDirection: "column",
           gap: 8,
@@ -704,9 +711,9 @@ const MailPage: React.FC = () => {
               style={{
                 padding: "4px 8px",
                 borderRadius: 999,
-                border: "1px solid rgba(255,255,255,0.18)",
+                border: "1px solid var(--border)",
                 background: "transparent",
-                color: "#f5f5f5",
+                color: "var(--text)",
                 fontSize: 11,
                 cursor: "pointer",
               }}
@@ -719,9 +726,9 @@ const MailPage: React.FC = () => {
               style={{
                 padding: "4px 8px",
                 borderRadius: 999,
-                border: "1px solid rgba(255,255,255,0.18)",
+                border: "1px solid var(--border)",
                 background: "transparent",
-                color: "#f5f5f5",
+                color: "var(--text)",
                 fontSize: 11,
                 cursor: "pointer",
               }}
@@ -734,9 +741,9 @@ const MailPage: React.FC = () => {
               style={{
                 padding: "4px 8px",
                 borderRadius: 999,
-                border: "1px solid rgba(255,255,255,0.18)",
+                border: "1px solid var(--border)",
                 background: "transparent",
-                color: "#f5f5f5",
+                color: "var(--text)",
                 fontSize: 11,
                 cursor: "pointer",
               }}
@@ -749,9 +756,9 @@ const MailPage: React.FC = () => {
               style={{
                 padding: "4px 8px",
                 borderRadius: 999,
-                border: "1px solid rgba(255,255,255,0.18)",
+                border: "1px solid var(--border)",
                 background: "transparent",
-                color: "#f5f5f5",
+                color: "var(--text)",
                 fontSize: 11,
                 cursor: "pointer",
               }}
@@ -764,7 +771,7 @@ const MailPage: React.FC = () => {
         <div
           style={{
             fontSize: 11,
-            color: "#9da2c8",
+            color: "var(--text-muted)",
             display: "flex",
             flexDirection: "column",
             gap: 2,
@@ -784,10 +791,10 @@ const MailPage: React.FC = () => {
           style={{
             marginTop: 8,
             paddingTop: 8,
-            borderTop: "1px solid rgba(255,255,255,0.12)",
+            borderTop: "1px solid var(--border)",
             fontSize: 13,
             lineHeight: 1.5,
-            color: "#f5f5f5",
+            color: "var(--text)",
           }}
         >
           {msg.bodyHtml ? (
@@ -815,8 +822,8 @@ const MailPage: React.FC = () => {
         style={{
           padding: 12,
           borderRadius: 10,
-          border: "1px solid rgba(255,255,255,0.08)",
-          background: "#050713",
+          border: "1px solid var(--border-subtle)",
+          background: "var(--surface-1)",
           display: "flex",
           flexDirection: "column",
           gap: 8,
@@ -845,9 +852,9 @@ const MailPage: React.FC = () => {
             style={{
               padding: "4px 8px",
               borderRadius: 999,
-              border: "1px solid rgba(255,255,255,0.18)",
+              border: "1px solid var(--border)",
               background: "transparent",
-              color: "#f5f5f5",
+              color: "var(--text)",
               fontSize: 11,
               cursor: "pointer",
             }}
@@ -864,9 +871,9 @@ const MailPage: React.FC = () => {
           style={{
             padding: "6px 8px",
             borderRadius: 6,
-            border: "1px solid rgba(255,255,255,0.16)",
-            background: "#05070a",
-            color: "#f5f5f5",
+            border: "1px solid var(--border)",
+            background: "var(--surface-input)",
+            color: "var(--text)",
             fontSize: 12,
           }}
         />
@@ -878,9 +885,9 @@ const MailPage: React.FC = () => {
           style={{
             padding: "6px 8px",
             borderRadius: 6,
-            border: "1px solid rgba(255,255,255,0.16)",
-            background: "#05070a",
-            color: "#f5f5f5",
+            border: "1px solid var(--border)",
+            background: "var(--surface-input)",
+            color: "var(--text)",
             fontSize: 12,
           }}
         />
@@ -892,9 +899,9 @@ const MailPage: React.FC = () => {
             minHeight: 160,
             padding: "8px 8px",
             borderRadius: 6,
-            border: "1px solid rgba(255,255,255,0.16)",
-            background: "#05070a",
-            color: "#f5f5f5",
+            border: "1px solid var(--border)",
+            background: "var(--surface-input)",
+            color: "var(--text)",
             fontSize: 13,
             resize: "vertical",
           }}
@@ -905,7 +912,7 @@ const MailPage: React.FC = () => {
             style={{
               margin: 0,
               fontSize: 12,
-              color: "#ff7b88",
+              color: "var(--danger)",
             }}
           >
             {sendError}
@@ -928,9 +935,9 @@ const MailPage: React.FC = () => {
               borderRadius: 999,
               border: "none",
               background: sending
-                ? "rgba(127,61,255,0.6)"
-                : "linear-gradient(135deg, #3f64ff, #7f3dff)",
-              color: "#ffffff",
+                ? "var(--accent-border)"
+                : "var(--accent-gradient)",
+              color: "var(--text-on-accent)",
               fontSize: 12,
               cursor: sending ? "default" : "pointer",
             }}
@@ -958,8 +965,8 @@ const MailPage: React.FC = () => {
         style={{
           padding: 12,
           borderRadius: 12,
-          border: "1px solid rgba(255,255,255,0.08)",
-          background: "#050713",
+          border: "1px solid var(--border-subtle)",
+          background: "var(--surface-1)",
           display: "flex",
           flexDirection: "column",
           gap: 8,
@@ -985,7 +992,7 @@ const MailPage: React.FC = () => {
             style={{
               margin: 0,
               fontSize: 12,
-              color: "#9da2c8",
+              color: "var(--text-muted)",
             }}
           >
             View your messages by folder, search, star important items, and
@@ -1010,8 +1017,8 @@ const MailPage: React.FC = () => {
           style={{
             padding: 10,
             borderRadius: 12,
-            border: "1px solid rgba(255,255,255,0.08)",
-            background: "#050713",
+            border: "1px solid var(--border-subtle)",
+            background: "var(--surface-1)",
           }}
         >
           {renderList()}
@@ -1020,6 +1027,7 @@ const MailPage: React.FC = () => {
         {/* Detail or compose card */}
         {view === "compose" ? renderCompose() : renderDetail()}
       </div>
+      {confirmationDialog}
     </div>
   );
 };

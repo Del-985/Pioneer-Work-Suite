@@ -43,7 +43,12 @@ if (!container) {
 
 ReactDOM.createRoot(container).render(
   <React.StrictMode>
-    <HashRouter>
+    <HashRouter
+      future={{
+        v7_startTransition: true,
+        v7_relativeSplatPath: true,
+      }}
+    >
       <ApplicationErrorBoundary>
         <App />
       </ApplicationErrorBoundary>

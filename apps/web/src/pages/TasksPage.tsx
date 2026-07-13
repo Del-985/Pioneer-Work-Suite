@@ -17,8 +17,11 @@ import type {
 import type { CommandDefinition } from "../commands/commandTypes";
 import { useCommands } from "../commands/useCommands";
 import { useStatusBarItems } from "../hooks/useStatusBarItems";
+import { useAppSettings } from "../hooks/useAppSettings";
+import { useConfirmation } from "../hooks/useConfirmation";
 import {
   formatTaskDueDate,
+  getLocalDateKey,
   getDueDateKey,
   isDueDateOverdue,
   isDueDateToday,
@@ -122,6 +125,8 @@ function sortTasks(
 const TasksPage: React.FC<TasksPageProps> = ({
   archivedOnly = false,
 }) => {
+  const settings = useAppSettings();
+  const { confirm, confirmationDialog } = useConfirmation();
   const navigate = useNavigate();
   const newTitleRef = useRef<HTMLInputElement>(null);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -131,9 +136,10 @@ const TasksPage: React.FC<TasksPageProps> = ({
   const [newTitle, setNewTitle] = useState("");
   const [newDescription, setNewDescription] = useState("");
   const [newTags, setNewTags] = useState("");
-  const [newDueDate, setNewDueDate] = useState("");
+  const defaultDueDate = getDefaultTaskDueDate(settings.tasks.defaultDueDate);
+  const [newDueDate, setNewDueDate] = useState(defaultDueDate);
   const [newPriority, setNewPriority] =
-    useState<TaskPriority>("medium");
+    useState<TaskPriority>(settings.tasks.defaultPriority);
   const [filter, setFilter] = useState<TaskFilter>("all");
   const [search, setSearch] = useState("");
   const [sortKey, setSortKey] = useState<TaskSortKey>("priority");
@@ -200,16 +206,22 @@ const TasksPage: React.FC<TasksPageProps> = ({
     patch: TaskPatch,
     failureMessage = "Unable to update task."
   ): Promise<void> {
+    const effectivePatch: TaskPatch = { ...patch };
+    if (patch.status === "done" && settings.tasks.archiveBehavior === "automatic") {
+      effectivePatch.archivedAt = new Date().toISOString();
+    } else if (patch.status && patch.status !== "done" && task.archivedAt) {
+      effectivePatch.archivedAt = null;
+    }
     const previous = tasks;
     setTasks((current) =>
       current.map((entry) =>
-        entry.id === task.id ? { ...entry, ...patch } : entry
+        entry.id === task.id ? { ...entry, ...effectivePatch } : entry
       )
     );
 
     try {
       setError(null);
-      replaceTask(await updateTask(task.id, patch));
+      replaceTask(await updateTask(task.id, effectivePatch));
     } catch (updateError) {
       console.error(failureMessage, updateError);
       setTasks(previous);
@@ -239,8 +251,8 @@ const TasksPage: React.FC<TasksPageProps> = ({
       setNewTitle("");
       setNewDescription("");
       setNewTags("");
-      setNewDueDate("");
-      setNewPriority("medium");
+      setNewDueDate(getDefaultTaskDueDate(settings.tasks.defaultDueDate));
+      setNewPriority(settings.tasks.defaultPriority);
       newTitleRef.current?.focus();
       toast.success("Task created", {
         description: created.title,
@@ -257,6 +269,15 @@ const TasksPage: React.FC<TasksPageProps> = ({
   }
 
   async function handleDelete(taskId: string): Promise<void> {
+    const target = tasks.find((task) => task.id === taskId);
+    const accepted = await confirm({
+      title: `Delete "${target?.title || "Untitled task"}"?`,
+      description: "This permanently removes the task and cannot be undone.",
+      confirmLabel: "Delete task",
+      dangerous: true,
+    });
+    if (!accepted) return;
+
     const previous = tasks;
     setTasks((current) => current.filter((task) => task.id !== taskId));
 
@@ -297,7 +318,10 @@ const TasksPage: React.FC<TasksPageProps> = ({
         if (!haystack.includes(query)) return false;
       }
 
-      if (archivedOnly || filter === "all") return true;
+      if (archivedOnly) return true;
+      if (filter === "all") {
+        return settings.tasks.completedTaskBehavior === "show" || task.status !== "done";
+      }
       if (filter === "completed") return task.status === "done";
       if (task.status === "done") return false;
       if (filter === "today") return isDueDateToday(task.dueDate);
@@ -306,7 +330,7 @@ const TasksPage: React.FC<TasksPageProps> = ({
     });
 
     return sortTasks(result, sortKey, sortDirection);
-  }, [archivedOnly, filter, search, sortDirection, sortKey, tasks]);
+  }, [archivedOnly, filter, search, settings.tasks.completedTaskBehavior, sortDirection, sortKey, tasks]);
 
   const columns = useMemo(() => {
     if (archivedOnly) {
@@ -385,7 +409,13 @@ const TasksPage: React.FC<TasksPageProps> = ({
 
   async function bulkDelete(): Promise<void> {
     if (selectedTasks.length === 0) return;
-    if (!window.confirm(`Delete ${selectedTasks.length} selected tasks?`)) {
+    const accepted = await confirm({
+      title: `Delete ${selectedTasks.length} selected task${selectedTasks.length === 1 ? "" : "s"}?`,
+      description: "This permanently removes the selected tasks and cannot be undone.",
+      confirmLabel: "Delete tasks",
+      dangerous: true,
+    });
+    if (!accepted) {
       return;
     }
 
@@ -737,9 +767,19 @@ const TasksPage: React.FC<TasksPageProps> = ({
           ))}
         </section>
       )}
+      {confirmationDialog}
     </div>
   );
 };
+
+function getDefaultTaskDueDate(
+  preference: "none" | "today" | "tomorrow"
+): string {
+  if (preference === "none") return "";
+  const date = new Date();
+  if (preference === "tomorrow") date.setDate(date.getDate() + 1);
+  return getLocalDateKey(date);
+}
 
 const SummaryCard: React.FC<{
   label: string;

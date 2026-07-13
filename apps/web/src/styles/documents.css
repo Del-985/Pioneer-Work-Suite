@@ -481,13 +481,15 @@
   border: 0;
   background: var(--surface-input);
   color: var(--text);
-  font-size: 15px;
+  font-size: var(--editor-font-size, 16px);
 }
 
 .documents-v2-editor .ql-editor {
   min-height: 350px;
   padding: clamp(20px, 5vw, 50px);
-  line-height: 1.65;
+  font-family: var(--editor-font-family, inherit);
+  line-height: var(--editor-line-height, 1.65);
+  tab-size: var(--editor-tab-size, 4);
 }
 
 .documents-v2-editor .ql-editor.ql-blank::before {

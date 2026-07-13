@@ -1,6 +1,6 @@
 # Pioneer Work Suite repository structure
 
-This document describes the current source layout for 0.1.12 after the accessibility, performance, notification, and recovery passes. Generated folders such as `node_modules`, `dist`, Prisma output, and Tauri build artifacts are intentionally omitted.
+This document describes the current source layout for 0.1.13 after the settings, shared UI, accessibility, performance, notification, and recovery passes. Generated folders such as `node_modules`, `dist`, Prisma output, and Tauri build artifacts are intentionally omitted.
 
 ```text
 Pioneer-Work-Suite/
@@ -24,7 +24,8 @@ Pioneer-Work-Suite/
 |       |   |-- commands/
 |       |   |-- components/
 |       |   |   |-- recovery/
-|       |   |   `-- right-sidebar/
+|       |   |   |-- right-sidebar/
+|       |   |   `-- ui/
 |       |   |-- config/
 |       |   |-- hooks/
 |       |   |-- keyboard/
@@ -72,10 +73,14 @@ Pioneer-Work-Suite/
 - `recovery/`, `components/recovery/`, and `hooks/useSessionRecovery.ts` own crash containment, interrupted-session restoration, and document draft recovery.
 - `toasts/`, `components/ToastViewport.tsx`, and `hooks/useToasts.ts` provide centralized, accessible action feedback.
 - `hooks/useAccessibleDialog.ts` owns focus trapping, initial focus, focus restoration, Escape handling, and dialog diagnostics for overlays.
+- `hooks/useAppSettings.ts` provides live, normalized settings to feature pages without duplicating subscription effects.
+- `components/ui/` and `styles/ui-primitives.css` provide the shared button, card, section-heading, and confirmation-dialog primitives used across settings and destructive workflows.
+- `hooks/useConfirmation.tsx` owns the promise-based confirmation lifecycle used by tasks, documents, calendar, mail, and settings.
 - `api/` owns local-first persistence, cloud requests, queues, synchronization, session state, and settings.
 - `pages/` owns feature-level screens; shared shell behavior should not be added there.
 - `config/`, `types/`, and `utils/` contain centralized metadata, shared contracts, and behavior-neutral helpers.
 - `styles/` contains feature-scoped styles plus the global theme and application shell styles.
+- `search/searchIndex.ts` maintains a short-lived task/document search cache that is invalidated by centralized feature-change events.
 
 ## API ownership
 

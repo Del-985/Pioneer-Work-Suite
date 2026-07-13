@@ -14,6 +14,8 @@ import {
   writeStoredDocumentQueue,
   writeStoredDocuments,
 } from "./storage";
+
+export const DOCUMENTS_CHANGED_EVENT = "pioneer:documents-changed";
 import {
   sortDocumentsByPinnedThenUpdated,
 } from "../utils/documentSort";
@@ -159,6 +161,10 @@ async function writeDocumentsCache(
   );
 
   await writeStoredDocuments(normalized);
+
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new Event(DOCUMENTS_CHANGED_EVENT));
+  }
 }
 
 async function mergeDocumentIntoCache(

@@ -104,7 +104,47 @@
 
   --transition-fast: 0.15s ease;
   --transition-normal: 0.18s ease;
+
+  --editor-font-family: inherit;
+  --editor-font-size: 16px;
+  --editor-line-height: 1.65;
+  --editor-tab-size: 4;
 }
+
+/* ==== Accent and editor preferences ==== */
+
+:root[data-theme][data-accent="violet"] {
+  --accent: #5b6cff; --accent-2: #8b46e8; --accent-text: #cbd2ff;
+  --accent-soft: rgba(91, 108, 255, .16); --accent-border: rgba(139, 70, 232, .38);
+  --accent-gradient: linear-gradient(135deg, #5b6cff, #8b46e8);
+}
+:root[data-theme][data-accent="blue"] {
+  --accent: #2678ff; --accent-2: #2e5cdb; --accent-text: #bcd5ff;
+  --accent-soft: rgba(38, 120, 255, .16); --accent-border: rgba(38, 120, 255, .4);
+  --accent-gradient: linear-gradient(135deg, #2678ff, #2e5cdb);
+}
+:root[data-theme][data-accent="teal"] {
+  --accent: #00a89d; --accent-2: #168a9e; --accent-text: #96eee5;
+  --accent-soft: rgba(0, 168, 157, .16); --accent-border: rgba(0, 168, 157, .4);
+  --accent-gradient: linear-gradient(135deg, #00a89d, #168a9e);
+}
+:root[data-theme][data-accent="rose"] {
+  --accent: #db4774; --accent-2: #a94a91; --accent-text: #ffc1d4;
+  --accent-soft: rgba(219, 71, 116, .16); --accent-border: rgba(219, 71, 116, .4);
+  --accent-gradient: linear-gradient(135deg, #db4774, #a94a91);
+}
+:root[data-theme][data-accent="amber"] {
+  --accent: #c27b12; --accent-2: #d0522c; --accent-text: #ffd99e;
+  --accent-soft: rgba(194, 123, 18, .16); --accent-border: rgba(194, 123, 18, .42);
+  --accent-gradient: linear-gradient(135deg, #c27b12, #d0522c);
+}
+
+:root[data-editor-font="system"] { --editor-font-family: inherit; }
+:root[data-editor-font="serif"] { --editor-font-family: Georgia, "Times New Roman", serif; }
+:root[data-editor-font="monospace"] { --editor-font-family: "Cascadia Code", "SFMono-Regular", Consolas, monospace; }
+:root[data-editor-line-spacing="compact"] { --editor-line-height: 1.4; }
+:root[data-editor-line-spacing="comfortable"] { --editor-line-height: 1.65; }
+:root[data-editor-line-spacing="relaxed"] { --editor-line-height: 1.9; }
 
 /* ==== Theme settings ==== */
 

@@ -19,6 +19,7 @@ import {
   TASK_PRIORITY_RANK,
 } from "../utils/taskPriority";
 import { toast } from "../toasts/toastStore";
+import { useConfirmation } from "../hooks/useConfirmation";
 
 import "../styles/calendar.css";
 
@@ -131,6 +132,7 @@ function dayHasEventOnDate(day: Date, ev: CalendarEvent): boolean {
 const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const CalendarPage: React.FC = () => {
+  const { confirm, confirmationDialog } = useConfirmation();
   const navigate = useNavigate();
   const [currentMonth, setCurrentMonth] = useState<Date>(() =>
     startOfMonth(new Date())
@@ -349,10 +351,13 @@ const CalendarPage: React.FC = () => {
   async function handleDeleteEvent(
     event: CalendarEvent
   ): Promise<void> {
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(`Delete “${event.title}”?`)
-    ) {
+    const accepted = await confirm({
+      title: `Delete "${event.title}"?`,
+      description: "This permanently removes the calendar event.",
+      confirmLabel: "Delete event",
+      dangerous: true,
+    });
+    if (!accepted) {
       return;
     }
 
@@ -442,9 +447,9 @@ const CalendarPage: React.FC = () => {
             style={{
               padding: "6px 10px",
               borderRadius: 999,
-              border: "1px solid rgba(255,255,255,0.24)",
+              border: "1px solid var(--border-strong)",
               background: "transparent",
-              color: "#f5f5f5",
+              color: "var(--text)",
               fontSize: 13,
               cursor: "pointer",
             }}
@@ -458,8 +463,8 @@ const CalendarPage: React.FC = () => {
               padding: "6px 12px",
               borderRadius: 999,
               border: "none",
-              background: "linear-gradient(135deg, #3f64ff, #7f3dff)",
-              color: "#ffffff",
+              background: "var(--accent-gradient)",
+              color: "var(--text-on-accent)",
               fontSize: 13,
               cursor: "pointer",
             }}
@@ -472,9 +477,9 @@ const CalendarPage: React.FC = () => {
             style={{
               padding: "6px 10px",
               borderRadius: 999,
-              border: "1px solid rgba(255,255,255,0.24)",
+              border: "1px solid var(--border-strong)",
               background: "transparent",
-              color: "#f5f5f5",
+              color: "var(--text)",
               fontSize: 13,
               cursor: "pointer",
             }}
@@ -493,7 +498,7 @@ const CalendarPage: React.FC = () => {
             alignItems: "center",
             gap: 12,
             fontSize: 11,
-            color: "#9da2c8",
+            color: "var(--text-muted)",
           }}
         >
           <span
@@ -508,7 +513,7 @@ const CalendarPage: React.FC = () => {
                 width: 8,
                 height: 8,
                 borderRadius: "50%",
-                background: "#3f64ff",
+                background: "var(--accent)",
               }}
             />
             Tasks due
@@ -525,7 +530,7 @@ const CalendarPage: React.FC = () => {
                 width: 8,
                 height: 8,
                 borderRadius: "50%",
-                background: "#7f3dff",
+                background: "var(--accent-2)",
               }}
             />
             Events
@@ -534,7 +539,7 @@ const CalendarPage: React.FC = () => {
       </div>
 
       {loading && <p style={{ fontSize: 13 }}>Loading calendar...</p>}
-      {error && <p style={{ fontSize: 13, color: "#ff7b88" }}>{error}</p>}
+      {error && <p style={{ fontSize: 13, color: "var(--danger)" }}>{error}</p>}
 
       {selectedDay && (
         <section
@@ -650,8 +655,8 @@ const CalendarPage: React.FC = () => {
             marginBottom: 16,
             padding: 10,
             borderRadius: 10,
-            border: "1px solid rgba(255,255,255,0.18)",
-            background: "#050713",
+            border: "1px solid var(--border)",
+            background: "var(--surface-1)",
             display: "flex",
             flexDirection: "column",
             gap: 8,
@@ -674,9 +679,9 @@ const CalendarPage: React.FC = () => {
             style={{
               padding: "8px 10px",
               borderRadius: 8,
-              border: "1px solid rgba(255,255,255,0.24)",
-              background: "#050713",
-              color: "#f5f5f5",
+              border: "1px solid var(--border-strong)",
+              background: "var(--surface-1)",
+              color: "var(--text)",
               fontSize: 13,
             }}
           />
@@ -686,7 +691,7 @@ const CalendarPage: React.FC = () => {
               alignItems: "center",
               gap: 6,
               fontSize: 12,
-              color: "#d0d2ff",
+              color: "var(--accent-text)",
             }}
           >
             <input
@@ -757,9 +762,9 @@ const CalendarPage: React.FC = () => {
               style={{
                 padding: "6px 10px",
                 borderRadius: 999,
-                border: "1px solid rgba(255,255,255,0.24)",
+                border: "1px solid var(--border-strong)",
                 background: "transparent",
-                color: "#d0d2ff",
+                color: "var(--accent-text)",
                 fontSize: 12,
                 cursor: "pointer",
               }}
@@ -778,8 +783,8 @@ const CalendarPage: React.FC = () => {
                 padding: "6px 12px",
                 borderRadius: 999,
                 border: "none",
-                background: "linear-gradient(135deg, #3f64ff, #7f3dff)",
-                color: "#ffffff",
+                background: "var(--accent-gradient)",
+                color: "var(--text-on-accent)",
                 fontSize: 12,
                 cursor: creatingEvent ? "default" : "pointer",
                 opacity:
@@ -800,16 +805,16 @@ const CalendarPage: React.FC = () => {
       <div
         style={{
           borderRadius: 12,
-          border: "1px solid rgba(255,255,255,0.12)",
+          border: "1px solid var(--border)",
           overflow: "hidden",
-          background: "radial-gradient(circle at top, #131731 0, #050713 60%)",
+          background: "var(--panel-gradient)",
         }}
       >
         <div
           style={{
             display: "grid",
             gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
-            borderBottom: "1px solid rgba(255,255,255,0.12)",
+            borderBottom: "1px solid var(--border)",
           }}
         >
           {weekdayLabels.map((label) => (
@@ -821,7 +826,7 @@ const CalendarPage: React.FC = () => {
                 fontSize: 11,
                 textTransform: "uppercase",
                 letterSpacing: "0.08em",
-                color: "#9da2c8",
+                color: "var(--text-muted)",
               }}
             >
               {label}
@@ -858,13 +863,13 @@ const CalendarPage: React.FC = () => {
                 style={{
                   all: "unset",
                   boxSizing: "border-box",
-                  borderRight: "1px solid rgba(255,255,255,0.06)",
-                  borderBottom: "1px solid rgba(255,255,255,0.06)",
+                  borderRight: "1px solid var(--border-subtle)",
+                  borderBottom: "1px solid var(--border-subtle)",
                   padding: "6px 6px 8px",
                   minHeight: 64,
                   cursor: "pointer",
                   background: isSelected
-                    ? "rgba(63,100,255,0.25)"
+                    ? "var(--accent-soft)"
                     : "transparent",
                 }}
               >
@@ -881,8 +886,8 @@ const CalendarPage: React.FC = () => {
                       fontSize: 12,
                       fontWeight: isToday ? 700 : 500,
                       color: inCurrentMonth
-                        ? "#f5f5f5"
-                        : "#6f7598",
+                        ? "var(--text)"
+                        : "var(--text-faint)",
                     }}
                   >
                     {day.getDate()}
@@ -893,8 +898,8 @@ const CalendarPage: React.FC = () => {
                         fontSize: 9,
                         padding: "2px 6px",
                         borderRadius: 999,
-                        border: "1px solid rgba(255,255,255,0.4)",
-                        color: "#f5f5f5",
+                        border: "1px solid var(--border-strong)",
+                        color: "var(--text)",
                       }}
                     >
                       Today
@@ -916,7 +921,7 @@ const CalendarPage: React.FC = () => {
                         display: "inline-flex",
                         alignItems: "center",
                         gap: 4,
-                        color: "#aeb7ff",
+                        color: "var(--accent-text)",
                       }}
                     >
                       <span
@@ -924,7 +929,7 @@ const CalendarPage: React.FC = () => {
                           width: 6,
                           height: 6,
                           borderRadius: "50%",
-                          background: "#3f64ff",
+                          background: "var(--accent)",
                         }}
                       />
                       <span>
@@ -966,6 +971,7 @@ const CalendarPage: React.FC = () => {
           })}
         </div>
       </div>
+      {confirmationDialog}
     </div>
   );
 };

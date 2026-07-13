@@ -32,6 +32,8 @@ import type {
   ShortcutDefinition,
 } from "../keyboard/keyboardTypes";
 import { useStatusBarItems } from "../hooks/useStatusBarItems";
+import { useAppSettings } from "../hooks/useAppSettings";
+import { useConfirmation } from "../hooks/useConfirmation";
 import type { StatusBarItem } from "../status/statusRegistry";
 import { toast } from "../toasts/toastStore";
 import { developerLogger } from "../developer/logger";
@@ -130,6 +132,8 @@ function getMatchIndexes(
 }
 
 const DocumentsPage: React.FC = () => {
+  const settings = useAppSettings();
+  const { confirm, confirmationDialog } = useConfirmation();
   const quillRef = useRef<any>(null);
   const fileInputRef =
     useRef<HTMLInputElement | null>(null);
@@ -776,7 +780,7 @@ const DocumentsPage: React.FC = () => {
       () => {
         void saveCurrentDocument();
       },
-      3000
+      settings.editor.autosaveInterval
     );
 
     return () =>
@@ -786,6 +790,7 @@ const DocumentsPage: React.FC = () => {
     editTitle,
     hasLocalChanges,
     saveCurrentDocument,
+    settings.editor.autosaveInterval,
     selectedDocument,
   ]);
 
@@ -1219,12 +1224,14 @@ const DocumentsPage: React.FC = () => {
       title.trim().length > 0 ||
       htmlToPlainText(content).length > 0;
 
-    if (
-      hasContent &&
-      !window.confirm(
-        `Delete "${title || "Untitled document"}"? This cannot be undone.`
-      )
-    ) {
+    const accepted = !hasContent || await confirm({
+      title: `Delete "${title || "Untitled document"}"?`,
+      description: "This permanently removes the document and cannot be undone.",
+      confirmLabel: "Delete document",
+      dangerous: true,
+    });
+
+    if (!accepted) {
       return;
     }
 
@@ -2535,6 +2542,7 @@ const DocumentsPage: React.FC = () => {
           )}
         </main>
       </div>
+      {confirmationDialog}
     </div>
   );
 };
