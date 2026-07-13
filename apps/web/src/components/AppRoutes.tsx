@@ -29,6 +29,7 @@ import TasksPage from "../pages/TasksPage";
 interface AppRoutesProps {
   workspaceAccessible: boolean;
   startupPage: StartupPagePreference;
+  recoveredPath: string | null;
   sidebarMode: RightSidebarMode;
   onSidebarModeChange: (
     mode: RightSidebarMode
@@ -46,6 +47,7 @@ const RequireAuth: React.FC<{
 const AppRoutes: React.FC<AppRoutesProps> = ({
   workspaceAccessible,
   startupPage,
+  recoveredPath,
   sidebarMode,
   onSidebarModeChange,
 }) => {
@@ -126,7 +128,7 @@ const AppRoutes: React.FC<AppRoutesProps> = ({
           workspaceAccessible
             ? (
               <Navigate
-                to={getStartupPath(startupPage)}
+                to={recoveredPath ?? getStartupPath(startupPage)}
                 replace
               />
             )

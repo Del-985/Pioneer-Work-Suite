@@ -13,6 +13,7 @@ import {
 import {
   installDeveloperLogging,
 } from "./developer/logger";
+import ApplicationErrorBoundary from "./components/recovery/ApplicationErrorBoundary";
 
 import "./styles/global.css";
 
@@ -43,7 +44,9 @@ if (!container) {
 ReactDOM.createRoot(container).render(
   <React.StrictMode>
     <HashRouter>
-      <App />
+      <ApplicationErrorBoundary>
+        <App />
+      </ApplicationErrorBoundary>
     </HashRouter>
   </React.StrictMode>
 );

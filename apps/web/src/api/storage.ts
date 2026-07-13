@@ -232,6 +232,12 @@ async function setMetaValue<T>(key: string, value: T): Promise<void> {
   );
 }
 
+async function deleteMetaValue(key: string): Promise<void> {
+  await runTransaction(META_STORE, "readwrite", (store) =>
+    store.delete(key)
+  );
+}
+
 function readLegacyJson<T>(key: string): T | null {
   if (typeof window === "undefined") {
     return null;
@@ -382,6 +388,31 @@ export async function writeStoredDocumentQueue<T>(
       value,
     }))
   );
+}
+
+/* Document recovery */
+
+function documentRecoveryKey(documentId: string): string {
+  return `documentRecovery:${documentId}`;
+}
+
+export async function readStoredDocumentRecovery<T>(
+  documentId: string
+): Promise<T | null> {
+  return getMetaValue<T>(documentRecoveryKey(documentId));
+}
+
+export async function writeStoredDocumentRecovery<T>(
+  documentId: string,
+  value: T
+): Promise<void> {
+  await setMetaValue(documentRecoveryKey(documentId), value);
+}
+
+export async function deleteStoredDocumentRecovery(
+  documentId: string
+): Promise<void> {
+  await deleteMetaValue(documentRecoveryKey(documentId));
 }
 
 /* Calendar events */

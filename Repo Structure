@@ -30,6 +30,7 @@ Pioneer-Work-Suite/
 |       |   |-- pages/
 |       |   |-- search/
 |       |   |-- status/
+|       |   |-- recovery/
 |       |   |-- styles/
 |       |   |-- types/
 |       |   |-- utils/
@@ -66,6 +67,7 @@ Pioneer-Work-Suite/
 - `commands/` owns the command registry, global commands, and page-level command lifecycle.
 - `keyboard/` owns keyboard shortcut matching, registration, and display metadata.
 - `status/` and `hooks/useStatusBarItems.ts` provide the page-context registry used by the application status bar.
+- `recovery/`, `components/recovery/`, and `hooks/useSessionRecovery.ts` own crash containment, interrupted-session restoration, and document draft recovery.
 - `api/` owns local-first persistence, cloud requests, queues, synchronization, session state, and settings.
 - `pages/` owns feature-level screens; shared shell behavior should not be added there.
 - `config/`, `types/`, and `utils/` contain centralized metadata, shared contracts, and behavior-neutral helpers.

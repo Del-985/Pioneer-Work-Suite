@@ -22,6 +22,7 @@ type LogListener = () => void;
 let installed = false;
 let entries: DeveloperLogEntry[] = [];
 const listeners = new Set<LogListener>();
+let publishScheduled = false;
 
 function hasWindow(): boolean {
   return typeof window !== "undefined";
@@ -134,7 +135,13 @@ function persistEntries(): void {
 function publish(): void {
   persistEntries();
 
-  for (const listener of listeners) listener();
+  if (publishScheduled) return;
+  publishScheduled = true;
+
+  queueMicrotask(() => {
+    publishScheduled = false;
+    for (const listener of listeners) listener();
+  });
 }
 
 function makeId(): string {

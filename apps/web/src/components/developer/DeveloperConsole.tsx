@@ -2,6 +2,7 @@ import React, { useMemo, useState } from "react";
 
 import {
   clearDeveloperLogs,
+  developerLogger,
   formatDeveloperLogEntry,
   isDeveloperLogPersistenceEnabled,
   setDeveloperLogPersistenceEnabled,
@@ -24,6 +25,13 @@ const DeveloperConsole: React.FC = () => {
   const [persistenceEnabled, setPersistenceEnabled] = useState(
     isDeveloperLogPersistenceEnabled
   );
+  const [crashDuringRender, setCrashDuringRender] = useState(false);
+
+  if (crashDuringRender) {
+    throw new Error(
+      "Developer console recovery test. This render failure was generated intentionally."
+    );
+  }
 
   const sources = useMemo(
     () => [...new Set(logs.map((entry) => entry.source))].sort(),
@@ -51,38 +59,55 @@ const DeveloperConsole: React.FC = () => {
 
   async function copyEntry(id: string): Promise<void> {
     const entry = logs.find((candidate) => candidate.id === id);
-    if (!entry || !navigator.clipboard) return;
+    if (!entry) return;
 
     try {
+      if (!navigator.clipboard) {
+        throw new Error("The Clipboard API is unavailable.");
+      }
+
       await navigator.clipboard.writeText(
         formatDeveloperLogEntry(entry)
       );
       setCopiedId(id);
       window.setTimeout(() => setCopiedId(null), 1_500);
-    } catch {
+    } catch (error) {
+      developerLogger.error(
+        "developer-console",
+        "Unable to copy a diagnostic entry",
+        error
+      );
       setCopiedId(null);
     }
   }
 
   function exportLogs(): void {
-    const payload = {
-      schemaVersion: 1,
-      exportedAt: new Date().toISOString(),
-      entryCount: visibleLogs.length,
-      entries: visibleLogs,
-    };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], {
-      type: "application/json",
-    });
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
+    try {
+      const payload = {
+        schemaVersion: 1,
+        exportedAt: new Date().toISOString(),
+        entryCount: visibleLogs.length,
+        entries: visibleLogs,
+      };
+      const blob = new Blob([JSON.stringify(payload, null, 2)], {
+        type: "application/json",
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
 
-    anchor.href = url;
-    anchor.download = `pioneer-diagnostics-${new Date()
-      .toISOString()
-      .replace(/[:.]/g, "-")}.json`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+      anchor.href = url;
+      anchor.download = `pioneer-diagnostics-${new Date()
+        .toISOString()
+        .replace(/[:.]/g, "-")}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+    } catch (error) {
+      developerLogger.error(
+        "developer-console",
+        "Unable to export diagnostic entries",
+        error
+      );
+    }
   }
 
   function togglePersistence(enabled: boolean): void {
@@ -160,6 +185,14 @@ const DeveloperConsole: React.FC = () => {
           title="Generate a safe asynchronous error to verify logging"
         >
           Test error
+        </button>
+        <button
+          className="developer-console__test-error"
+          type="button"
+          onClick={() => setCrashDuringRender(true)}
+          title="Trigger the application recovery screen"
+        >
+          Test recovery
         </button>
         <button
           type="button"

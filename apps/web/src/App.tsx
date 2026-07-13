@@ -39,6 +39,7 @@ import type {
 import {
   normalizeRightSidebarMode,
 } from "./types/rightSidebar";
+import { useSessionRecovery } from "./hooks/useSessionRecovery";
 
 import "./styles/app-shell.css";
 
@@ -50,6 +51,7 @@ function toSidebarMode(
 
 const App: React.FC = () => {
   const navigate = useNavigate();
+  const recoveredPath = useSessionRecovery();
   const initialSettings = useRef(
     getSettingsSnapshot()
   ).current;
@@ -196,6 +198,7 @@ const App: React.FC = () => {
             <AppRoutes
               workspaceAccessible={workspaceAccessible}
               startupPage={settings.workspace.startupPage}
+              recoveredPath={recoveredPath}
               sidebarMode={sidebarMode}
               onSidebarModeChange={handleSidebarModeChange}
             />

@@ -9,6 +9,8 @@ import React, {
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
 
+import DocumentRecoveryPrompt from "../components/recovery/DocumentRecoveryPrompt";
+
 import {
   createDocument,
   deleteDocument,
@@ -31,6 +33,13 @@ import type {
 } from "../keyboard/keyboardTypes";
 import { useStatusBarItems } from "../hooks/useStatusBarItems";
 import type { StatusBarItem } from "../status/statusRegistry";
+import { developerLogger } from "../developer/logger";
+import {
+  deleteDocumentRecoveryDraft,
+  readDocumentRecoveryDraft,
+  writeDocumentRecoveryDraft,
+} from "../recovery/documentRecovery";
+import type { DocumentRecoveryDraft } from "../recovery/documentRecovery";
 import {
   calculateDocumentStatistics,
   exportDocumentAsHtml,
@@ -160,6 +169,9 @@ const DocumentsPage: React.FC = () => {
     useState<string | null>(null);
   const [hasLocalChanges, setHasLocalChanges] =
     useState(false);
+  const [recoveryDraft, setRecoveryDraft] =
+    useState<DocumentRecoveryDraft | null>(null);
+  const [editorRevision, setEditorRevision] = useState(0);
   const [cursorPosition, setCursorPosition] =
     useState({ line: 1, column: 1 });
 
@@ -475,6 +487,8 @@ const DocumentsPage: React.FC = () => {
         null
     );
     setHasLocalChanges(false);
+    setRecoveryDraft(null);
+    setEditorRevision((current) => current + 1);
     setSaveError(null);
     resetFindState();
   }
@@ -527,6 +541,13 @@ const DocumentsPage: React.FC = () => {
               title,
               content,
             });
+
+          try {
+            await deleteDocumentRecoveryDraft(targetId);
+          } catch {
+            // The recovery module records sanitized diagnostics. A completed
+            // document save must not be reported as failed because cleanup did.
+          }
 
           mergeSavedDocument(updated);
           setEditTitle(updated.title);
@@ -676,6 +697,62 @@ const DocumentsPage: React.FC = () => {
   useEffect(() => {
     rememberLastDocument(selectedId);
   }, [selectedId]);
+
+  useEffect(() => {
+    if (!selectedDocument) {
+      setRecoveryDraft(null);
+      return;
+    }
+
+    let cancelled = false;
+    const documentId = selectedDocument.id;
+
+    void readDocumentRecoveryDraft(documentId)
+      .then(async (draft) => {
+        if (cancelled || !draft) return;
+
+        if (
+          draft.title === selectedDocument.title &&
+          draft.content === selectedDocument.content
+        ) {
+          try {
+            await deleteDocumentRecoveryDraft(documentId);
+          } catch {
+            // Failure is already recorded by the recovery module.
+          }
+          return;
+        }
+
+        setRecoveryDraft(draft);
+      })
+      .catch(() => {
+        // The recovery module records the read failure with its document ID.
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDocument?.id, selectedDocument?.updatedAt]);
+
+  useEffect(() => {
+    if (!selectedDocument || !hasLocalChanges) return;
+
+    const timeout = window.setTimeout(() => {
+      void writeDocumentRecoveryDraft({
+        schemaVersion: 1,
+        documentId: selectedDocument.id,
+        title: editTitle,
+        content: editContent,
+        baseUpdatedAt:
+          selectedDocument.updatedAt ?? selectedDocument.createdAt ?? null,
+        capturedAt: new Date().toISOString(),
+      }).catch(() => {
+        // The recovery module records write failures without document content.
+      });
+    }, 750);
+
+    return () => window.clearTimeout(timeout);
+  }, [editContent, editTitle, hasLocalChanges, selectedDocument]);
 
   useEffect(() => {
     if (
@@ -1145,8 +1222,11 @@ const DocumentsPage: React.FC = () => {
       );
     }
 
+    let deletionConfirmed = false;
+
     try {
       await deleteDocument(id);
+      deletionConfirmed = true;
     } catch (error: any) {
       console.error(
         "Unable to delete document:",
@@ -1160,9 +1240,54 @@ const DocumentsPage: React.FC = () => {
         setSaveError(
           "Unable to delete document."
         );
+      } else {
+        deletionConfirmed = true;
       }
     } finally {
+      if (deletionConfirmed) {
+        try {
+          await deleteDocumentRecoveryDraft(id);
+        } catch {
+          // Snapshot cleanup failure is logged without failing deletion.
+        }
+      }
       setDeletingId(null);
+    }
+  }
+
+  function restoreRecoveryDraft(): void {
+    if (!recoveryDraft) return;
+
+    setEditTitle(recoveryDraft.title);
+    setEditContent(recoveryDraft.content);
+    setHasLocalChanges(true);
+    setEditorRevision((current) => current + 1);
+    setRecoveryDraft(null);
+
+    developerLogger.info(
+      "recovery.document",
+      "Restored an unsaved document snapshot",
+      { documentId: recoveryDraft.documentId }
+    );
+  }
+
+  async function discardRecoveryDraft(): Promise<void> {
+    if (!recoveryDraft) return;
+
+    const documentId = recoveryDraft.documentId;
+
+    try {
+      await deleteDocumentRecoveryDraft(documentId);
+      setRecoveryDraft(null);
+      developerLogger.info(
+        "recovery.document",
+        "Discarded a document recovery snapshot",
+        { documentId }
+      );
+    } catch {
+      setSaveError(
+        "Unable to discard the recovery copy. See Developer Tools for details."
+      );
     }
   }
 
@@ -1698,6 +1823,16 @@ const DocumentsPage: React.FC = () => {
 
   return (
     <div className="documents-v2-page">
+      {recoveryDraft && selectedDocument && (
+        <DocumentRecoveryPrompt
+          draft={recoveryDraft}
+          currentUpdatedAt={
+            selectedDocument.updatedAt ?? selectedDocument.createdAt ?? null
+          }
+          onRestore={restoreRecoveryDraft}
+          onDiscard={discardRecoveryDraft}
+        />
+      )}
       <header className="documents-v2-header">
         <div>
           <p className="documents-v2-eyebrow">
@@ -2242,8 +2377,7 @@ const DocumentsPage: React.FC = () => {
 
                 <ReactQuill
                   key={
-                    selectedId ??
-                    "no-document"
+                    `${selectedId ?? "no-document"}-${editorRevision}`
                   }
                   ref={quillRef}
                   defaultValue={editContent}
