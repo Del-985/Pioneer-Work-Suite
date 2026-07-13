@@ -26,6 +26,9 @@ import {
   hasCloudSession,
   isCloudReconnectRequired,
 } from "./session";
+import {
+  developerLogger,
+} from "../developer/logger";
 
 export type SyncPhase =
   | "local-only"
@@ -167,7 +170,11 @@ export async function refreshSyncStatus(): Promise<SyncSnapshot> {
     const counts = await readPendingCounts();
     return publish(makeSnapshot(counts));
   } catch (error) {
-    console.error("Unable to refresh sync status:", error);
+    developerLogger.error(
+      "sync",
+      "Unable to refresh sync status",
+      error
+    );
     errorMessage = "Unable to read the local sync queues.";
     return publish(makeSnapshot());
   }
@@ -210,7 +217,11 @@ export async function syncAllNow(): Promise<SyncSnapshot> {
       counts.pendingEvents;
 
     if (rejected) {
-      console.error("Cloud synchronization failed:", rejected.reason);
+      developerLogger.error(
+        "sync",
+        "Cloud synchronization failed",
+        rejected.reason
+      );
       errorMessage = "Cloud synchronization failed. Local changes are safe.";
     } else if (pendingTotal > 0 && isOnline() && hasCloudSession()) {
       errorMessage =
@@ -225,7 +236,11 @@ export async function syncAllNow(): Promise<SyncSnapshot> {
 
   syncPromise = run()
     .catch((error) => {
-      console.error("Unable to synchronize cloud data:", error);
+      developerLogger.error(
+        "sync",
+        "Unable to synchronize cloud data",
+        error
+      );
       errorMessage = "Cloud synchronization failed. Local changes are safe.";
       return publish(makeSnapshot());
     })
@@ -285,3 +300,4 @@ export function startSyncCoordinator(
     window.removeEventListener("offline", refresh);
   };
 }
+

@@ -1,5 +1,9 @@
 // apps/web/src/api/storage.ts
 
+import {
+  developerLogger,
+} from "../developer/logger";
+
 const DATABASE_NAME = "pioneer-work-suite";
 const DATABASE_VERSION = 2;
 
@@ -41,14 +45,25 @@ function hasIndexedDb(): boolean {
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     if (!hasIndexedDb()) {
-      reject(new Error("IndexedDB is unavailable in this environment."));
+      const error = new Error(
+        "IndexedDB is unavailable in this environment."
+      );
+      developerLogger.error("storage", error.message, error);
+      reject(error);
       return;
     }
 
     const request = window.indexedDB.open(DATABASE_NAME, DATABASE_VERSION);
 
     request.onerror = () => {
-      reject(request.error ?? new Error("Unable to open Pioneer storage."));
+      const error =
+        request.error ?? new Error("Unable to open Pioneer storage.");
+      developerLogger.error(
+        "storage",
+        "Unable to open Pioneer storage",
+        error
+      );
+      reject(error);
     };
 
     request.onsuccess = () => {
@@ -114,12 +129,22 @@ async function runTransaction<T>(
     try {
       request = operation(store);
     } catch (error) {
+      developerLogger.error(
+        "storage",
+        `Storage operation failed in ${storeName}`,
+        error
+      );
       database.close();
       reject(error);
       return;
     }
 
     transaction.onerror = () => {
+      developerLogger.error(
+        "storage",
+        `Storage transaction failed in ${storeName}`,
+        transaction.error
+      );
       database.close();
       reject(transaction.error ?? new Error("Storage transaction failed."));
     };

@@ -10,8 +10,13 @@ import {
   getSettingsSnapshot,
   subscribeToSettings,
 } from "./api/settings";
+import {
+  installDeveloperLogging,
+} from "./developer/logger";
 
 import "./styles/global.css";
+
+installDeveloperLogging();
 
 /*
  * Apply saved appearance settings before React renders.
@@ -42,3 +47,4 @@ ReactDOM.createRoot(container).render(
     </HashRouter>
   </React.StrictMode>
 );
+

@@ -24,6 +24,7 @@ import {
   updateSettings,
 } from "../api/settings";
 import { APP_VERSION } from "../config/appMetadata";
+import DeveloperConsole from "../components/developer/DeveloperConsole";
 import {
   RIGHT_SIDEBAR_MODE_OPTIONS,
 } from "../types/rightSidebar";
@@ -838,6 +839,8 @@ const SettingsPage: React.FC = () => {
               excluded for now.
             </p>
           </section>
+
+          <DeveloperConsole />
         </>
       )}
     </div>

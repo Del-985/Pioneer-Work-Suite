@@ -10,6 +10,9 @@ import {
   hasCloudSession,
   invalidateCloudSession,
 } from "./session";
+import {
+  developerLogger,
+} from "../developer/logger";
 
 // For v1, the backend API base URL remains fixed for desktop and Pages builds.
 const API_BASE_URL = "https://pioneer-work-suite.onrender.com";
@@ -41,6 +44,18 @@ http.interceptors.response.use(
   (response: AxiosResponse) => response,
   (error: AxiosError<any>) => {
     const status = error?.response?.status;
+    const method = error.config?.method?.toUpperCase() ?? "REQUEST";
+    const path = error.config?.url?.split("?")[0] ?? "unknown endpoint";
+
+    developerLogger.error(
+      "http",
+      `${method} ${path} failed${status ? ` (${status})` : ""}`,
+      {
+        status: status ?? null,
+        code: error.code ?? null,
+        message: error.message,
+      }
+    );
 
     if ((status === 401 || status === 403) && hasCloudSession()) {
       const serverMessage = error?.response?.data?.error;
@@ -55,3 +70,4 @@ http.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
