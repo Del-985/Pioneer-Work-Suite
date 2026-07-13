@@ -1,7 +1,9 @@
 // apps/web/src/pages/CalendarPage.tsx
 import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { fetchTasks, Task } from "../api/tasks";
 import {
+  deleteEvent,
   fetchEvents,
   createEvent,
   CalendarEvent,
@@ -9,6 +11,13 @@ import {
 import type {
   EventUrgency,
 } from "../api/events";
+import {
+  getDueDateKey,
+  getLocalDateKey,
+} from "../utils/taskDates";
+import {
+  TASK_PRIORITY_RANK,
+} from "../utils/taskPriority";
 
 import "../styles/calendar.css";
 
@@ -79,15 +88,30 @@ function formatMonthYear(date: Date): string {
   });
 }
 
-function dateKey(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
+function formatEventTime(event: CalendarEvent): string {
+  if (event.allDay) return "All day";
 
-function parseIsoDateOnly(iso: string): Date | null {
-  if (!iso) return null;
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return null;
-  return d;
+  const start = new Date(event.start);
+  const end = new Date(event.end);
+
+  if (Number.isNaN(start.getTime())) return "Time unavailable";
+
+  const startLabel = start.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+
+  if (
+    Number.isNaN(end.getTime()) ||
+    end.getTime() <= start.getTime()
+  ) {
+    return startLabel;
+  }
+
+  return `${startLabel}–${end.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  })}`;
 }
 
 function dayHasEventOnDate(day: Date, ev: CalendarEvent): boolean {
@@ -106,6 +130,7 @@ function dayHasEventOnDate(day: Date, ev: CalendarEvent): boolean {
 const weekdayLabels = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 
 const CalendarPage: React.FC = () => {
+  const navigate = useNavigate();
   const [currentMonth, setCurrentMonth] = useState<Date>(() =>
     startOfMonth(new Date())
   );
@@ -121,6 +146,8 @@ const CalendarPage: React.FC = () => {
   const [newEventUrgency, setNewEventUrgency] =
     useState<EventUrgency | "">("");
   const [creatingEvent, setCreatingEvent] = useState(false);
+  const [deletingEventIds, setDeletingEventIds] =
+    useState<Set<string>>(() => new Set());
 
   const today = useMemo(() => {
     const d = new Date();
@@ -180,9 +207,8 @@ const CalendarPage: React.FC = () => {
     const map = new Map<string, Task[]>();
     for (const t of tasks) {
       if (!t.dueDate) continue;
-      const d = parseIsoDateOnly(String(t.dueDate));
-      if (!d) continue;
-      const key = dateKey(d);
+      const key = getDueDateKey(t.dueDate);
+      if (!key) continue;
       if (!map.has(key)) map.set(key, []);
       map.get(key)!.push(t);
     }
@@ -204,7 +230,7 @@ const CalendarPage: React.FC = () => {
 
       while (day <= evEnd && day < limit) {
         if (dayHasEventOnDate(day, ev)) {
-          const key = dateKey(day);
+          const key = getLocalDateKey(day);
           if (!map.has(key)) map.set(key, []);
           map.get(key)!.push(ev);
         }
@@ -261,6 +287,13 @@ const CalendarPage: React.FC = () => {
   }
 
   function handleSelectDay(day: Date) {
+    if (
+      day.getFullYear() !== currentMonth.getFullYear() ||
+      day.getMonth() !== currentMonth.getMonth()
+    ) {
+      setCurrentMonth(startOfMonth(day));
+    }
+
     setSelectedDay(day);
   }
 
@@ -271,14 +304,72 @@ const CalendarPage: React.FC = () => {
     setSelectedDay(now);
   }
 
-  const selectedDayKey = selectedDay ? dateKey(selectedDay) : null;
+  async function handleDeleteEvent(
+    event: CalendarEvent
+  ): Promise<void> {
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(`Delete “${event.title}”?`)
+    ) {
+      return;
+    }
+
+    setDeletingEventIds((current) => {
+      const next = new Set(current);
+      next.add(event.id);
+      return next;
+    });
+    setError(null);
+
+    try {
+      await deleteEvent(event.id);
+      setEvents((current) =>
+        current.filter((entry) => entry.id !== event.id)
+      );
+    } catch (deleteError) {
+      console.error("Error deleting event:", deleteError);
+      setError("Unable to delete event.");
+    } finally {
+      setDeletingEventIds((current) => {
+        const next = new Set(current);
+        next.delete(event.id);
+        return next;
+      });
+    }
+  }
+
+  const selectedDayKey = selectedDay
+    ? getLocalDateKey(selectedDay)
+    : null;
+  const selectedDayTasks = useMemo(
+    () =>
+      selectedDayKey
+        ? [...(tasksByDayKey.get(selectedDayKey) || [])].sort(
+            (left, right) =>
+              TASK_PRIORITY_RANK[left.priority] -
+              TASK_PRIORITY_RANK[right.priority]
+          )
+        : [],
+    [selectedDayKey, tasksByDayKey]
+  );
+  const selectedDayEvents = useMemo(
+    () =>
+      selectedDayKey
+        ? [...(eventsByDayKey.get(selectedDayKey) || [])].sort(
+            (left, right) =>
+              new Date(left.start).getTime() -
+              new Date(right.start).getTime()
+          )
+        : [],
+    [eventsByDayKey, selectedDayKey]
+  );
 
   return (
     <div>
       <h2>Calendar</h2>
       <p className="workspace-subtitle">
-        View your tasks and events on a monthly calendar. Quick-create events
-        directly on a specific day.
+        Select a day to review its tasks and events, delete events, or quickly
+        schedule something new.
       </p>
 
       <div
@@ -398,6 +489,113 @@ const CalendarPage: React.FC = () => {
 
       {loading && <p style={{ fontSize: 13 }}>Loading calendar...</p>}
       {error && <p style={{ fontSize: 13, color: "#ff7b88" }}>{error}</p>}
+
+      {selectedDay && (
+        <section
+          className="calendar-day-agenda"
+          aria-labelledby="calendar-day-agenda-title"
+        >
+          <header>
+            <div>
+              <p>Selected day</p>
+              <h3 id="calendar-day-agenda-title">
+                {selectedDay.toLocaleDateString(undefined, {
+                  weekday: "long",
+                  month: "long",
+                  day: "numeric",
+                  year: "numeric",
+                })}
+              </h3>
+            </div>
+            <button
+              type="button"
+              onClick={() => setSelectedDay(null)}
+              aria-label="Close selected day details"
+            >
+              ×
+            </button>
+          </header>
+
+          <div className="calendar-day-agenda__grid">
+            <article>
+              <h4>Tasks ({selectedDayTasks.length})</h4>
+              {selectedDayTasks.length === 0 ? (
+                <p className="calendar-day-agenda__empty">
+                  No tasks are due this day.
+                </p>
+              ) : (
+                <ul>
+                  {selectedDayTasks.map((task) => (
+                    <li
+                      key={task.id}
+                      className={`priority-${task.priority}`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() =>
+                          navigate(
+                            `/tasks?task=${encodeURIComponent(task.id)}`
+                          )
+                        }
+                      >
+                        <strong>{task.title}</strong>
+                        <small>
+                          {task.priority} · {task.status.replace("_", " ")}
+                        </small>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </article>
+
+            <article>
+              <h4>Events ({selectedDayEvents.length})</h4>
+              {selectedDayEvents.length === 0 ? (
+                <p className="calendar-day-agenda__empty">
+                  No events are scheduled this day.
+                </p>
+              ) : (
+                <ul>
+                  {selectedDayEvents.map((event) => {
+                    const deleting = deletingEventIds.has(event.id);
+
+                    return (
+                      <li
+                        key={event.id}
+                        className={
+                          event.urgency
+                            ? `urgency-${event.urgency}`
+                            : undefined
+                        }
+                      >
+                        <div>
+                          <strong>{event.title}</strong>
+                          <small>
+                            {formatEventTime(event)}
+                            {event.urgency
+                              ? ` · ${urgencyLabel(event.urgency)}`
+                              : ""}
+                          </small>
+                        </div>
+                        <button
+                          className="calendar-day-agenda__delete"
+                          type="button"
+                          onClick={() => void handleDeleteEvent(event)}
+                          disabled={deleting}
+                          aria-label={`Delete ${event.title}`}
+                        >
+                          {deleting ? "Deleting…" : "Delete"}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </article>
+          </div>
+        </section>
+      )}
 
       {selectedDay && (
         <form
@@ -559,7 +757,7 @@ const CalendarPage: React.FC = () => {
             const inCurrentMonth =
               day.getMonth() === currentMonth.getMonth();
 
-            const key = dateKey(day);
+            const key = getLocalDateKey(day);
             const dayTasks = tasksByDayKey.get(key) || [];
             const dayEvents = eventsByDayKey.get(key) || [];
             const eventUrgency = highestEventUrgency(dayEvents);
@@ -573,6 +771,8 @@ const CalendarPage: React.FC = () => {
                 key={key + String(day.getMonth())}
                 type="button"
                 onClick={() => handleSelectDay(day)}
+                aria-pressed={Boolean(isSelected)}
+                aria-label={`${day.toLocaleDateString()}: ${dayTasks.length} tasks, ${dayEvents.length} events`}
                 style={{
                   all: "unset",
                   boxSizing: "border-box",
