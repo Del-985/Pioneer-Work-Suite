@@ -688,6 +688,16 @@ p {
   color: inherit;
 }
 
+/* Button-based navigation utilities should inherit the same visual hierarchy
+ * as the route links instead of the brighter sidebar text color. */
+.app .sidebar-nav > button.nav-item {
+  color: var(--text-muted);
+}
+
+.app .sidebar-nav > button.nav-item:hover:not(:disabled) {
+  color: var(--text);
+}
+
 /* ==== Light-theme fallbacks for legacy inline-styled pages ==== */
 /*
  * Several current pages still use dark literal colors in React style objects.
