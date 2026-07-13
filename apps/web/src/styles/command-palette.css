@@ -195,7 +195,7 @@
 }
 
 .command-palette__empty.is-error strong {
-  color: var(--danger-text);
+  color: var(--danger);
 }
 
 .command-palette__footer {
@@ -236,3 +236,4 @@
     flex-wrap: wrap;
   }
 }
+

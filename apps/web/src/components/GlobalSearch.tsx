@@ -7,9 +7,10 @@ import type {
   SearchResultKind,
   SearchSnapshot,
 } from "../search/searchTypes";
+import { useBodyScrollLock } from "../hooks/useBodyScrollLock";
 import "../styles/global-search.css";
 
-export const GLOBAL_SEARCH_OPEN_EVENT = "pioneer:open-global-search";
+const GLOBAL_SEARCH_OPEN_EVENT = "pioneer:open-global-search";
 
 export function openGlobalSearch(): void {
   if (typeof window !== "undefined") {
@@ -108,16 +109,7 @@ const GlobalSearch: React.FC = () => {
     return () => window.clearTimeout(timeout);
   }, [open, query]);
 
-  useEffect(() => {
-    if (!open) return;
-
-    const previous = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-
-    return () => {
-      document.body.style.overflow = previous;
-    };
-  }, [open]);
+  useBodyScrollLock(open);
 
   function close(): void {
     setOpen(false);
@@ -289,3 +281,4 @@ const Empty: React.FC<{
 );
 
 export default GlobalSearch;
+

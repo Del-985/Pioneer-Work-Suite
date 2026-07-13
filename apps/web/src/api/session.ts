@@ -1,6 +1,6 @@
 // apps/web/src/api/session.ts
 
-export type CloudUser = {
+type CloudUser = {
   id: string;
   email: string;
   name: string;
@@ -47,7 +47,7 @@ function notifySessionChanged(): void {
  * It is not secure authentication and will later be replaced
  * by a PIN, OS-account binding, encryption, or similar.
  */
-export function ensureLocalWorkspace(): void {
+function ensureLocalWorkspace(): void {
   if (!hasWindow()) return;
 
   if (window.localStorage.getItem(LOCAL_WORKSPACE_ENABLED_KEY) !== "true") {
@@ -151,3 +151,4 @@ export function invalidateCloudSession(
 
   notifySessionChanged();
 }
+

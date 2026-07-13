@@ -60,15 +60,49 @@ class ShortcutRegistry {
   registerMany(
     definitions: ShortcutDefinition[]
   ): ShortcutUnregister {
-    const unregister = definitions.map(
-      (definition) =>
-        this.register(definition)
+    const registrations = definitions.map(
+      (definition) => {
+        this.registrationOrder += 1;
+
+        const registrationOrder =
+          this.registrationOrder;
+
+        this.shortcuts.set(definition.id, {
+          definition,
+          registrationOrder,
+        });
+
+        return {
+          id: definition.id,
+          registrationOrder,
+        };
+      }
     );
 
+    this.publish();
+
     return () => {
-      unregister
-        .reverse()
-        .forEach((dispose) => dispose());
+      let changed = false;
+
+      for (const registration of [
+        ...registrations,
+      ].reverse()) {
+        const current = this.shortcuts.get(
+          registration.id
+        );
+
+        if (
+          current?.registrationOrder ===
+          registration.registrationOrder
+        ) {
+          this.shortcuts.delete(registration.id);
+          changed = true;
+        }
+      }
+
+      if (changed) {
+        this.publish();
+      }
     };
   }
 
@@ -162,3 +196,4 @@ class ShortcutRegistry {
 
 export const shortcutRegistry =
   new ShortcutRegistry();
+

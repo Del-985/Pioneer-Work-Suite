@@ -12,10 +12,11 @@ import {
 import type {
   CommandSearchResult,
 } from "../commands/commandTypes";
+import { useBodyScrollLock } from "../hooks/useBodyScrollLock";
 
 import "../styles/command-palette.css";
 
-export const OPEN_COMMAND_PALETTE_EVENT =
+const OPEN_COMMAND_PALETTE_EVENT =
   "pioneer:open-command-palette";
 
 export function openCommandPalette(): void {
@@ -96,22 +97,7 @@ const CommandPalette: React.FC = () => {
     setActiveIndex(0);
   }, [query, results.length]);
 
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    const previous =
-      document.body.style.overflow;
-
-    document.body.style.overflow =
-      "hidden";
-
-    return () => {
-      document.body.style.overflow =
-        previous;
-    };
-  }, [open]);
+  useBodyScrollLock(open);
 
   function close(): void {
     setOpen(false);
@@ -390,3 +376,4 @@ const CommandPalette: React.FC = () => {
 };
 
 export default CommandPalette;
+

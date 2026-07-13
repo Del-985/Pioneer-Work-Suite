@@ -1,6 +1,6 @@
 // apps/web/src/commands/commandTypes.ts
 
-export type CommandCategory =
+type CommandCategory =
   | "Navigation"
   | "Create"
   | "Workspace"
@@ -32,3 +32,4 @@ export interface CommandSearchResult {
 }
 
 export type CommandUnregister = () => void;
+

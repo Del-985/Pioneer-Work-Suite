@@ -1,6 +1,6 @@
 // apps/web/src/utils/documentText.ts
 
-export interface DocumentStatistics {
+interface DocumentStatistics {
   words: number;
   characters: number;
   charactersWithoutSpaces: number;
@@ -209,3 +209,4 @@ function escapeHtml(value: string): string {
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&#039;");
 }
+

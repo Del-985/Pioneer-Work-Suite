@@ -1,6 +1,6 @@
 import { http } from "./http";
 
-export type UserRole = "student" | "professional";
+type UserRole = "student" | "professional";
 
 export interface User {
   id: string;
@@ -9,7 +9,7 @@ export interface User {
   role: UserRole;
 }
 
-export interface AuthResponse {
+interface AuthResponse {
   user: User;
   token: string;
 }
@@ -49,3 +49,4 @@ export async function getMe(): Promise<User> {
   const { data } = await http.get<{ user: User }>("/auth/me");
   return data.user;
 }
+

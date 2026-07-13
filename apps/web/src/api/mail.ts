@@ -62,7 +62,7 @@ export async function fetchMailAccounts(): Promise<MailAccount[]> {
 // ---- Messages ----
 
 // Query options for listing messages (Mail v1+)
-export interface MailMessageListParams {
+interface MailMessageListParams {
   folder?: MailFolder;    // default: "inbox"
   accountId?: string;     // optional multi-account filter
   search?: string;        // free-text search (backend: q=...)
@@ -137,7 +137,7 @@ export async function fetchMailMessage(id: string): Promise<MailMessage> {
   return data as unknown as MailMessage;
 }
 
-export interface SendMailInput {
+interface SendMailInput {
   subject: string;
   toAddress: string;
   bodyHtml?: string;
@@ -160,7 +160,7 @@ export async function sendMail(input: SendMailInput): Promise<MailMessage> {
   return data as unknown as MailMessage;
 }
 
-export interface UpdateMailPatch {
+interface UpdateMailPatch {
   isRead?: boolean;
   isStarred?: boolean;
   folder?: MailFolder;
@@ -186,16 +186,3 @@ export async function deleteMailMessage(id: string): Promise<void> {
   await http.delete(`/mail/messages/${id}`);
 }
 
-// ---- Convenience helpers (optional, but nice for UI wiring) ----
-
-export async function starMailMessage(id: string, starred: boolean) {
-  return updateMailMessage(id, { isStarred: starred });
-}
-
-export async function markMailRead(id: string, read: boolean) {
-  return updateMailMessage(id, { isRead: read });
-}
-
-export async function moveMailToFolder(id: string, folder: MailFolder) {
-  return updateMailMessage(id, { folder });
-}

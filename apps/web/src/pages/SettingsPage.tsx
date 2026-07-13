@@ -23,6 +23,7 @@ import {
   subscribeToSettings,
   updateSettings,
 } from "../api/settings";
+import { APP_VERSION } from "../config/appMetadata";
 
 type DiagnosticState = {
   loading: boolean;
@@ -38,8 +39,6 @@ type DiagnosticState = {
   pendingEventSync: number;
   appVersion: string;
 };
-
-const APP_VERSION = import.meta.env.VITE_APP_VERSION || "0.0.0";
 
 function isIndexedDbAvailable(): boolean {
   return typeof window !== "undefined" && "indexedDB" in window;
@@ -846,3 +845,4 @@ const SettingsPage: React.FC = () => {
 };
 
 export default SettingsPage;
+

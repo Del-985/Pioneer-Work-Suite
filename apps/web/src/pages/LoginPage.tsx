@@ -11,9 +11,8 @@ import {
   getLocalWorkspaceName,
 } from "../api/session";
 import { getConfiguredStartupPath } from "../api/settings";
-
-const APP_VERSION =
-  import.meta.env.VITE_APP_VERSION || "0.0.0";
+import { APP_VERSION } from "../config/appMetadata";
+import { getApiErrorMessage } from "../utils/apiErrors";
 
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();
@@ -67,35 +66,12 @@ const LoginPage: React.FC = () => {
     } catch (error: unknown) {
       console.error("Login error:", error);
 
-      let message =
-        "Unable to connect to your cloud account.";
-
-      if (
-        typeof error === "object" &&
-        error !== null
-      ) {
-        const possibleError = error as {
-          message?: unknown;
-          response?: {
-            data?: {
-              error?: unknown;
-            };
-          };
-        };
-
-        const responseMessage =
-          possibleError.response?.data?.error;
-
-        if (typeof responseMessage === "string") {
-          message = responseMessage;
-        } else if (
-          typeof possibleError.message === "string"
-        ) {
-          message = possibleError.message;
-        }
-      }
-
-      setError(message);
+      setError(
+        getApiErrorMessage(
+          error,
+          "Unable to connect to your cloud account."
+        )
+      );
     } finally {
       setIsSubmitting(false);
     }

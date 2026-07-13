@@ -190,15 +190,49 @@ class CommandRegistry {
   registerMany(
     definitions: CommandDefinition[]
   ): CommandUnregister {
-    const unregister = definitions.map(
-      (definition) =>
-        this.register(definition)
+    const registrations = definitions.map(
+      (definition) => {
+        this.registrationOrder += 1;
+
+        const registrationOrder =
+          this.registrationOrder;
+
+        this.commands.set(definition.id, {
+          definition,
+          registrationOrder,
+        });
+
+        return {
+          id: definition.id,
+          registrationOrder,
+        };
+      }
     );
 
+    this.publish();
+
     return () => {
-      unregister
-        .reverse()
-        .forEach((dispose) => dispose());
+      let changed = false;
+
+      for (const registration of [
+        ...registrations,
+      ].reverse()) {
+        const current = this.commands.get(
+          registration.id
+        );
+
+        if (
+          current?.registrationOrder ===
+          registration.registrationOrder
+        ) {
+          this.commands.delete(registration.id);
+          changed = true;
+        }
+      }
+
+      if (changed) {
+        this.publish();
+      }
     };
   }
 
@@ -344,3 +378,4 @@ class CommandRegistry {
 
 export const commandRegistry =
   new CommandRegistry();
+

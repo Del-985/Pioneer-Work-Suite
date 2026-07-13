@@ -10,8 +10,9 @@ import {
   subscribeToSyncStatus,
   syncAllNow,
 } from "../api/sync";
+import { APP_VERSION } from "../config/appMetadata";
 
-const APP_VERSION = import.meta.env.VITE_APP_VERSION || "0.0.0";
+import "../styles/status-bar.css";
 
 const PHASE_LABELS: Record<SyncPhase, string> = {
   "local-only": "Local only",
@@ -121,3 +122,4 @@ const StatusBar: React.FC = () => {
 };
 
 export default StatusBar;
+

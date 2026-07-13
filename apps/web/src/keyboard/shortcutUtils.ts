@@ -4,7 +4,7 @@ import type {
   ShortcutDisplayItem,
 } from "./keyboardTypes";
 
-export function isMacPlatform(): boolean {
+function isMacPlatform(): boolean {
   if (typeof navigator === "undefined") {
     return false;
   }
@@ -111,3 +111,4 @@ export function shortcutToDisplayItem(
     enabled: shortcut.enabled !== false,
   };
 }
+

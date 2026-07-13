@@ -14,6 +14,9 @@ import {
   writeStoredDocumentQueue,
   writeStoredDocuments,
 } from "./storage";
+import {
+  sortDocumentsByPinnedThenUpdated,
+} from "../utils/documentSort";
 
 export interface Document {
   id: string;
@@ -32,7 +35,7 @@ export interface DocumentPatch {
   isFavorite?: boolean;
 }
 
-export interface CreateDocumentOptions {
+interface CreateDocumentOptions {
   isPinned?: boolean;
   isFavorite?: boolean;
 }
@@ -123,23 +126,6 @@ function normalizeDocument(raw: any): Document {
   };
 }
 
-function sortDocuments(documents: Document[]): Document[] {
-  return [...documents].sort((left, right) => {
-    if (left.isPinned !== right.isPinned) {
-      return left.isPinned ? -1 : 1;
-    }
-
-    const leftTime = new Date(
-      left.updatedAt || left.createdAt
-    ).getTime();
-    const rightTime = new Date(
-      right.updatedAt || right.createdAt
-    ).getTime();
-
-    return rightTime - leftTime;
-  });
-}
-
 async function ensureDocumentStorageReady(): Promise<void> {
   if (!storageInitialization) {
     storageInitialization = (async () => {
@@ -160,7 +146,7 @@ async function readDocumentsCache(): Promise<Document[]> {
   const storedDocuments =
     await readStoredDocuments<Document>();
 
-  return sortDocuments(
+  return sortDocumentsByPinnedThenUpdated(
     storedDocuments.map(normalizeDocument)
   );
 }
@@ -168,7 +154,7 @@ async function readDocumentsCache(): Promise<Document[]> {
 async function writeDocumentsCache(
   documents: Document[]
 ): Promise<void> {
-  const normalized = sortDocuments(
+  const normalized = sortDocumentsByPinnedThenUpdated(
     documents.map(normalizeDocument)
   );
 
@@ -426,7 +412,7 @@ async function fetchDocumentsOnlineOnly(): Promise<Document[]> {
       ? data.documents
       : [];
 
-  return sortDocuments(
+  return sortDocumentsByPinnedThenUpdated(
     rawDocuments.map(normalizeDocument)
   );
 }
@@ -525,7 +511,7 @@ export async function fetchDocuments(): Promise<Document[]> {
       }
     }
 
-    const documents = sortDocuments(
+    const documents = sortDocumentsByPinnedThenUpdated(
       [...merged.values()]
     );
 
@@ -847,3 +833,4 @@ export async function syncOfflineDocumentQueue(): Promise<void> {
     // IndexedDB remains available until a later successful sync.
   }
 }
+

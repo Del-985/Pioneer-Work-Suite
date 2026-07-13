@@ -1,89 +1,69 @@
-// apps/web/src/App.tsx
-import React, { useEffect, useRef, useState } from "react";
+import React, {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from "react";
 import {
-  Link,
-  Navigate,
-  Route,
-  Routes,
   useNavigate,
 } from "react-router-dom";
-
-import LoginPage from "./pages/LoginPage";
-import RegisterPage from "./pages/RegisterPage";
-import TasksPage from "./pages/TasksPage";
-import DocumentsPage from "./pages/DocumentsPage";
-import CalendarPage from "./pages/CalendarPage";
-import MailPage from "./pages/MailPage";
-import SettingsPage from "./pages/SettingsPage";
-import DashboardPage from "./pages/DashboardPage";
-
-import UpdateBanner from "./components/UpdateBanner";
-import StatusBar from "./components/StatusBar";
-import RightSidebar, {
-  type RightSidebarMode,
-} from "./components/RightSidebar";
-import GlobalSearch, { openGlobalSearch } from "./components/GlobalSearch";
-import KeyboardShortcutsManager, {
-  openShortcutReference,
-} from "./components/KeyboardShortcutsManager";
-import CommandPaletteManager from "./components/CommandPaletteManager";
-
-import "./styles/app-shell.css";
-
-import { startSyncCoordinator } from "./api/sync";
 
 import {
   disconnectCloudSession,
   hasCloudSession,
   hasWorkspaceAccess,
 } from "./api/session";
-
 import {
-  AppSettings,
   getSettingsSnapshot,
   getStartupPath,
   subscribeToSettings,
   updateSettings,
 } from "./api/settings";
+import type {
+  AppSettings,
+} from "./api/settings";
+import {
+  startSyncCoordinator,
+} from "./api/sync";
+import AppNavigation from "./components/AppNavigation";
+import AppRoutes from "./components/AppRoutes";
+import CommandPaletteManager from "./components/CommandPaletteManager";
+import GlobalSearch from "./components/GlobalSearch";
+import KeyboardShortcutsManager from "./components/KeyboardShortcutsManager";
+import RightSidebar from "./components/RightSidebar";
+import StatusBar from "./components/StatusBar";
+import UpdateBanner from "./components/UpdateBanner";
+import type {
+  RightSidebarMode,
+} from "./types/rightSidebar";
 
-type SidebarMode = RightSidebarMode;
+import "./styles/app-shell.css";
 
 function toSidebarMode(
   preference: AppSettings["sidebar"]["rightSidebarDefault"]
-): SidebarMode {
-  return preference === "documents" ? "documents" : "tasks";
+): RightSidebarMode {
+  return preference === "documents"
+    ? "documents"
+    : "tasks";
 }
-
-const RequireAuth: React.FC<{ children: React.ReactElement }> = ({
-  children,
-}) => {
-  if (!hasWorkspaceAccess()) {
-    return <Navigate to="/login" replace />;
-  }
-
-  return children;
-};
 
 const App: React.FC = () => {
   const navigate = useNavigate();
-
-  const initialSettings = useRef<AppSettings>(
+  const initialSettings = useRef(
     getSettingsSnapshot()
   ).current;
+  const settingsRef = useRef(initialSettings);
 
-  const settingsRef = useRef<AppSettings>(initialSettings);
-
-  const [settings, setSettings] = useState<AppSettings>(
-    initialSettings
-  );
-
-  const [isRightSidebarOpen, setIsRightSidebarOpen] = useState(
-    initialSettings.sidebar.rightSidebarOpen
-  );
-
-  const [sidebarMode, setSidebarMode] = useState<SidebarMode>(
-    toSidebarMode(initialSettings.sidebar.rightSidebarDefault)
-  );
+  const [settings, setSettings] =
+    useState<AppSettings>(initialSettings);
+  const [isRightSidebarOpen, setIsRightSidebarOpen] =
+    useState(initialSettings.sidebar.rightSidebarOpen);
+  const [sidebarMode, setSidebarMode] =
+    useState<RightSidebarMode>(
+      toSidebarMode(
+        initialSettings.sidebar.rightSidebarDefault
+      )
+    );
 
   const workspaceAccessible = hasWorkspaceAccess();
   const cloudConnected = hasCloudSession();
@@ -117,61 +97,70 @@ const App: React.FC = () => {
     });
   }, []);
 
-  async function handleSidebarModeChange(
-    mode: SidebarMode
-  ): Promise<void> {
-    setSidebarMode(mode);
+  useEffect(() => startSyncCoordinator(), []);
 
-    try {
-      await updateSettings({
-        sidebar: {
-          rightSidebarDefault: mode,
-        },
-      });
-    } catch (error) {
-      console.error(
-        "Unable to save sidebar content setting:",
-        error
-      );
-    }
-  }
+  const handleSidebarModeChange = useCallback(
+    async (mode: RightSidebarMode): Promise<void> => {
+      setSidebarMode(mode);
 
-  async function handleSidebarToggle(): Promise<void> {
-    const nextOpen = !isRightSidebarOpen;
+      try {
+        await updateSettings({
+          sidebar: {
+            rightSidebarDefault: mode,
+          },
+        });
+      } catch (error) {
+        console.error(
+          "Unable to save sidebar content setting:",
+          error
+        );
+      }
+    },
+    []
+  );
 
-    setIsRightSidebarOpen(nextOpen);
+  const handleSidebarToggle = useCallback(
+    async (): Promise<void> => {
+      const nextOpen = !isRightSidebarOpen;
 
-    if (!settings.sidebar.rememberOpenState) {
-      return;
-    }
+      setIsRightSidebarOpen(nextOpen);
 
-    try {
-      await updateSettings({
-        sidebar: {
-          rightSidebarOpen: nextOpen,
-        },
-      });
-    } catch (error) {
-      console.error(
-        "Unable to save sidebar open state:",
-        error
-      );
-    }
-  }
+      if (!settings.sidebar.rememberOpenState) {
+        return;
+      }
 
-  useEffect(() => {
-    return startSyncCoordinator();
-  }, []);
+      try {
+        await updateSettings({
+          sidebar: {
+            rightSidebarOpen: nextOpen,
+          },
+        });
+      } catch (error) {
+        console.error(
+          "Unable to save sidebar open state:",
+          error
+        );
+      }
+    },
+    [isRightSidebarOpen, settings.sidebar.rememberOpenState]
+  );
 
-  function handleDisconnectCloud() {
+  const handleDisconnectCloud = useCallback(() => {
     disconnectCloudSession();
-
     setIsRightSidebarOpen(false);
     navigate(
       getStartupPath(settings.workspace.startupPage),
       { replace: true }
     );
-  }
+  }, [navigate, settings.workspace.startupPage]);
+
+  const handleToggleCloud = useCallback(() => {
+    if (cloudConnected) {
+      handleDisconnectCloud();
+    } else {
+      navigate("/login");
+    }
+  }, [cloudConnected, handleDisconnectCloud, navigate]);
 
   return (
     <div className="app">
@@ -179,101 +168,18 @@ const App: React.FC = () => {
       <GlobalSearch />
       <KeyboardShortcutsManager />
       <CommandPaletteManager
-        rightSidebarOpen={
-          isRightSidebarOpen
-        }
-        rightSidebarMode={
-          sidebarMode
-        }
-        cloudConnected={
-          cloudConnected
-        }
-        onToggleRightSidebar={
-          handleSidebarToggle
-        }
-        onSetRightSidebarMode={
-          handleSidebarModeChange
-        }
-        onToggleCloud={() => {
-          if (cloudConnected) {
-            handleDisconnectCloud();
-          } else {
-            navigate("/login");
-          }
-        }}
+        rightSidebarOpen={isRightSidebarOpen}
+        rightSidebarMode={sidebarMode}
+        cloudConnected={cloudConnected}
+        onToggleRightSidebar={handleSidebarToggle}
+        onSetRightSidebarMode={handleSidebarModeChange}
+        onToggleCloud={handleToggleCloud}
       />
 
-      <aside className="sidebar-left">
-        <div className="sidebar-logo">
-          <span className="app-name">Pioneer Work Suite</span>
-          <span className="app-tagline">Student</span>
-        </div>
-
-        <nav className="sidebar-nav">
-          <Link className="nav-item" to="/dashboard">
-            Dashboard
-          </Link>
-          <Link className="nav-item" to="/documents">
-            Documents
-          </Link>
-          <Link className="nav-item" to="/tasks">
-            Tasks
-          </Link>
-          <Link className="nav-item" to="/calendar">
-            Calendar
-          </Link>
-          <Link className="nav-item" to="/mail">
-            Mail
-          </Link>
-          <Link className="nav-item" to="/settings">
-            Settings
-          </Link>
-          <button
-            className="nav-item sidebar-search-button"
-            type="button"
-            onClick={openGlobalSearch}
-          >
-            Search
-            <span>Ctrl K</span>
-          </button>
-          <button
-            className="nav-item sidebar-search-button"
-            type="button"
-            onClick={() =>
-              window.dispatchEvent(
-                new Event(
-                  "pioneer:open-command-palette"
-                )
-              )
-            }
-          >
-            Commands
-            <span>Ctrl Shift P</span>
-          </button>
-          <button
-            className="nav-item sidebar-search-button"
-            type="button"
-            onClick={openShortcutReference}
-          >
-            Shortcuts
-            <span>Ctrl /</span>
-          </button>
-        </nav>
-
-        <button
-          type="button"
-          onClick={() => {
-            if (cloudConnected) {
-              handleDisconnectCloud();
-            } else {
-              navigate("/login");
-            }
-          }}
-          className="sidebar-cloud-button"
-        >
-          {cloudConnected ? "Disconnect cloud" : "Connect cloud"}
-        </button>
-      </aside>
+      <AppNavigation
+        cloudConnected={cloudConnected}
+        onToggleCloud={handleToggleCloud}
+      />
 
       <div className="main-layout">
         <main className="workspace">
@@ -286,85 +192,12 @@ const App: React.FC = () => {
           </header>
 
           <section className="workspace-body">
-            <Routes>
-              <Route path="/login" element={<LoginPage />} />
-              <Route path="/register" element={<RegisterPage />} />
-
-              <Route
-                path="/dashboard"
-                element={
-                  <RequireAuth>
-                    <DashboardPage
-                      sidebarMode={sidebarMode}
-                      onSidebarModeChange={handleSidebarModeChange}
-                    />
-                  </RequireAuth>
-                }
-              />
-
-              <Route
-                path="/documents"
-                element={
-                  <RequireAuth>
-                    <DocumentsPage />
-                  </RequireAuth>
-                }
-              />
-
-              <Route
-                path="/tasks"
-                element={
-                  <RequireAuth>
-                    <TasksPage />
-                  </RequireAuth>
-                }
-              />
-
-              <Route
-                path="/calendar"
-                element={
-                  <RequireAuth>
-                    <CalendarPage />
-                  </RequireAuth>
-                }
-              />
-
-              <Route
-                path="/mail"
-                element={
-                  <RequireAuth>
-                    <MailPage />
-                  </RequireAuth>
-                }
-              />
-
-              <Route
-                path="/settings"
-                element={
-                  <RequireAuth>
-                    <SettingsPage />
-                  </RequireAuth>
-                }
-              />
-
-              <Route
-                path="/"
-                element={
-                  workspaceAccessible ? (
-                    <Navigate
-                      to={getStartupPath(
-                        settings.workspace.startupPage
-                      )}
-                      replace
-                    />
-                  ) : (
-                    <Navigate to="/login" replace />
-                  )
-                }
-              />
-
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
+            <AppRoutes
+              workspaceAccessible={workspaceAccessible}
+              startupPage={settings.workspace.startupPage}
+              sidebarMode={sidebarMode}
+              onSidebarModeChange={handleSidebarModeChange}
+            />
           </section>
         </main>
 
@@ -386,3 +219,4 @@ const App: React.FC = () => {
 };
 
 export default App;
+

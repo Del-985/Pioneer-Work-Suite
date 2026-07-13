@@ -151,10 +151,6 @@ async function getAll<T>(storeName: StoreName): Promise<T[]> {
   });
 }
 
-async function clearStore(storeName: StoreName): Promise<void> {
-  await runTransaction(storeName, "readwrite", (store) => store.clear());
-}
-
 async function replaceAll<T extends { id?: IDBValidKey }>(
   storeName: StoreName,
   values: T[]
@@ -311,10 +307,6 @@ export async function writeStoredTasks<T extends { id: string }>(
   await replaceAll(TASKS_STORE, tasks);
 }
 
-export async function clearStoredTasks(): Promise<void> {
-  await clearStore(TASKS_STORE);
-}
-
 export async function readStoredTaskQueue<T>(): Promise<T[]> {
   const entries = await getAll<{ id: number; value: T }>(TASK_QUEUE_STORE);
 
@@ -343,10 +335,6 @@ export async function writeStoredDocuments<T extends { id: string }>(
   documents: T[]
 ): Promise<void> {
   await replaceAll(DOCUMENTS_STORE, documents);
-}
-
-export async function clearStoredDocuments(): Promise<void> {
-  await clearStore(DOCUMENTS_STORE);
 }
 
 export async function readStoredDocumentQueue<T>(): Promise<T[]> {
@@ -383,10 +371,6 @@ export async function writeStoredEvents<T extends { id: string }>(
   await replaceAll(EVENTS_STORE, events);
 }
 
-export async function clearStoredEvents(): Promise<void> {
-  await clearStore(EVENTS_STORE);
-}
-
 export async function readStoredEventQueue<T>(): Promise<T[]> {
   const entries = await getAll<{ id: number; value: T }>(EVENT_QUEUE_STORE);
 
@@ -404,3 +388,4 @@ export async function writeStoredEventQueue<T>(queue: T[]): Promise<void> {
     }))
   );
 }
+

@@ -4,18 +4,22 @@
   "version": "0.0.1",
   "workspaces": [
     "apps/*",
-    "packages/*"
+    "desktop"
   ],
   "scripts": {
     "sync-version": "node scripts/sync-version.mjs",
-    "dev:web": "pnpm --filter web dev",
-    "dev:api": "pnpm --filter api dev",
-    "dev:desktop": "pnpm --filter desktop dev",
+    "dev:web": "pnpm --filter pioneer-student-web dev",
+    "dev:api": "pnpm --filter pioneer-student-api dev",
+    "dev:desktop": "pnpm --filter pioneer-work-suite-desktop tauri:dev",
     "dev": "concurrently \"pnpm dev:api\" \"pnpm dev:web\"",
-    "build": "pnpm --filter shared build && pnpm --filter ui build && pnpm --filter api build && pnpm --filter web build && pnpm --filter desktop build"
+    "build:web": "pnpm --filter pioneer-student-web build",
+    "build:api": "pnpm --filter pioneer-student-api build",
+    "build:desktop": "pnpm --filter pioneer-work-suite-desktop tauri:build",
+    "build": "pnpm build:api && pnpm build:web && pnpm build:desktop"
   },
   "devDependencies": {
     "concurrently": "^8.0.0",
     "typescript": "^5.0.0"
   }
 }
+

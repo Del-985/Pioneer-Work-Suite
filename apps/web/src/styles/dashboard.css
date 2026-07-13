@@ -456,7 +456,7 @@
       var(--surface-3) 75%
     );
   background-size: 200% 100%;
-  animation: dashboard-shimmer 1.3s infinite linear;
+  animation: pioneer-shimmer 1.3s infinite linear;
 }
 
 .dashboard-loading-rows span:nth-child(2) {
@@ -465,22 +465,6 @@
 
 .dashboard-loading-rows span:nth-child(3) {
   width: 72%;
-}
-
-.dashboard-page button:focus-visible,
-.dashboard-page select:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
-
-@keyframes dashboard-shimmer {
-  from {
-    background-position: 200% 0;
-  }
-
-  to {
-    background-position: -200% 0;
-  }
 }
 
 @media (max-width: 1100px) {
@@ -531,18 +515,3 @@
   }
 }
 
-html[data-animations="disabled"] .dashboard-page *,
-.app[data-animations="disabled"] .dashboard-page *,
-.app.app-no-animations .dashboard-page * {
-  scroll-behavior: auto !important;
-  transition: none !important;
-  animation: none !important;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .dashboard-page * {
-    scroll-behavior: auto !important;
-    transition: none !important;
-    animation: none !important;
-  }
-}

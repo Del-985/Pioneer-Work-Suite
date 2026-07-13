@@ -24,6 +24,11 @@ import {
   isDueDateUpcoming,
   toDateInputValue,
 } from "../utils/taskDates";
+import {
+  formatTaskPriority,
+  TASK_PRIORITIES,
+  TASK_PRIORITY_RANK,
+} from "../utils/taskPriority";
 
 import "../styles/tasks.css";
 
@@ -33,24 +38,6 @@ type TaskFilter =
   | "upcoming"
   | "overdue"
   | "completed";
-
-const PRIORITIES: TaskPriority[] = [
-  "critical",
-  "high",
-  "medium",
-  "low",
-];
-
-const PRIORITY_RANK: Record<TaskPriority, number> = {
-  critical: 0,
-  high: 1,
-  medium: 2,
-  low: 3,
-};
-
-function priorityLabel(priority: TaskPriority): string {
-  return priority.charAt(0).toUpperCase() + priority.slice(1);
-}
 
 function taskDueTone(
   task: Task
@@ -73,8 +60,8 @@ function taskDueTone(
 function sortTasks(tasks: Task[]): Task[] {
   return [...tasks].sort((left, right) => {
     const priorityDifference =
-      PRIORITY_RANK[left.priority] -
-      PRIORITY_RANK[right.priority];
+      TASK_PRIORITY_RANK[left.priority] -
+      TASK_PRIORITY_RANK[right.priority];
 
     if (priorityDifference !== 0) {
       return priorityDifference;
@@ -657,21 +644,6 @@ const TasksPage: React.FC = () => {
             setFilter("all");
           },
         },
-        {
-          id: "tasks-focus-create",
-          title: "Focus new task title",
-          category: "Tasks",
-          description:
-            "Move focus to the task creation field",
-          keywords: [
-            "task input",
-            "task title",
-            "capture",
-          ],
-          run: () => {
-            newTitleRef.current?.focus();
-          },
-        },
       ],
       [
         filter,
@@ -781,12 +753,12 @@ const TasksPage: React.FC = () => {
                 )
               }
             >
-              {PRIORITIES.map((priority) => (
+              {TASK_PRIORITIES.map((priority) => (
                 <option
                   key={priority}
                   value={priority}
                 >
-                  {priorityLabel(priority)}
+                  {formatTaskPriority(priority)}
                 </option>
               ))}
             </select>
@@ -1182,7 +1154,7 @@ const TaskCard: React.FC<TaskCardProps> = ({
         <span
           className={`tasks-v2-priority priority-${task.priority}`}
         >
-          {priorityLabel(task.priority)}
+          {formatTaskPriority(task.priority)}
         </span>
 
         {task.dueDate && (
@@ -1285,12 +1257,12 @@ const TaskCard: React.FC<TaskCardProps> = ({
               )
             }
           >
-            {PRIORITIES.map((priority) => (
+            {TASK_PRIORITIES.map((priority) => (
               <option
                 key={priority}
                 value={priority}
               >
-                {priorityLabel(priority)}
+                {formatTaskPriority(priority)}
               </option>
             ))}
           </select>
@@ -1331,3 +1303,4 @@ const TaskCard: React.FC<TaskCardProps> = ({
 };
 
 export default TasksPage;
+

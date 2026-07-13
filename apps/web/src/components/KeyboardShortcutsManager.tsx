@@ -26,7 +26,7 @@ import type {
   ShortcutDefinition,
 } from "../keyboard/keyboardTypes";
 
-export const OPEN_SHORTCUT_REFERENCE_EVENT =
+const OPEN_SHORTCUT_REFERENCE_EVENT =
   "pioneer:open-shortcut-reference";
 
 export function openShortcutReference(): void {
@@ -168,3 +168,4 @@ const KeyboardShortcutsManager: React.FC =
   };
 
 export default KeyboardShortcutsManager;
+

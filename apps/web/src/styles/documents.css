@@ -625,24 +625,12 @@
       var(--surface-2) 75%
     );
   background-size: 200% 100%;
-  animation: documents-v2-shimmer 1.3s linear infinite;
+  animation: pioneer-shimmer 1.3s linear infinite;
 }
 
-.documents-v2-page button:focus-visible,
-.documents-v2-page input:focus-visible,
 .documents-v2-page summary:focus-visible {
   outline: none;
   box-shadow: var(--shadow-focus);
-}
-
-@keyframes documents-v2-shimmer {
-  from {
-    background-position: 200% 0;
-  }
-
-  to {
-    background-position: -200% 0;
-  }
 }
 
 @media (max-width: 1180px) {
@@ -715,16 +703,3 @@
   }
 }
 
-html[data-animations="disabled"] .documents-v2-page *,
-.app[data-animations="disabled"] .documents-v2-page *,
-.app.app-no-animations .documents-v2-page * {
-  transition: none !important;
-  animation: none !important;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .documents-v2-page * {
-    transition: none !important;
-    animation: none !important;
-  }
-}

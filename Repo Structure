@@ -1,68 +1,95 @@
+# Pioneer Work Suite repository structure
+
+This document describes the current source layout after the 0.1.10 architecture cleanup. Generated folders such as `node_modules`, `dist`, Prisma output, and Tauri build artifacts are intentionally omitted.
+
+```text
 Pioneer-Work-Suite/
-├─ apps/
-│  ├─ api/
-│  │  ├─ src/
-│  │  │  ├─ main.ts
-│  │  │  ├─ config/
-│  │  │  │  └─ env.ts
-│  │  │  ├─ db/
-│  │  │  │  └─ client.ts
-│  │  │  ├─ middleware/
-│  │  │  │  ├─ auth.ts
-│  │  │  │  └─ errorHandler.ts
-│  │  │  ├─ modules/
-│  │  │  │  ├─ health/
-│  │  │  │  │  └─ health.routes.ts
-│  │  │  │  ├─ auth/
-│  │  │  │  │  ├─ auth.routes.ts
-│  │  │  │  │  ├─ auth.controller.ts
-│  │  │  │  │  └─ auth.service.ts
-│  │  │  │  ├─ organizations/
-│  │  │  │  │  ├─ organizations.routes.ts
-│  │  │  │  │  ├─ organizations.controller.ts
-│  │  │  │  │  └─ organizations.service.ts
-│  │  │  │  └─ invoices/
-│  │  │  │     ├─ invoices.routes.ts
-│  │  │  │     ├─ invoices.controller.ts
-│  │  │  │     └─ invoices.service.ts
-│  │  │  └─ types/
-│  │  │     └─ express.d.ts
-│  │  └─ package.json      # (to be added / finalized)
-│  │
-│  └─ web/
-│     ├─ src/
-│     │  ├─ main.tsx
-│     │  ├─ App.tsx
-│     │  ├─ api/           # (to be added)
-│     │  │  ├─ httpClient.ts
-│     │  │  ├─ authApi.ts
-│     │  │  ├─ orgsApi.ts
-│     │  │  └─ invoicesApi.ts
-│     │  ├─ pages/         # (to be added)
-│     │  │  ├─ LoginPage.tsx
-│     │  │  ├─ RegisterPage.tsx
-│     │  │  ├─ OrgListPage.tsx
-│     │  │  ├─ InvoiceListPage.tsx
-│     │  │  └─ InvoiceEditorPage.tsx
-│     │  ├─ store/         # (to be added)
-│     │  │  └─ authStore.ts
-│     │  ├─ styles/
-│     │  │  └─ globals.css
-│     │  └─ utils/         # optional later
-│     └─ package.json      # Vite + React + TS config
-│
-├─ packages/
-│  └─ shared/
-│     ├─ src/
-│     │  ├─ index.ts
-│     │  └─ models/
-│     │     ├─ User.ts
-│     │     ├─ Organization.ts
-│     │     └─ Invoice.ts
-│     ├─ package.json
-│     └─ tsconfig.json
-│
-├─ package.json             # monorepo root (workspaces + scripts)
-├─ pnpm-workspace.yaml
-├─ tsconfig.base.json
-└─ README.md (and any notes/docs)
+|-- apps/
+|   |-- api/
+|   |   |-- prisma/
+|   |   |   `-- schema.prisma
+|   |   |-- src/
+|   |   |   |-- auth.ts
+|   |   |   |-- documents.ts
+|   |   |   |-- events.ts
+|   |   |   |-- mail.ts
+|   |   |   |-- prisma.ts
+|   |   |   |-- server.ts
+|   |   |   `-- tasks.ts
+|   |   |-- package.json
+|   |   `-- tsconfig.json
+|   `-- web/
+|       |-- src/
+|       |   |-- api/
+|       |   |-- commands/
+|       |   |-- components/
+|       |   |   `-- right-sidebar/
+|       |   |-- config/
+|       |   |-- hooks/
+|       |   |-- keyboard/
+|       |   |-- pages/
+|       |   |-- search/
+|       |   |-- styles/
+|       |   |-- types/
+|       |   |-- utils/
+|       |   |-- App.tsx
+|       |   `-- main.tsx
+|       |-- index.html
+|       |-- package.json
+|       |-- tsconfig.json
+|       `-- vite.config.ts
+|-- desktop/
+|   |-- src-tauri/
+|   |   |-- icons/
+|   |   |-- src/
+|   |   |-- build.rs
+|   |   |-- Cargo.toml
+|   |   `-- tauri.conf.json
+|   `-- package.json
+|-- scripts/
+|   `-- sync-version.mjs
+|-- package.json
+|-- pnpm-workspace.yaml
+|-- README.md
+`-- tsconfig.base.json
+```
+
+## Web application ownership
+
+- `App.tsx` owns application-shell state and composes the major shell components.
+- `components/AppNavigation.tsx` renders the primary navigation and workspace controls.
+- `components/AppRoutes.tsx` owns route definitions and access guards.
+- `components/RightSidebar.tsx` composes the right sidebar without owning data-loading details.
+- `hooks/useRightSidebarData.ts` owns right-sidebar loading, mutation, and refresh behavior.
+- `components/right-sidebar/` contains the sidebar's focused presentation panels and shared messages.
+- `commands/` owns the command registry, global commands, and page-level command lifecycle.
+- `keyboard/` owns keyboard shortcut matching, registration, and display metadata.
+- `api/` owns local-first persistence, cloud requests, queues, synchronization, session state, and settings.
+- `pages/` owns feature-level screens; shared shell behavior should not be added there.
+- `config/`, `types/`, and `utils/` contain centralized metadata, shared contracts, and behavior-neutral helpers.
+- `styles/` contains feature-scoped styles plus the global theme and application shell styles.
+
+## API ownership
+
+- `server.ts` configures the API server and mounts feature routers.
+- `auth.ts` owns registration and login endpoints.
+- `tasks.ts`, `documents.ts`, `events.ts`, and `mail.ts` own their feature endpoints.
+- `prisma.ts` owns the shared Prisma client.
+- `prisma/schema.prisma` is the database schema source of truth.
+
+## Desktop ownership
+
+The `desktop/src-tauri/` workspace packages the web application with Tauri. Application behavior belongs in `apps/web`; desktop-specific configuration, updater settings, capabilities, and Rust entry points belong under `desktop/src-tauri`.
+
+## Validation commands
+
+From the repository root:
+
+```text
+npx tsc --noEmit -p apps/web/tsconfig.json
+npx tsc --noEmit -p apps/api/tsconfig.json
+npm run build --workspace apps/web
+```
+
+API and desktop production builds remain available through the root scripts and each workspace's package scripts. The API build runs the configured Prisma schema preparation step, so it should use the intended database environment.
+

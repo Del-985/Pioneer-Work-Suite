@@ -15,7 +15,7 @@ import {
   writeStoredTasks,
 } from "./storage";
 
-export type TaskStatus = "todo" | "in_progress" | "done" | string;
+type TaskStatus = "todo" | "in_progress" | "done" | string;
 export type TaskPriority = "critical" | "high" | "medium" | "low";
 
 export interface Task {
@@ -34,7 +34,7 @@ export interface TaskPatch {
   dueDate?: string | null;
 }
 
-export interface CreateTaskOptions {
+interface CreateTaskOptions {
   status?: TaskStatus;
   priority?: TaskPriority;
   dueDate?: string | null;
@@ -94,7 +94,7 @@ function makeOfflineTaskId(): string {
     .slice(2)}`;
 }
 
-export function normalizeTaskPriority(input: unknown): TaskPriority {
+function normalizeTaskPriority(input: unknown): TaskPriority {
   const value = String(input ?? "")
     .trim()
     .toLowerCase();
@@ -677,3 +677,4 @@ export async function syncOfflineTaskQueue(): Promise<void> {
     // Local IndexedDB data remains available until a later successful sync.
   }
 }
+

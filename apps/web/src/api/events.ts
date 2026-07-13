@@ -190,10 +190,6 @@ async function removeEventFromCache(id: string): Promise<void> {
   await writeEventsCache(events.filter((event) => event.id !== id));
 }
 
-export async function getCachedEvents(): Promise<CalendarEvent[]> {
-  return readEventsCache();
-}
-
 // ---------- IndexedDB queue ----------
 
 async function readQueue(): Promise<EventOp[]> {
@@ -715,3 +711,4 @@ export async function syncOfflineEventQueue(): Promise<void> {
     // IndexedDB remains usable until a later successful cloud sync.
   }
 }
+

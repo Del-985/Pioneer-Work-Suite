@@ -139,15 +139,6 @@
   font: inherit;
 }
 
-.tasks-v2-create input:focus-visible,
-.tasks-v2-create select:focus-visible,
-.tasks-v2-card input:focus-visible,
-.tasks-v2-card select:focus-visible,
-.tasks-v2-page button:focus-visible {
-  outline: none;
-  box-shadow: var(--shadow-focus);
-}
-
 .tasks-v2-add-button {
   min-height: 39px;
   padding: 9px 17px;
@@ -460,17 +451,7 @@
       var(--surface-2) 75%
     );
   background-size: 200% 100%;
-  animation: tasks-v2-shimmer 1.3s linear infinite;
-}
-
-@keyframes tasks-v2-shimmer {
-  from {
-    background-position: 200% 0;
-  }
-
-  to {
-    background-position: -200% 0;
-  }
+  animation: pioneer-shimmer 1.3s linear infinite;
 }
 
 @media (max-width: 1180px) {
@@ -531,16 +512,3 @@
   }
 }
 
-html[data-animations="disabled"] .tasks-v2-page *,
-.app[data-animations="disabled"] .tasks-v2-page *,
-.app.app-no-animations .tasks-v2-page * {
-  transition: none !important;
-  animation: none !important;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .tasks-v2-page * {
-    transition: none !important;
-    animation: none !important;
-  }
-}

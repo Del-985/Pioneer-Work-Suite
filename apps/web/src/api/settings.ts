@@ -50,7 +50,7 @@ export interface AppSettings {
   };
 }
 
-export type AppSettingsPatch = {
+type AppSettingsPatch = {
   appearance?: Partial<AppSettings["appearance"]>;
   sidebar?: Partial<AppSettings["sidebar"]>;
   workspace?: Partial<AppSettings["workspace"]>;
@@ -511,3 +511,4 @@ export function subscribeToSettings(
     );
   };
 }
+

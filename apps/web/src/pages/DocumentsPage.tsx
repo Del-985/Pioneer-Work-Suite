@@ -36,6 +36,9 @@ import {
   formatDocumentDate,
   htmlToPlainText,
 } from "../utils/documentText";
+import {
+  sortDocumentsByPinnedThenUpdated,
+} from "../utils/documentSort";
 
 import "../styles/documents.css";
 
@@ -81,25 +84,6 @@ function getRememberedDocumentId(): string | null {
   } catch {
     return null;
   }
-}
-
-function sortByUpdatedAt(
-  documents: Document[]
-): Document[] {
-  return [...documents].sort((left, right) => {
-    if (left.isPinned !== right.isPinned) {
-      return left.isPinned ? -1 : 1;
-    }
-
-    const leftTime = new Date(
-      left.updatedAt || left.createdAt
-    ).getTime();
-    const rightTime = new Date(
-      right.updatedAt || right.createdAt
-    ).getTime();
-
-    return rightTime - leftTime;
-  });
 }
 
 function getMatchIndexes(
@@ -208,7 +192,7 @@ const DocumentsPage: React.FC = () => {
     const normalizedSearch =
       librarySearch.trim().toLocaleLowerCase();
 
-    let result = sortByUpdatedAt(documents);
+    let result = sortDocumentsByPinnedThenUpdated(documents);
 
     if (libraryView === "recent") {
       result = result.slice(
@@ -438,7 +422,7 @@ const DocumentsPage: React.FC = () => {
     updated: Document
   ): void {
     setDocuments((current) =>
-      sortByUpdatedAt(
+      sortDocumentsByPinnedThenUpdated(
         current.map((document) =>
           document.id === updated.id
             ? updated
@@ -531,7 +515,7 @@ const DocumentsPage: React.FC = () => {
         }
 
         const sorted =
-          sortByUpdatedAt(loaded);
+          sortDocumentsByPinnedThenUpdated(loaded);
 
         setDocuments(sorted);
 
@@ -562,7 +546,7 @@ const DocumentsPage: React.FC = () => {
           }
 
           setDocuments((current) =>
-            sortByUpdatedAt([
+            sortDocumentsByPinnedThenUpdated([
               created,
               ...current.filter(
                 (document) =>
@@ -885,7 +869,7 @@ const DocumentsPage: React.FC = () => {
         );
 
       setDocuments((current) =>
-        sortByUpdatedAt([
+        sortDocumentsByPinnedThenUpdated([
           created,
           ...current.filter(
             (document) =>
@@ -938,7 +922,7 @@ const DocumentsPage: React.FC = () => {
         await duplicateDocument(source);
 
       setDocuments((current) =>
-        sortByUpdatedAt([
+        sortDocumentsByPinnedThenUpdated([
           duplicate,
           ...current.filter(
             (document) =>
@@ -967,7 +951,7 @@ const DocumentsPage: React.FC = () => {
     const previous = documents;
 
     setDocuments((current) =>
-      sortByUpdatedAt(
+      sortDocumentsByPinnedThenUpdated(
         current.map((entry) =>
           entry.id === document.id
             ? {
@@ -1009,7 +993,7 @@ const DocumentsPage: React.FC = () => {
     const previous = documents;
 
     setDocuments((current) =>
-      sortByUpdatedAt(
+      sortDocumentsByPinnedThenUpdated(
         current.map((entry) =>
           entry.id === document.id
             ? {
@@ -1374,7 +1358,7 @@ const DocumentsPage: React.FC = () => {
               ? "Select a document first."
               : "The document is currently saving.",
           run: () =>
-            saveCurrentDocument(),
+            saveCurrentDocument().then(() => undefined),
         },
         {
           id: "documents-find",
@@ -2332,3 +2316,4 @@ const LibraryLoading: React.FC = () => {
 };
 
 export default DocumentsPage;
+

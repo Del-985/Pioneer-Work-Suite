@@ -15,14 +15,15 @@ import {
   isDueDateOverdue,
   isDueDateToday,
 } from "../utils/taskDates";
+import type {
+  RightSidebarMode,
+} from "../types/rightSidebar";
 
 import "../styles/dashboard.css";
 
-export type DashboardSidebarMode = "tasks" | "documents";
-
 interface DashboardPageProps {
-  sidebarMode: DashboardSidebarMode;
-  onSidebarModeChange: (mode: DashboardSidebarMode) => void;
+  sidebarMode: RightSidebarMode;
+  onSidebarModeChange: (mode: RightSidebarMode) => void;
 }
 
 type DashboardTask = Task & {
@@ -1279,3 +1280,4 @@ const LoadingRows: React.FC =
   };
 
 export default DashboardPage;
+

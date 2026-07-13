@@ -67,22 +67,6 @@ export function isDueDateUpcoming(
   return dueKey !== null && dueKey > getLocalDateKey(reference);
 }
 
-export function isDueDateThisWeek(
-  raw?: string | null,
-  reference: Date = new Date()
-): boolean {
-  const dueKey = getDueDateKey(raw);
-
-  if (!dueKey) {
-    return false;
-  }
-
-  const todayKey = getLocalDateKey(reference);
-  const weekEndKey = getEndOfLocalWeekKey(reference);
-
-  return dueKey > todayKey && dueKey <= weekEndKey;
-}
-
 export function toDateInputValue(raw?: string | null): string {
   return getDueDateKey(raw) ?? "";
 }
@@ -109,3 +93,4 @@ export function formatTaskDueDate(raw?: string | null): string {
       year === new Date().getFullYear() ? undefined : "numeric",
   });
 }
+
