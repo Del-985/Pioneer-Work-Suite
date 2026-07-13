@@ -35,7 +35,7 @@
 
 .developer-console__toolbar {
   display: grid;
-  grid-template-columns: minmax(180px, 1fr) auto auto auto auto;
+  grid-template-columns: minmax(180px, 1fr) auto auto auto auto auto;
   gap: var(--space-2);
   margin-bottom: var(--space-2);
 }
@@ -60,6 +60,12 @@
 .developer-console__toolbar button:disabled {
   cursor: default;
   opacity: 0.55;
+}
+
+.developer-console__toolbar .developer-console__test-error {
+  border-color: var(--danger-border);
+  background: var(--danger-soft);
+  color: var(--danger);
 }
 
 .developer-console__persistence {

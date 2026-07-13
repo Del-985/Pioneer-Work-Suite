@@ -90,6 +90,14 @@ const DeveloperConsole: React.FC = () => {
     setPersistenceEnabled(enabled);
   }
 
+  function generateTestError(): void {
+    window.setTimeout(() => {
+      throw new Error(
+        "Developer console test error. This error was generated intentionally."
+      );
+    }, 0);
+  }
+
   return (
     <section
       className="developer-console"
@@ -144,6 +152,14 @@ const DeveloperConsole: React.FC = () => {
           disabled={visibleLogs.length === 0}
         >
           Export JSON
+        </button>
+        <button
+          className="developer-console__test-error"
+          type="button"
+          onClick={generateTestError}
+          title="Generate a safe asynchronous error to verify logging"
+        >
+          Test error
         </button>
         <button
           type="button"
