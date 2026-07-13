@@ -144,6 +144,8 @@ const CalendarPage: React.FC = () => {
   const [newEventTitle, setNewEventTitle] = useState("");
   const [newEventAllDay, setNewEventAllDay] = useState(true);
   const [newEventTime, setNewEventTime] = useState("09:00");
+  const [newEventEndTime, setNewEventEndTime] =
+    useState("10:00");
   const [newEventUrgency, setNewEventUrgency] =
     useState<EventUrgency | "">("");
   const [creatingEvent, setCreatingEvent] = useState(false);
@@ -263,22 +265,36 @@ const CalendarPage: React.FC = () => {
         const [hours, minutes] = newEventTime
           .split(":")
           .map(Number);
+        const [endHours, endMinutes] = newEventEndTime
+          .split(":")
+          .map(Number);
 
         if (
           !Number.isInteger(hours) ||
           !Number.isInteger(minutes) ||
+          !Number.isInteger(endHours) ||
+          !Number.isInteger(endMinutes) ||
           hours < 0 ||
           hours > 23 ||
           minutes < 0 ||
-          minutes > 59
+          minutes > 59 ||
+          endHours < 0 ||
+          endHours > 23 ||
+          endMinutes < 0 ||
+          endMinutes > 59
         ) {
-          setError("Choose a valid event time.");
+          setError("Choose valid start and end times.");
           return;
         }
 
         start.setHours(hours, minutes, 0, 0);
-        end = new Date(start);
-        end.setHours(end.getHours() + 1);
+        end = new Date(day);
+        end.setHours(endHours, endMinutes, 0, 0);
+
+        if (end <= start) {
+          setError("Event end time must be later than its start time.");
+          return;
+        }
       }
 
       const created = await createEvent({
@@ -667,17 +683,30 @@ const CalendarPage: React.FC = () => {
             All-day
           </label>
           {!newEventAllDay && (
-            <label className="calendar-event-time-field">
-              <span>Start time</span>
-              <input
-                type="time"
-                value={newEventTime}
-                onChange={(event) =>
-                  setNewEventTime(event.target.value)
-                }
-                required
-              />
-            </label>
+            <div className="calendar-event-time-fields">
+              <label className="calendar-event-time-field">
+                <span>Start time</span>
+                <input
+                  type="time"
+                  value={newEventTime}
+                  onChange={(event) =>
+                    setNewEventTime(event.target.value)
+                  }
+                  required
+                />
+              </label>
+              <label className="calendar-event-time-field">
+                <span>End time</span>
+                <input
+                  type="time"
+                  value={newEventEndTime}
+                  onChange={(event) =>
+                    setNewEventEndTime(event.target.value)
+                  }
+                  required
+                />
+              </label>
+            </div>
           )}
           <label className="calendar-event-urgency-field">
             <span>Urgency</span>
@@ -728,7 +757,8 @@ const CalendarPage: React.FC = () => {
               disabled={
                 creatingEvent ||
                 !newEventTitle.trim() ||
-                (!newEventAllDay && !newEventTime)
+                (!newEventAllDay &&
+                  (!newEventTime || !newEventEndTime))
               }
               style={{
                 padding: "6px 12px",
@@ -741,7 +771,8 @@ const CalendarPage: React.FC = () => {
                 opacity:
                   creatingEvent ||
                   !newEventTitle.trim() ||
-                  (!newEventAllDay && !newEventTime)
+                  (!newEventAllDay &&
+                    (!newEventTime || !newEventEndTime))
                     ? 0.7
                     : 1,
               }}
