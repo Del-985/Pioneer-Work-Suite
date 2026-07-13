@@ -19,6 +19,8 @@ class ApplicationErrorBoundary extends React.Component<
   ApplicationErrorBoundaryProps,
   ApplicationErrorBoundaryState
 > {
+  private headingRef = React.createRef<HTMLHeadingElement>();
+
   state: ApplicationErrorBoundaryState = {
     error: null,
     componentStack: "",
@@ -40,6 +42,23 @@ class ApplicationErrorBoundary extends React.Component<
         componentStack: errorInfo.componentStack,
       }
     );
+  }
+
+  componentDidUpdate(
+    _previousProps: ApplicationErrorBoundaryProps,
+    previousState: ApplicationErrorBoundaryState
+  ): void {
+    if (!previousState.error && this.state.error) {
+      try {
+        this.headingRef.current?.focus({ preventScroll: true });
+      } catch (error) {
+        developerLogger.error(
+          "accessibility.error-recovery",
+          "Unable to focus the application recovery heading",
+          error
+        );
+      }
+    }
   }
 
   private getReport(): string {
@@ -118,7 +137,11 @@ class ApplicationErrorBoundary extends React.Component<
           aria-labelledby="application-recovery-title"
         >
           <p className="application-recovery__eyebrow">Error recovery</p>
-          <h1 id="application-recovery-title">
+          <h1
+            ref={this.headingRef}
+            id="application-recovery-title"
+            tabIndex={-1}
+          >
             Pioneer hit an unexpected problem
           </h1>
           <p>

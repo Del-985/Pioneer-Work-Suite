@@ -18,6 +18,7 @@ import {
 import {
   TASK_PRIORITY_RANK,
 } from "../utils/taskPriority";
+import { toast } from "../toasts/toastStore";
 
 import "../styles/calendar.css";
 
@@ -200,6 +201,9 @@ const CalendarPage: React.FC = () => {
       } catch (err) {
         console.error("Error loading calendar data:", err);
         setError("Unable to load calendar data.");
+        toast.error("Calendar unavailable", {
+          description: "Pioneer could not load tasks and scheduled events.",
+        });
       } finally {
         setLoading(false);
       }
@@ -310,9 +314,15 @@ const CalendarPage: React.FC = () => {
       setEvents((prev) => [...prev, created]);
       setNewEventTitle("");
       setNewEventUrgency("");
+      toast.success("Event scheduled", {
+        description: created.title,
+      });
     } catch (err) {
       console.error("Error creating event:", err);
       setError("Unable to create event.");
+      toast.error("Unable to create event", {
+        description: "The event details remain in the form.",
+      });
     } finally {
       setCreatingEvent(false);
     }
@@ -358,9 +368,13 @@ const CalendarPage: React.FC = () => {
       setEvents((current) =>
         current.filter((entry) => entry.id !== event.id)
       );
+      toast.success("Event deleted", {
+        description: event.title,
+      });
     } catch (deleteError) {
       console.error("Error deleting event:", deleteError);
       setError("Unable to delete event.");
+      toast.error("Unable to delete event");
     } finally {
       setDeletingEventIds((current) => {
         const next = new Set(current);

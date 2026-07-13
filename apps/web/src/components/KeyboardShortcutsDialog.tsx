@@ -2,6 +2,7 @@
 import React, {
   useEffect,
   useMemo,
+  useRef,
   useState,
 } from "react";
 
@@ -12,6 +13,7 @@ import type {
   ShortcutCategory,
   ShortcutDisplayItem,
 } from "../keyboard/keyboardTypes";
+import { useAccessibleDialog } from "../hooks/useAccessibleDialog";
 
 import "../styles/keyboard-shortcuts.css";
 
@@ -35,6 +37,8 @@ const KeyboardShortcutsDialog: React.FC<
   open,
   onClose,
 }) => {
+  const dialogRef = useRef<HTMLElement | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement | null>(null);
   const [version, setVersion] =
     useState(0);
 
@@ -50,34 +54,13 @@ const KeyboardShortcutsDialog: React.FC<
     []
   );
 
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-
-    const handleEscape = (
-      event: KeyboardEvent
-    ) => {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        onClose();
-      }
-    };
-
-    window.addEventListener(
-      "keydown",
-      handleEscape,
-      true
-    );
-
-    return () => {
-      window.removeEventListener(
-        "keydown",
-        handleEscape,
-        true
-      );
-    };
-  }, [onClose, open]);
+  useAccessibleDialog({
+    open,
+    containerRef: dialogRef,
+    initialFocusRef: closeButtonRef,
+    onClose,
+    source: "accessibility.keyboard-shortcuts",
+  });
 
   const groups = useMemo(() => {
     void version;
@@ -116,10 +99,13 @@ const KeyboardShortcutsDialog: React.FC<
       }}
     >
       <section
+        ref={dialogRef}
         className="keyboard-shortcuts-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby="keyboard-shortcuts-title"
+        aria-describedby="keyboard-shortcuts-description"
+        tabIndex={-1}
       >
         <header>
           <div>
@@ -130,6 +116,7 @@ const KeyboardShortcutsDialog: React.FC<
           </div>
 
           <button
+            ref={closeButtonRef}
             type="button"
             onClick={onClose}
             aria-label="Close keyboard shortcuts"
@@ -197,7 +184,7 @@ const KeyboardShortcutsDialog: React.FC<
           ))}
         </div>
 
-        <footer>
+        <footer id="keyboard-shortcuts-description">
           Shortcuts adapt to the active page.
           Document-only commands appear while the
           editor is open.

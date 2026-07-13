@@ -12,7 +12,8 @@ import {
 import type {
   CommandSearchResult,
 } from "../commands/commandTypes";
-import { useBodyScrollLock } from "../hooks/useBodyScrollLock";
+import { useAccessibleDialog } from "../hooks/useAccessibleDialog";
+import { toast } from "../toasts/toastStore";
 
 import "../styles/command-palette.css";
 
@@ -32,6 +33,8 @@ export function openCommandPalette(): void {
 const CommandPalette: React.FC = () => {
   const inputRef =
     useRef<HTMLInputElement | null>(null);
+  const dialogRef =
+    useRef<HTMLElement | null>(null);
 
   const [open, setOpen] =
     useState(false);
@@ -97,7 +100,13 @@ const CommandPalette: React.FC = () => {
     setActiveIndex(0);
   }, [query, results.length]);
 
-  useBodyScrollLock(open);
+  useAccessibleDialog({
+    open,
+    containerRef: dialogRef,
+    initialFocusRef: inputRef,
+    onClose: close,
+    source: "accessibility.command-palette",
+  });
 
   function close(): void {
     setOpen(false);
@@ -133,18 +142,15 @@ const CommandPalette: React.FC = () => {
       setExecutionError(
         "That command could not be completed."
       );
+      toast.error("Command failed", {
+        description: "That command could not be completed.",
+      });
     }
   }
 
   function handleKeyDown(
     event: React.KeyboardEvent
   ): void {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      close();
-      return;
-    }
-
     if (results.length === 0) {
       return;
     }
@@ -200,15 +206,18 @@ const CommandPalette: React.FC = () => {
       }}
     >
       <section
+        ref={dialogRef}
         className="command-palette"
         role="dialog"
         aria-modal="true"
         aria-labelledby="command-palette-title"
+        aria-describedby="command-palette-description"
+        tabIndex={-1}
         onKeyDown={handleKeyDown}
       >
         <header className="command-palette__header">
           <div>
-            <p>Workspace commands</p>
+            <p id="command-palette-description">Workspace commands</p>
             <h2 id="command-palette-title">
               Command Palette
             </h2>
@@ -246,6 +255,7 @@ const CommandPalette: React.FC = () => {
         <div
           className="command-palette__results"
           role="listbox"
+          aria-label={`${results.length} available commands`}
         >
           {!query.trim() &&
             results.some(

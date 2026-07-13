@@ -30,6 +30,7 @@ import {
   TASK_PRIORITIES,
   TASK_PRIORITY_RANK,
 } from "../utils/taskPriority";
+import { toast } from "../toasts/toastStore";
 
 import "../styles/tasks.css";
 
@@ -213,6 +214,9 @@ const TasksPage: React.FC<TasksPageProps> = ({
       console.error(failureMessage, updateError);
       setTasks(previous);
       setError(failureMessage);
+      toast.error("Task update failed", {
+        description: failureMessage,
+      });
     }
   }
 
@@ -238,9 +242,15 @@ const TasksPage: React.FC<TasksPageProps> = ({
       setNewDueDate("");
       setNewPriority("medium");
       newTitleRef.current?.focus();
+      toast.success("Task created", {
+        description: created.title,
+      });
     } catch (createError) {
       console.error("Error creating task:", createError);
       setError("Unable to create task.");
+      toast.error("Unable to create task", {
+        description: "Your task was not discarded from the form.",
+      });
     } finally {
       setSavingNewTask(false);
     }
@@ -257,10 +267,14 @@ const TasksPage: React.FC<TasksPageProps> = ({
         next.delete(taskId);
         return next;
       });
+      toast.success("Task deleted");
     } catch (deleteError) {
       console.error("Error deleting task:", deleteError);
       setTasks(previous);
       setError("Unable to delete task.");
+      toast.error("Unable to delete task", {
+        description: "The task was restored to the board.",
+      });
     }
   }
 
@@ -357,9 +371,15 @@ const TasksPage: React.FC<TasksPageProps> = ({
         current.map((task) => replacements.get(task.id) ?? task)
       );
       setSelectedIds(new Set());
+      toast.success(
+        `${targets.length} task${targets.length === 1 ? "" : "s"} updated`
+      );
     } catch (bulkError) {
       console.error("Bulk task action failed:", bulkError);
       setError("Unable to complete the bulk task action.");
+      toast.error("Bulk task action failed", {
+        description: "Some selected tasks may not have been changed.",
+      });
     }
   }
 
@@ -378,9 +398,15 @@ const TasksPage: React.FC<TasksPageProps> = ({
       const ids = new Set(selectedTasks.map((task) => task.id));
       setTasks((current) => current.filter((task) => !ids.has(task.id)));
       setSelectedIds(new Set());
+      toast.success(
+        `${ids.size} task${ids.size === 1 ? "" : "s"} deleted`
+      );
     } catch (bulkError) {
       console.error("Bulk task deletion failed:", bulkError);
       setError("Unable to delete all selected tasks.");
+      toast.error("Bulk deletion failed", {
+        description: "Some selected tasks may still be present.",
+      });
     }
   }
 

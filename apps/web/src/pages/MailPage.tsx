@@ -8,6 +8,7 @@ import {
   MailMessage,
   MailFolder,
 } from "../api/mail";
+import { toast } from "../toasts/toastStore";
 
 type MailView = "list-detail" | "compose";
 
@@ -175,6 +176,7 @@ const MailPage: React.FC = () => {
         recalcUnread(next, activeFolder);
         return next;
       });
+      toast.error("Unable to update message");
     }
   }
 
@@ -199,6 +201,7 @@ const MailPage: React.FC = () => {
         recalcUnread(next, activeFolder);
         return next;
       });
+      toast.error("Unable to update star");
     }
   }
 
@@ -218,6 +221,7 @@ const MailPage: React.FC = () => {
 
     try {
       await deleteMailMessage(message.id);
+      toast.success("Message deleted");
     } catch (err) {
       console.error("Error deleting mail message:", err);
       // Roll back if it wasn't a 404
@@ -225,6 +229,7 @@ const MailPage: React.FC = () => {
         recalcUnread(previous, activeFolder);
         return previous;
       });
+      toast.error("Unable to delete message");
     }
   }
 
@@ -246,6 +251,7 @@ const MailPage: React.FC = () => {
 
     try {
       await updateMailMessage(message.id, { folder: "archive" });
+      toast.success("Message archived");
     } catch (err) {
       console.error("Error archiving message:", err);
       // Roll back locally
@@ -253,6 +259,7 @@ const MailPage: React.FC = () => {
         recalcUnread(previous, activeFolder);
         return previous;
       });
+      toast.error("Unable to archive message");
     }
   }
 
@@ -339,9 +346,11 @@ const MailPage: React.FC = () => {
       setComposeSubject("");
       setComposeBody("");
       setView("list-detail");
+      toast.success("Message sent", { description: subject });
     } catch (err) {
       console.error("Error sending mail:", err);
       setSendError("Unable to send message.");
+      toast.error("Unable to send message");
     } finally {
       setSending(false);
     }

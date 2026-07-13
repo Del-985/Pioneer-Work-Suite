@@ -1,4 +1,4 @@
-import React from "react";
+import React, { Suspense, lazy } from "react";
 import {
   Navigate,
   Route,
@@ -17,14 +17,16 @@ import type {
 import type {
   RightSidebarMode,
 } from "../types/rightSidebar";
-import CalendarPage from "../pages/CalendarPage";
-import DashboardPage from "../pages/DashboardPage";
-import DocumentsPage from "../pages/DocumentsPage";
 import LoginPage from "../pages/LoginPage";
-import MailPage from "../pages/MailPage";
 import RegisterPage from "../pages/RegisterPage";
-import SettingsPage from "../pages/SettingsPage";
-import TasksPage from "../pages/TasksPage";
+import PageLoadingFallback from "./PageLoadingFallback";
+
+const CalendarPage = lazy(() => import("../pages/CalendarPage"));
+const DashboardPage = lazy(() => import("../pages/DashboardPage"));
+const DocumentsPage = lazy(() => import("../pages/DocumentsPage"));
+const MailPage = lazy(() => import("../pages/MailPage"));
+const SettingsPage = lazy(() => import("../pages/SettingsPage"));
+const TasksPage = lazy(() => import("../pages/TasksPage"));
 
 interface AppRoutesProps {
   workspaceAccessible: boolean;
@@ -52,6 +54,7 @@ const AppRoutes: React.FC<AppRoutesProps> = ({
   onSidebarModeChange,
 }) => {
   return (
+    <Suspense fallback={<PageLoadingFallback />}>
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
@@ -138,6 +141,7 @@ const AppRoutes: React.FC<AppRoutesProps> = ({
 
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
+    </Suspense>
   );
 };
 

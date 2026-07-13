@@ -36,6 +36,7 @@ export interface AppSettings {
     fontSize: FontSizePreference;
     density: UiDensityPreference;
     animationsEnabled: boolean;
+    highContrast: boolean;
   };
 
   sidebar: {
@@ -74,6 +75,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
     fontSize: "medium",
     density: "comfortable",
     animationsEnabled: true,
+    highContrast: false,
   },
 
   sidebar: {
@@ -205,6 +207,10 @@ function normalizeSettings(raw: unknown): AppSettings {
     if (typeof appearance.animationsEnabled === "boolean") {
       settings.appearance.animationsEnabled =
         appearance.animationsEnabled;
+    }
+
+    if (typeof appearance.highContrast === "boolean") {
+      settings.appearance.highContrast = appearance.highContrast;
     }
   }
 
@@ -353,6 +359,9 @@ export function applySettingsToDocument(
     settings.appearance.animationsEnabled
       ? "enabled"
       : "disabled";
+  root.dataset.contrast = settings.appearance.highContrast
+    ? "high"
+    : "standard";
 }
 
 /**

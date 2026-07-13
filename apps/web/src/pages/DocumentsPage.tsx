@@ -33,6 +33,7 @@ import type {
 } from "../keyboard/keyboardTypes";
 import { useStatusBarItems } from "../hooks/useStatusBarItems";
 import type { StatusBarItem } from "../status/statusRegistry";
+import { toast } from "../toasts/toastStore";
 import { developerLogger } from "../developer/logger";
 import {
   deleteDocumentRecoveryDraft,
@@ -564,6 +565,15 @@ const DocumentsPage: React.FC = () => {
             error
           );
           setSaveError("Save failed.");
+          toast.error("Unable to save document", {
+            description: "Your unsaved work remains available for recovery.",
+            action: {
+              label: "Retry",
+              run: async () => {
+                await saveCurrentDocument();
+              },
+            },
+          });
 
           return false;
         } finally {
@@ -1024,6 +1034,7 @@ const DocumentsPage: React.FC = () => {
         ])
       );
       setSelectedDocumentState(created);
+      toast.success("Document created");
     } catch (error) {
       console.error(
         "Unable to create document:",
@@ -1032,6 +1043,7 @@ const DocumentsPage: React.FC = () => {
       setSaveError(
         "Unable to create document."
       );
+      toast.error("Unable to create document");
     } finally {
       setCreating(false);
     }
@@ -1077,6 +1089,9 @@ const DocumentsPage: React.FC = () => {
         ])
       );
       setSelectedDocumentState(duplicate);
+      toast.success("Document duplicated", {
+        description: duplicate.title,
+      });
     } catch (error) {
       console.error(
         "Unable to duplicate document:",
@@ -1085,6 +1100,7 @@ const DocumentsPage: React.FC = () => {
       setSaveError(
         "Unable to duplicate document."
       );
+      toast.error("Unable to duplicate document");
     } finally {
       setDuplicating(false);
     }
@@ -1119,6 +1135,7 @@ const DocumentsPage: React.FC = () => {
         );
 
       mergeSavedDocument(updated);
+      toast.success(nextValue ? "Document pinned" : "Document unpinned");
     } catch (error) {
       console.error(
         "Unable to update pinned state:",
@@ -1128,6 +1145,7 @@ const DocumentsPage: React.FC = () => {
       setSaveError(
         "Unable to update pinned state."
       );
+      toast.error("Unable to update pinned state");
     }
   }
 
@@ -1161,6 +1179,9 @@ const DocumentsPage: React.FC = () => {
         );
 
       mergeSavedDocument(updated);
+      toast.success(
+        nextValue ? "Document added to favorites" : "Document removed from favorites"
+      );
     } catch (error) {
       console.error(
         "Unable to update favorite state:",
@@ -1170,6 +1191,7 @@ const DocumentsPage: React.FC = () => {
       setSaveError(
         "Unable to update favorite state."
       );
+      toast.error("Unable to update favorite state");
     }
   }
 
@@ -1250,6 +1272,9 @@ const DocumentsPage: React.FC = () => {
         } catch {
           // Snapshot cleanup failure is logged without failing deletion.
         }
+        toast.success("Document deleted", {
+          description: title || "Untitled document",
+        });
       }
       setDeletingId(null);
     }
@@ -1288,6 +1313,42 @@ const DocumentsPage: React.FC = () => {
       setSaveError(
         "Unable to discard the recovery copy. See Developer Tools for details."
       );
+    }
+  }
+
+  function handleExportText(): void {
+    if (!selectedDocument) return;
+
+    try {
+      exportDocumentAsText(editTitle, editContent);
+      toast.success("TXT export complete", {
+        description: editTitle || "Untitled document",
+      });
+    } catch (error) {
+      developerLogger.error(
+        "documents.export",
+        "Unable to export a document as text",
+        error
+      );
+      toast.error("TXT export failed");
+    }
+  }
+
+  function handleExportHtml(): void {
+    if (!selectedDocument) return;
+
+    try {
+      exportDocumentAsHtml(editTitle, editContent);
+      toast.success("HTML export complete", {
+        description: editTitle || "Untitled document",
+      });
+    } catch (error) {
+      developerLogger.error(
+        "documents.export",
+        "Unable to export a document as HTML",
+        error
+      );
+      toast.error("HTML export failed");
     }
   }
 
@@ -1643,11 +1704,7 @@ const DocumentsPage: React.FC = () => {
             Boolean(selectedDocument),
           disabledReason:
             "Select a document first.",
-          run: () =>
-            exportDocumentAsText(
-              editTitle,
-              editContent
-            ),
+          run: handleExportText,
         },
         {
           id: "documents-export-html",
@@ -1664,11 +1721,7 @@ const DocumentsPage: React.FC = () => {
             Boolean(selectedDocument),
           disabledReason:
             "Select a document first.",
-          run: () =>
-            exportDocumentAsHtml(
-              editTitle,
-              editContent
-            ),
+          run: handleExportHtml,
         },
         {
           id: "documents-toggle-pin",
@@ -2166,23 +2219,13 @@ const DocumentsPage: React.FC = () => {
                         <div>
                           <button
                             type="button"
-                            onClick={() =>
-                              exportDocumentAsText(
-                                editTitle,
-                                editContent
-                              )
-                            }
+                            onClick={handleExportText}
                           >
                             Export TXT
                           </button>
                           <button
                             type="button"
-                            onClick={() =>
-                              exportDocumentAsHtml(
-                                editTitle,
-                                editContent
-                              )
-                            }
+                            onClick={handleExportHtml}
                           >
                             Export HTML
                           </button>

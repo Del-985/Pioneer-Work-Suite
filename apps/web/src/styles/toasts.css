@@ -1,0 +1,81 @@
+.pioneer-toast-viewport {
+  position: fixed;
+  z-index: 20000;
+  top: var(--space-4);
+  right: var(--space-4);
+  display: flex;
+  width: min(390px, calc(100vw - 32px));
+  flex-direction: column;
+  gap: var(--space-2);
+  pointer-events: none;
+}
+
+.pioneer-toast {
+  position: relative;
+  display: grid;
+  grid-template-columns: 4px minmax(0, 1fr) auto;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface-2);
+  box-shadow: var(--shadow-lg);
+  pointer-events: auto;
+  animation: toast-enter 180ms ease-out;
+}
+
+.pioneer-toast__indicator { background: var(--accent); }
+.pioneer-toast.tone-success .pioneer-toast__indicator { background: var(--success); }
+.pioneer-toast.tone-warning .pioneer-toast__indicator { background: var(--warning); }
+.pioneer-toast.tone-error .pioneer-toast__indicator { background: var(--danger); }
+
+.pioneer-toast__content {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 3px;
+  padding: 12px 10px 12px 14px;
+}
+
+.pioneer-toast__content p {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: var(--font-size-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.pioneer-toast__content strong { color: var(--text-strong); }
+.pioneer-toast__content span { color: var(--text-muted); font-size: var(--font-size-sm); }
+.pioneer-toast__content button {
+  align-self: flex-start;
+  margin-top: 6px;
+  padding: 5px 10px;
+  border: 1px solid var(--accent-border);
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  color: var(--accent-text);
+  cursor: pointer;
+}
+
+.pioneer-toast__dismiss {
+  width: 40px;
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+  font-size: 20px;
+}
+
+@keyframes toast-enter {
+  from { opacity: 0; transform: translateX(18px); }
+  to { opacity: 1; transform: translateX(0); }
+}
+
+@media (max-width: 600px) {
+  .pioneer-toast-viewport {
+    top: var(--space-2);
+    right: var(--space-2);
+    width: calc(100vw - 16px);
+  }
+}

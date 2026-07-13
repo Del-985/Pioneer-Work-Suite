@@ -1,7 +1,5 @@
 import React from "react";
-import {
-  Link,
-} from "react-router-dom";
+import { NavLink } from "react-router-dom";
 
 import {
   openCommandPalette,
@@ -32,17 +30,23 @@ const AppNavigation: React.FC<AppNavigationProps> = ({
   onToggleCloud,
 }) => {
   return (
-    <aside className="sidebar-left">
+    <aside className="sidebar-left" aria-label="Application navigation">
       <div className="sidebar-logo">
         <span className="app-name">Pioneer Work Suite</span>
         <span className="app-tagline">Student</span>
       </div>
 
-      <nav className="sidebar-nav">
+      <nav className="sidebar-nav" aria-label="Workspace pages">
         {NAVIGATION_LINKS.map(([to, label]) => (
-          <Link key={to} className="nav-item" to={to}>
+          <NavLink
+            key={to}
+            className={({ isActive }) =>
+              `nav-item${isActive ? " is-active" : ""}`
+            }
+            to={to}
+          >
             {label}
-          </Link>
+          </NavLink>
         ))}
 
         <button

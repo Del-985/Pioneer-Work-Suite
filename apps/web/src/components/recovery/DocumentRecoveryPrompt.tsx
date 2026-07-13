@@ -1,6 +1,7 @@
-import React, { useEffect, useRef } from "react";
+import React, { useRef } from "react";
 
 import type { DocumentRecoveryDraft } from "../../recovery/documentRecovery";
+import { useAccessibleDialog } from "../../hooks/useAccessibleDialog";
 
 interface DocumentRecoveryPromptProps {
   draft: DocumentRecoveryDraft;
@@ -15,6 +16,7 @@ const DocumentRecoveryPrompt: React.FC<DocumentRecoveryPromptProps> = ({
   onRestore,
   onDiscard,
 }) => {
+  const dialogRef = useRef<HTMLElement>(null);
   const restoreButtonRef = useRef<HTMLButtonElement>(null);
   const basedOnOlderVersion = Boolean(
     draft.baseUpdatedAt &&
@@ -22,18 +24,24 @@ const DocumentRecoveryPrompt: React.FC<DocumentRecoveryPromptProps> = ({
       draft.baseUpdatedAt !== currentUpdatedAt
   );
 
-  useEffect(() => {
-    restoreButtonRef.current?.focus();
-  }, []);
+  useAccessibleDialog({
+    open: true,
+    containerRef: dialogRef,
+    initialFocusRef: restoreButtonRef,
+    closeOnEscape: false,
+    source: "accessibility.document-recovery",
+  });
 
   return (
     <div className="document-recovery-backdrop">
       <section
+        ref={dialogRef}
         className="document-recovery-prompt"
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="document-recovery-title"
         aria-describedby="document-recovery-description"
+        tabIndex={-1}
       >
         <p className="document-recovery-prompt__eyebrow">
           Unsaved work found

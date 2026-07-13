@@ -28,6 +28,7 @@ import DeveloperConsole from "../components/developer/DeveloperConsole";
 import {
   RIGHT_SIDEBAR_MODE_OPTIONS,
 } from "../types/rightSidebar";
+import { toast } from "../toasts/toastStore";
 
 type DiagnosticState = {
   loading: boolean;
@@ -203,9 +204,11 @@ const SettingsPage: React.FC = () => {
       const updated = await updateSettings(patch);
       setSettings(updated);
       setSettingsMessage("Settings saved.");
+      toast.success("Settings saved");
     } catch (error) {
       console.error("Unable to save settings:", error);
       setSettingsMessage("Unable to save settings.");
+      toast.error("Unable to save settings");
     } finally {
       setSaving(false);
     }
@@ -227,9 +230,11 @@ const SettingsPage: React.FC = () => {
       const defaults = await resetSettings();
       setSettings(defaults);
       setSettingsMessage("Settings reset to defaults.");
+      toast.success("Settings reset");
     } catch (error) {
       console.error("Unable to reset settings:", error);
       setSettingsMessage("Unable to reset settings.");
+      toast.error("Unable to reset settings");
     } finally {
       setResetting(false);
     }
@@ -395,6 +400,27 @@ const SettingsPage: React.FC = () => {
             <option value="compact">Compact</option>
             <option value="comfortable">Comfortable</option>
           </select>
+        </div>
+
+        <div
+          style={controlRowStyle}
+        >
+          <SettingDescription
+            title="High contrast"
+            description="Increase border and focus visibility throughout the workspace."
+          />
+
+          <Toggle
+            checked={settings.appearance.highContrast}
+            onChange={(checked) =>
+              void applySettings({
+                appearance: {
+                  highContrast: checked,
+                },
+              })
+            }
+            label={settings.appearance.highContrast ? "Enabled" : "Disabled"}
+          />
         </div>
 
         <div

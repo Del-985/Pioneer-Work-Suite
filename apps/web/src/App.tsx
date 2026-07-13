@@ -32,6 +32,7 @@ import GlobalSearch from "./components/GlobalSearch";
 import KeyboardShortcutsManager from "./components/KeyboardShortcutsManager";
 import RightSidebar from "./components/RightSidebar";
 import StatusBar from "./components/StatusBar";
+import ToastViewport from "./components/ToastViewport";
 import UpdateBanner from "./components/UpdateBanner";
 import type {
   RightSidebarMode,
@@ -167,9 +168,13 @@ const App: React.FC = () => {
 
   return (
     <div className="app">
+      <a className="skip-link" href="#workspace-content">
+        Skip to workspace content
+      </a>
       <UpdateBanner />
       <GlobalSearch />
       <KeyboardShortcutsManager />
+      <ToastViewport />
       <CommandPaletteManager
         rightSidebarOpen={isRightSidebarOpen}
         rightSidebarMode={sidebarMode}
@@ -194,7 +199,11 @@ const App: React.FC = () => {
             </p>
           </header>
 
-          <section className="workspace-body">
+          <section
+            id="workspace-content"
+            className="workspace-body"
+            tabIndex={-1}
+          >
             <AppRoutes
               workspaceAccessible={workspaceAccessible}
               startupPage={settings.workspace.startupPage}

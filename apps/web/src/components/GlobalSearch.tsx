@@ -7,7 +7,8 @@ import type {
   SearchResultKind,
   SearchSnapshot,
 } from "../search/searchTypes";
-import { useBodyScrollLock } from "../hooks/useBodyScrollLock";
+import { useAccessibleDialog } from "../hooks/useAccessibleDialog";
+import { toast } from "../toasts/toastStore";
 import "../styles/global-search.css";
 
 const GLOBAL_SEARCH_OPEN_EVENT = "pioneer:open-global-search";
@@ -29,6 +30,7 @@ const EMPTY: SearchSnapshot = {
 const GlobalSearch: React.FC = () => {
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const dialogRef = useRef<HTMLElement | null>(null);
   const requestRef = useRef(0);
 
   const [open, setOpen] = useState(false);
@@ -95,6 +97,9 @@ const GlobalSearch: React.FC = () => {
         }
       } catch (searchError) {
         console.error("Global search failed:", searchError);
+        toast.error("Search unavailable", {
+          description: "Pioneer could not search the local workspace.",
+        });
         if (requestRef.current === requestId) {
           setSnapshot(EMPTY);
           setError("Unable to search the workspace.");
@@ -109,7 +114,13 @@ const GlobalSearch: React.FC = () => {
     return () => window.clearTimeout(timeout);
   }, [open, query]);
 
-  useBodyScrollLock(open);
+  useAccessibleDialog({
+    open,
+    containerRef: dialogRef,
+    initialFocusRef: inputRef,
+    onClose: close,
+    source: "accessibility.global-search",
+  });
 
   function close(): void {
     setOpen(false);
@@ -126,12 +137,6 @@ const GlobalSearch: React.FC = () => {
   }
 
   function handleKeyDown(event: React.KeyboardEvent): void {
-    if (event.key === "Escape") {
-      event.preventDefault();
-      close();
-      return;
-    }
-
     if (visibleResults.length === 0) return;
 
     if (event.key === "ArrowDown") {
@@ -160,15 +165,18 @@ const GlobalSearch: React.FC = () => {
       }}
     >
       <section
+        ref={dialogRef}
         className="global-search"
         role="dialog"
         aria-modal="true"
         aria-labelledby="global-search-title"
+        aria-describedby="global-search-description"
+        tabIndex={-1}
         onKeyDown={handleKeyDown}
       >
         <header className="global-search__header">
           <div>
-            <p>Workspace search</p>
+            <p id="global-search-description">Workspace search</p>
             <h2 id="global-search-title">Search everything</h2>
           </div>
           <button type="button" onClick={close} aria-label="Close search">
@@ -207,7 +215,12 @@ const GlobalSearch: React.FC = () => {
           ))}
         </nav>
 
-        <div className="global-search__results" role="listbox">
+        <div
+          className="global-search__results"
+          role="listbox"
+          aria-label={`${visibleResults.length} search results`}
+          aria-busy={loading}
+        >
           {!query.trim() ? (
             <Empty
               title="Start typing to search"

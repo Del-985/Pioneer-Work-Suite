@@ -1,6 +1,6 @@
 // apps/web/src/components/StatusBar.tsx
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 
 import {
@@ -14,6 +14,7 @@ import { APP_VERSION } from "../config/appMetadata";
 import {
   useRegisteredStatusBarItems,
 } from "../hooks/useStatusBarItems";
+import { toast } from "../toasts/toastStore";
 
 import "../styles/status-bar.css";
 
@@ -59,8 +60,46 @@ const StatusBar: React.FC = () => {
   const contextItems = useRegisteredStatusBarItems();
 
   const [sync, setSync] = useState<SyncSnapshot>(getSyncSnapshot);
+  const previousSyncRef = useRef<SyncSnapshot>(getSyncSnapshot());
 
-  useEffect(() => subscribeToSyncStatus(setSync), []);
+  useEffect(
+    () =>
+      subscribeToSyncStatus((next) => {
+        const previous = previousSyncRef.current;
+        setSync(next);
+
+        if (next.phase !== previous.phase) {
+          if (next.phase === "error") {
+            toast.error("Cloud synchronization failed", {
+              description: next.errorMessage ?? "Local changes remain safe.",
+              action: {
+                label: "Retry",
+                run: async () => {
+                  await syncAllNow();
+                },
+              },
+            });
+          } else if (next.phase === "reconnect-required") {
+            toast.warning("Cloud reconnection required", {
+              description: "Reconnect your account to resume synchronization.",
+            });
+          } else if (next.phase === "offline") {
+            toast.info("Working offline", {
+              description: "Changes will stay local until connectivity returns.",
+            });
+          } else if (
+            next.phase === "idle" &&
+            previous.phase === "syncing" &&
+            previous.pendingTotal > 0
+          ) {
+            toast.success("Cloud synchronization complete");
+          }
+        }
+
+        previousSyncRef.current = next;
+      }),
+    []
+  );
 
   const pageName = useMemo(
     () => formatPageName(location.pathname),
@@ -83,6 +122,10 @@ const StatusBar: React.FC = () => {
 
   return (
     <footer className="pioneer-status-bar" aria-label="Application status bar">
+      <span className="sr-only" role="status" aria-live="polite">
+        {PHASE_LABELS[sync.phase]}
+        {sync.pendingTotal > 0 ? `, ${sync.pendingTotal} changes pending` : ""}
+      </span>
       <div className="pioneer-status-bar__group">
         <span className="pioneer-status-bar__item">v{APP_VERSION}</span>
         <span className="pioneer-status-bar__separator" aria-hidden="true" />
@@ -137,7 +180,6 @@ const StatusBar: React.FC = () => {
             onClick={() => void syncAllNow()}
             disabled={!canRequestSync}
             title={syncTitle}
-            aria-live="polite"
           >
             <span
               className={`pioneer-status-dot pioneer-status-dot--${sync.phase}`}

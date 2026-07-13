@@ -48,6 +48,7 @@ import {
 import type {
   RightSidebarMode,
 } from "../types/rightSidebar";
+import { toast } from "../toasts/toastStore";
 
 function sortSidebarTasks(tasks: Task[]): Task[] {
   return [...tasks].sort((left, right) => {
@@ -331,12 +332,14 @@ export function useRightSidebarData(
         ...current.filter((task) => task.id !== created.id),
       ]);
       setNewTaskTitle("");
+      toast.success("Task created", { description: created.title });
     } catch (error) {
       console.error(
         "Unable to create sidebar task:",
         error
       );
       setTasksError("Unable to create task.");
+      toast.error("Unable to create task");
     } finally {
       setCreatingTask(false);
     }
@@ -373,6 +376,7 @@ export function useRightSidebarData(
       );
       setTasks(previous);
       setTasksError("Unable to update task.");
+      toast.error("Unable to update task");
     }
   }
 
@@ -386,6 +390,7 @@ export function useRightSidebarData(
 
     try {
       await deleteTask(id);
+      toast.success("Task deleted");
     } catch (error) {
       console.error(
         "Unable to delete sidebar task:",
@@ -393,6 +398,7 @@ export function useRightSidebarData(
       );
       setTasks(previous);
       setTasksError("Unable to delete task.");
+      toast.error("Unable to delete task");
     }
   }
 
