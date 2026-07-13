@@ -143,6 +143,7 @@ const CalendarPage: React.FC = () => {
   const [selectedDay, setSelectedDay] = useState<Date | null>(null);
   const [newEventTitle, setNewEventTitle] = useState("");
   const [newEventAllDay, setNewEventAllDay] = useState(true);
+  const [newEventTime, setNewEventTime] = useState("09:00");
   const [newEventUrgency, setNewEventUrgency] =
     useState<EventUrgency | "">("");
   const [creatingEvent, setCreatingEvent] = useState(false);
@@ -259,8 +260,23 @@ const CalendarPage: React.FC = () => {
       if (newEventAllDay) {
         end.setDate(end.getDate() + 1);
       } else {
-        start = new Date();
-        if (start < day) start = day;
+        const [hours, minutes] = newEventTime
+          .split(":")
+          .map(Number);
+
+        if (
+          !Number.isInteger(hours) ||
+          !Number.isInteger(minutes) ||
+          hours < 0 ||
+          hours > 23 ||
+          minutes < 0 ||
+          minutes > 59
+        ) {
+          setError("Choose a valid event time.");
+          return;
+        }
+
+        start.setHours(hours, minutes, 0, 0);
         end = new Date(start);
         end.setHours(end.getHours() + 1);
       }
@@ -650,6 +666,19 @@ const CalendarPage: React.FC = () => {
             />
             All-day
           </label>
+          {!newEventAllDay && (
+            <label className="calendar-event-time-field">
+              <span>Start time</span>
+              <input
+                type="time"
+                value={newEventTime}
+                onChange={(event) =>
+                  setNewEventTime(event.target.value)
+                }
+                required
+              />
+            </label>
+          )}
           <label className="calendar-event-urgency-field">
             <span>Urgency</span>
             <select
@@ -696,7 +725,11 @@ const CalendarPage: React.FC = () => {
             </button>
             <button
               type="submit"
-              disabled={creatingEvent || !newEventTitle.trim()}
+              disabled={
+                creatingEvent ||
+                !newEventTitle.trim() ||
+                (!newEventAllDay && !newEventTime)
+              }
               style={{
                 padding: "6px 12px",
                 borderRadius: 999,
@@ -706,7 +739,11 @@ const CalendarPage: React.FC = () => {
                 fontSize: 12,
                 cursor: creatingEvent ? "default" : "pointer",
                 opacity:
-                  creatingEvent || !newEventTitle.trim() ? 0.7 : 1,
+                  creatingEvent ||
+                  !newEventTitle.trim() ||
+                  (!newEventAllDay && !newEventTime)
+                    ? 0.7
+                    : 1,
               }}
             >
               {creatingEvent ? "Saving..." : "Add event"}
