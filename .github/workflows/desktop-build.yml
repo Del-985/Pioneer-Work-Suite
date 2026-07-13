@@ -94,12 +94,18 @@ jobs:
           updaterJsonPreferNsis: true
 
       - name: Inspect built updater files
-        if: always()
+        if: success()
         shell: pwsh
         run: |
+          $bundlePath = "./desktop/src-tauri/target/release/bundle"
+
+          if (-not (Test-Path $bundlePath)) {
+            throw "Expected bundle directory was not created: $bundlePath"
+          }
+
           Write-Host "All bundle files found:"
           Get-ChildItem `
-            ./desktop/src-tauri/target/release/bundle `
+            $bundlePath `
             -Recurse `
             -File |
             Select-Object FullName, Length
