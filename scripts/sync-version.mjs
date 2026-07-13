@@ -60,17 +60,24 @@ function updateCargoVersion(filePath, version) {
   }
 
   const source = fs.readFileSync(filePath, "utf8");
+  const packageVersionPattern =
+    /^(\[package\][\s\S]*?^version\s*=\s*)"([^"]*)"/m;
+  const match = source.match(packageVersionPattern);
 
-  const updated = source.replace(
-    /^(\[package\][\s\S]*?^version\s*=\s*)"[^"]*"/m,
-    `$1"${version}"`
-  );
-
-  if (updated === source) {
+  if (!match) {
     throw new Error(
       `Could not find [package] version in ${filePath}`
     );
   }
+
+  if (match[2] === version) {
+    return;
+  }
+
+  const updated = source.replace(
+    packageVersionPattern,
+    `$1"${version}"`
+  );
 
   fs.writeFileSync(filePath, updated);
 }
