@@ -503,7 +503,7 @@ const TasksPage: React.FC<TasksPageProps> = ({
       <header className="tasks-v2-header">
         <div>
           <p className="tasks-v2-eyebrow">Tasks v2</p>
-          <h2>{archivedOnly ? "Task Archive" : "Tasks"}</h2>
+          <h1>{archivedOnly ? "Task Archive" : "Tasks"}</h1>
           <p>
             Search titles, descriptions, and tags; organize work in bulk; and
             archive completed work without deleting it.
@@ -530,7 +530,7 @@ const TasksPage: React.FC<TasksPageProps> = ({
 
       {!archivedOnly && (
         <section className="tasks-v2-create" aria-labelledby="new-task-heading">
-          <h3 id="new-task-heading">New task</h3>
+          <h2 id="new-task-heading">New task</h2>
           <form onSubmit={(event) => void handleAddTask(event)}>
             <label className="tasks-v2-title-field">
               <span>Title</span>
@@ -811,7 +811,7 @@ const TasksColumn: React.FC<TasksColumnProps> = ({
   onDelete,
 }) => (
   <article className="tasks-v2-column">
-    <header><h3>{title}</h3><span>{tasks.length}</span></header>
+    <header><h2>{title}</h2><span>{tasks.length}</span></header>
     {tasks.length === 0 ? (
       <p className="tasks-v2-empty">No matching tasks.</p>
     ) : (

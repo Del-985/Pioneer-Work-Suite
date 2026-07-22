@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { Document as SuiteDocument, fetchDocuments } from "../api/documents";
 import { getWorkspaceName } from "../api/session";
 import { fetchTasks, Task } from "../api/tasks";
+import { getLastWorkspaceBackupAt } from "../api/workspaceBackup";
 import { openGlobalSearch } from "../components/GlobalSearch";
 import { formatDocumentDate } from "../utils/documentText";
 import {
@@ -29,11 +30,7 @@ interface DashboardPageProps {
   onSidebarModeChange: (mode: RightSidebarMode) => void;
 }
 
-type DashboardTask = Task & {
-  updatedAt?: string;
-  completedAt?: string;
-  archivedAt?: string | null;
-};
+type DashboardTask = Task;
 
 interface StorageSnapshot {
   usage: number | null;
@@ -50,6 +47,13 @@ function parseDate(raw?: string | null): Date | null {
   return Number.isNaN(value.getTime())
     ? null
     : value;
+}
+
+function formatBackupTimestamp(raw: string | null): string {
+  const timestamp = parseDate(raw);
+  return timestamp
+    ? timestamp.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
+    : "Not yet";
 }
 
 function formatBytes(bytes: number): string {
@@ -466,22 +470,12 @@ const DashboardPage: React.FC<
           isTaskDone
         );
 
-      const completionMetadataAvailable =
-        completedTasks.some(
-          (task) =>
-            Boolean(
-              task.completedAt ||
-                task.updatedAt
-            )
-        );
-
       const tasksCompletedToday =
         completedTasks.filter(
           (task) => {
             const completedAt =
               parseDate(
-                task.completedAt ||
-                  task.updatedAt
+                task.completedAt
               );
 
             return completedAt
@@ -500,7 +494,8 @@ const DashboardPage: React.FC<
         recentlyEdited,
         recentlyCreated,
         documentsEditedToday,
-        completionMetadataAvailable,
+        completedTasksTotal:
+          completedTasks.length,
         tasksCompletedToday,
       };
     }, [
@@ -530,10 +525,10 @@ const DashboardPage: React.FC<
             Today
           </p>
 
-          <h2 id="dashboard-title">
+          <h1 id="dashboard-title">
             Welcome back,{" "}
             {userName}
-          </h2>
+          </h1>
 
           <p className="dashboard-hero-copy">
             Review what needs
@@ -587,9 +582,9 @@ const DashboardPage: React.FC<
               Start here
             </p>
 
-            <h3 id="dashboard-quick-actions">
+            <h2 id="dashboard-quick-actions">
               Quick actions
-            </h3>
+            </h2>
           </div>
 
           {lastLoadedAt && (
@@ -730,9 +725,9 @@ const DashboardPage: React.FC<
               Focus
             </p>
 
-            <h3 id="dashboard-tasks">
+            <h2 id="dashboard-tasks">
               Task overview
-            </h3>
+            </h2>
           </div>
 
           <button
@@ -824,9 +819,9 @@ const DashboardPage: React.FC<
               Continue working
             </p>
 
-            <h3 id="dashboard-documents">
+            <h2 id="dashboard-documents">
               Document activity
-            </h3>
+            </h2>
           </div>
 
           <button
@@ -887,30 +882,28 @@ const DashboardPage: React.FC<
               Workspace pulse
             </p>
 
-            <h3 id="dashboard-productivity">
+            <h2 id="dashboard-productivity">
               Productivity
-            </h3>
+            </h2>
           </div>
         </div>
 
         <div className="dashboard-stat-grid">
           <StatCard
             label="Tasks completed today"
-            value={
+            value={String(
               dashboardData
-                .completionMetadataAvailable
-                ? String(
-                    dashboardData
-                      .tasksCompletedToday
-                  )
-                : "—"
-            }
-            detail={
+                .tasksCompletedToday
+            )}
+            detail={`${
               dashboardData
-                .completionMetadataAvailable
-                ? "Based on completion timestamps"
-                : "Completion timestamps arrive with Tasks v2"
-            }
+                .completedTasksTotal
+            } completed task${
+              dashboardData
+                .completedTasksTotal === 1
+                ? ""
+                : "s"
+            } tracked overall`}
           />
 
           <StatCard
@@ -958,8 +951,8 @@ const DashboardPage: React.FC<
 
           <StatCard
             label="Last backup"
-            value="Not available"
-            detail="Backup is deferred to version 0.2.0"
+            value={formatBackupTimestamp(getLastWorkspaceBackupAt())}
+            detail={getLastWorkspaceBackupAt() ? "Local workspace export" : "Create a backup from Settings"}
           />
         </div>
       </section>
@@ -973,10 +966,10 @@ const DashboardPage: React.FC<
             Workspace layout
           </p>
 
-          <h3 id="dashboard-sidebar-heading">
+          <h2 id="dashboard-sidebar-heading">
             Right sidebar
             content
-          </h3>
+          </h2>
 
           <p>
             Choose which

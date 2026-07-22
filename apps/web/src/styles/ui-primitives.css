@@ -23,7 +23,7 @@
 .ui-button--quiet { border-color: transparent; background: transparent; }
 
 .ui-section-header { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-4); margin-bottom: var(--space-4); }
-.ui-section-header h3 { margin: 0; color: var(--text-strong); }
+.ui-section-header h2 { margin: 0; color: var(--text-strong); font-size: var(--font-size-lg); }
 .ui-section-header p { margin: var(--space-1) 0 0; color: var(--text-muted); line-height: 1.5; }
 .ui-section-header__eyebrow { color: var(--accent-text) !important; font-size: var(--font-size-xs); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
 .ui-section-header__actions { flex: 0 0 auto; }

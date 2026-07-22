@@ -205,22 +205,45 @@ router.get("/messages", async (req, res) => {
     rawFolder === "archive"
       ? (rawFolder as MailFolder)
       : "inbox";
+  const accountId = typeof req.query.accountId === "string"
+    ? req.query.accountId.trim()
+    : "";
+  const query = typeof req.query.q === "string" ? req.query.q.trim().slice(0, 200) : "";
+  const starredOnly = req.query.starred === "true";
+  const rawPage = Number(req.query.page ?? 1);
+  const rawPageSize = Number(req.query.pageSize ?? 50);
+  const page = Number.isInteger(rawPage) && rawPage > 0 ? rawPage : 1;
+  const pageSize = Number.isInteger(rawPageSize) && rawPageSize > 0
+    ? Math.min(rawPageSize, 100)
+    : 50;
 
   try {
-    const messages = await prisma.mailMessage.findMany({
-      where: {
-        userId: user.id,
-        folder,
-      },
-      orderBy: [
-        { receivedAt: "desc" },
-        { sentAt: "desc" },
-        { updatedAt: "desc" },
-      ],
-    });
+    const where: any = { userId: user.id, folder };
+    if (accountId) where.accountId = accountId;
+    if (starredOnly) where.isStarred = true;
+    if (query) {
+      where.OR = ["subject", "fromAddress", "toAddress", "bodyText"].map((field) => ({
+        [field]: { contains: query, mode: "insensitive" },
+      }));
+    }
+    const [messages, totalCount] = await prisma.$transaction([
+      prisma.mailMessage.findMany({
+        where,
+        orderBy: [
+          { receivedAt: "desc" },
+          { sentAt: "desc" },
+          { updatedAt: "desc" },
+        ],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      prisma.mailMessage.count({ where }),
+    ]);
 
     return res.json({
       messages: messages.map(mapMessage),
+      totalCount,
+      nextCursor: page * pageSize < totalCount ? String(page + 1) : null,
     });
   } catch (err) {
     console.error("Error in GET /mail/messages:", err);
@@ -241,6 +264,7 @@ router.post("/messages", async (req, res) => {
     bodyHtml = "",
     bodyText = "",
     folder,
+    accountId,
   } = req.body || {};
 
   if (!subject || !toAddress) {
@@ -250,15 +274,32 @@ router.post("/messages", async (req, res) => {
   }
 
   const normalizedTo = String(toAddress).trim().toLowerCase();
+  const normalizedSubject = String(subject).trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedTo)) {
+    return res.status(400).json({ error: "A valid recipient address is required" });
+  }
+  if (!normalizedSubject || normalizedSubject.length > 500) {
+    return res.status(400).json({ error: "Subject must contain 1 to 500 characters" });
+  }
+  if (String(bodyHtml || "").length > 1_000_000 || String(bodyText || "").length > 1_000_000) {
+    return res.status(413).json({ error: "Mail body is too large" });
+  }
   const effectiveFolder: MailFolder =
     folder === "draft" ? "draft" : "sent";
 
   try {
-    const senderAccount = await ensureAccountForUser({
-      id: user.id,
-      email: user.email,
-      name: user.name,
-    });
+    const senderAccount = typeof accountId === "string" && accountId.trim()
+      ? await prisma.mailAccount.findFirst({
+          where: { id: accountId.trim(), userId: user.id },
+        })
+      : await ensureAccountForUser({
+          id: user.id,
+          email: user.email,
+          name: user.name,
+        });
+    if (!senderAccount) {
+      return res.status(404).json({ error: "Mail account not found" });
+    }
     const now = new Date();
 
     const html = String(bodyHtml || "");
@@ -273,7 +314,7 @@ router.post("/messages", async (req, res) => {
         userId: user.id,
         folder: effectiveFolder,
 
-        subject: String(subject),
+        subject: normalizedSubject,
         fromAddress: senderAccount.emailAddress,
         toAddress: normalizedTo,
         ccAddress: null,
@@ -315,7 +356,7 @@ router.post("/messages", async (req, res) => {
                 userId: recipientUser.id,
                 folder: "inbox",
 
-                subject: String(subject),
+                subject: normalizedSubject,
                 fromAddress: senderAccount.emailAddress,
                 toAddress: normalizedTo,
                 ccAddress: null,
@@ -346,7 +387,7 @@ router.post("/messages", async (req, res) => {
         .sendMail({
           from: senderAccount.emailAddress || smtpUser,
           to: normalizedTo,
-          subject: String(subject),
+          subject: normalizedSubject,
           html,
           text,
         })
@@ -403,6 +444,11 @@ router.patch("/messages/:id", async (req, res) => {
   const patch: any = {};
   if (typeof isRead === "boolean") patch.isRead = isRead;
   if (typeof isStarred === "boolean") patch.isStarred = isStarred;
+  if (folder !== undefined &&
+      folder !== "inbox" && folder !== "sent" &&
+      folder !== "draft" && folder !== "archive") {
+    return res.status(400).json({ error: "Invalid mail folder" });
+  }
   if (
     typeof folder === "string" &&
     (folder === "inbox" ||
@@ -411,6 +457,9 @@ router.patch("/messages/:id", async (req, res) => {
       folder === "archive")
   ) {
     patch.folder = folder;
+  }
+  if (Object.keys(patch).length === 0) {
+    return res.status(400).json({ error: "No valid message changes were provided" });
   }
 
   try {

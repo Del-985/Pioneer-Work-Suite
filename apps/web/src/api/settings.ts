@@ -46,7 +46,7 @@ export type StartupPagePreference =
   | "settings";
 
 export interface AppSettings {
-  schemaVersion: 1;
+  schemaVersion: 2;
 
   appearance: {
     theme: ThemePreference;
@@ -103,7 +103,7 @@ const LEGACY_SIDEBAR_MODE_KEY = "pioneer-sidebar-mode";
 export const SETTINGS_CHANGED_EVENT = "pioneer:settings-changed";
 
 export const DEFAULT_SETTINGS: AppSettings = {
-  schemaVersion: 1,
+  schemaVersion: 2,
 
   appearance: {
     theme: "dark",
@@ -141,7 +141,7 @@ export const DEFAULT_SETTINGS: AppSettings = {
   },
 
   developer: {
-    developerToolsVisible: true,
+    developerToolsVisible: false,
   },
 };
 
@@ -359,7 +359,7 @@ function normalizeSettings(raw: unknown): AppSettings {
     }
   }
 
-  if (developer) {
+  if (developer && raw.schemaVersion === DEFAULT_SETTINGS.schemaVersion) {
     if (typeof developer.developerToolsVisible === "boolean") {
       settings.developer.developerToolsVisible =
         developer.developerToolsVisible;
@@ -426,7 +426,17 @@ function readStoredSettings(): AppSettings {
       return migrateLegacySettings();
     }
 
-    return normalizeSettings(JSON.parse(raw));
+    const parsed = JSON.parse(raw) as unknown;
+    const settings = normalizeSettings(parsed);
+
+    if (
+      !isObject(parsed) ||
+      parsed.schemaVersion !== DEFAULT_SETTINGS.schemaVersion
+    ) {
+      writeStoredSettings(settings);
+    }
+
+    return settings;
   } catch {
     return cloneDefaults();
   }

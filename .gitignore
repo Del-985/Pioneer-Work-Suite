@@ -4,4 +4,4 @@ build
 .env
 apps/api/dist
 apps/web/dist
-apps/desktop/src-tauri/target
+desktop/src-tauri/target

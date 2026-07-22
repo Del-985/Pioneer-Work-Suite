@@ -6,10 +6,13 @@ import React, {
   useRef,
   useState,
 } from "react";
-import ReactQuill from "react-quill";
-import "react-quill/dist/quill.snow.css";
-
 import DocumentRecoveryPrompt from "../components/recovery/DocumentRecoveryPrompt";
+import DocumentEditor from "../components/documents/DocumentEditor";
+import type { DocumentEditorHandle } from "../components/documents/DocumentEditor";
+import DocumentInspector from "../components/documents/DocumentInspector";
+import type {
+  DocumentLibraryView,
+} from "../components/documents/documentUiTypes";
 
 import {
   createDocument,
@@ -34,6 +37,7 @@ import type {
 import { useStatusBarItems } from "../hooks/useStatusBarItems";
 import { useAppSettings } from "../hooks/useAppSettings";
 import { useConfirmation } from "../hooks/useConfirmation";
+import { useDocumentWorkspaceUi } from "../hooks/useDocumentWorkspaceUi";
 import type { StatusBarItem } from "../status/statusRegistry";
 import { toast } from "../toasts/toastStore";
 import { developerLogger } from "../developer/logger";
@@ -58,19 +62,6 @@ import "../styles/documents.css";
 
 const LAST_DOC_KEY = "suite:lastDocumentId";
 const RECENT_DOCUMENT_LIMIT = 12;
-
-type LibraryView =
-  | "all"
-  | "recent"
-  | "pinned"
-  | "favorites";
-
-interface FindState {
-  query: string;
-  replacement: string;
-  currentIndex: number;
-  totalMatches: number;
-}
 
 function rememberLastDocument(id: string | null): void {
   if (typeof window === "undefined") {
@@ -134,9 +125,25 @@ function getMatchIndexes(
 const DocumentsPage: React.FC = () => {
   const settings = useAppSettings();
   const { confirm, confirmationDialog } = useConfirmation();
-  const quillRef = useRef<any>(null);
-  const fileInputRef =
-    useRef<HTMLInputElement | null>(null);
+  const {
+    libraryView,
+    setLibraryView,
+    librarySearch,
+    setLibrarySearch,
+    libraryOpen,
+    setLibraryOpen,
+    inspectorOpen,
+    setInspectorOpen,
+    focusMode,
+    setFocusMode,
+    findOpen,
+    setFindOpen,
+    replaceOpen,
+    setReplaceOpen,
+    findState,
+    setFindState,
+  } = useDocumentWorkspaceUi();
+  const quillRef = useRef<DocumentEditorHandle>(null);
   const createQueryHandledRef = useRef(false);
   const savePromiseRef =
     useRef<Promise<boolean> | null>(null);
@@ -149,11 +156,6 @@ const DocumentsPage: React.FC = () => {
   const [editTitle, setEditTitle] =
     useState("");
   const [editContent, setEditContent] =
-    useState("");
-
-  const [libraryView, setLibraryView] =
-    useState<LibraryView>("all");
-  const [librarySearch, setLibrarySearch] =
     useState("");
 
   const [listLoading, setListLoading] =
@@ -179,18 +181,6 @@ const DocumentsPage: React.FC = () => {
   const [editorRevision, setEditorRevision] = useState(0);
   const [cursorPosition, setCursorPosition] =
     useState({ line: 1, column: 1 });
-
-  const [findOpen, setFindOpen] =
-    useState(false);
-  const [replaceOpen, setReplaceOpen] =
-    useState(false);
-  const [findState, setFindState] =
-    useState<FindState>({
-      query: "",
-      replacement: "",
-      currentIndex: -1,
-      totalMatches: 0,
-    });
 
   const selectedDocument = useMemo(
     () =>
@@ -328,156 +318,6 @@ const DocumentsPage: React.FC = () => {
       ).length,
     }),
     [documents]
-  );
-
-  const handleImageFileChange = useCallback(
-    (
-      event: React.ChangeEvent<HTMLInputElement>
-    ) => {
-      const file = event.target.files?.[0];
-
-      if (!file) {
-        return;
-      }
-
-      const reader = new FileReader();
-
-      reader.onload = (loadEvent) => {
-        const base64 =
-          loadEvent.target?.result;
-
-        if (
-          !base64 ||
-          typeof base64 !== "string"
-        ) {
-          return;
-        }
-
-        const editor =
-          quillRef.current?.getEditor?.();
-
-        if (!editor) {
-          return;
-        }
-
-        const range =
-          editor.getSelection(true);
-        const index = range
-          ? range.index
-          : Math.max(0, editor.getLength() - 1);
-
-        editor.insertEmbed(
-          index,
-          "image",
-          base64,
-          "user"
-        );
-        editor.setSelection(index + 1, 0);
-      };
-
-      reader.readAsDataURL(file);
-    },
-    []
-  );
-
-  const quillModules = useMemo(
-    () => ({
-      toolbar: {
-        container: [
-          [
-            {
-              header: [1, 2, 3, false],
-            },
-          ],
-          [
-            "bold",
-            "italic",
-            "underline",
-            "strike",
-          ],
-          [{ background: [] }],
-          [
-            { list: "ordered" },
-            { list: "bullet" },
-          ],
-          [{ align: [] }],
-          ["blockquote", "code-block"],
-          ["link", "image"],
-          ["checklist"],
-          ["clean"],
-          ["undo", "redo"],
-        ],
-        handlers: {
-          undo: () => {
-            const editor =
-              quillRef.current?.getEditor?.();
-
-            editor?.history?.undo();
-          },
-          redo: () => {
-            const editor =
-              quillRef.current?.getEditor?.();
-
-            editor?.history?.redo();
-          },
-          image: () => {
-            if (!fileInputRef.current) {
-              return;
-            }
-
-            fileInputRef.current.value = "";
-            fileInputRef.current.click();
-          },
-          checklist: () => {
-            const editor =
-              quillRef.current?.getEditor?.();
-
-            if (!editor) {
-              return;
-            }
-
-            const current =
-              editor.getFormat()?.list;
-
-            editor.format(
-              "list",
-              current === "checked" ||
-                current === "unchecked"
-                ? false
-                : "checked",
-              "user"
-            );
-          },
-        },
-      },
-      history: {
-        delay: 500,
-        maxStack: 150,
-        userOnly: true,
-      },
-    }),
-    []
-  );
-
-  const quillFormats = useMemo(
-    () => [
-      "header",
-      "font",
-      "size",
-      "bold",
-      "italic",
-      "underline",
-      "strike",
-      "background",
-      "list",
-      "bullet",
-      "align",
-      "blockquote",
-      "code-block",
-      "link",
-      "image",
-    ],
-    []
   );
 
   function setSelectedDocumentState(
@@ -818,6 +658,25 @@ const DocumentsPage: React.FC = () => {
       );
   }, [hasLocalChanges]);
 
+  useEffect(() => {
+    if (!focusMode) return;
+
+    document.body.classList.add("documents-focus-active");
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !findOpen) {
+        setFocusMode(false);
+      }
+    };
+
+    window.addEventListener("keydown", handleEscape);
+
+    return () => {
+      document.body.classList.remove("documents-focus-active");
+      window.removeEventListener("keydown", handleEscape);
+    };
+  }, [findOpen, focusMode]);
+
   const documentShortcuts =
     useMemo<ShortcutDefinition[]>(
       () => [
@@ -883,6 +742,20 @@ const DocumentsPage: React.FC = () => {
                 )
                 ?.focus();
             }, 0);
+          },
+        },
+        {
+          id: "document-focus-mode",
+          key: "e",
+          primary: true,
+          shift: true,
+          description: "Toggle document focus mode",
+          category: "Documents",
+          allowInEditable: true,
+          priority: 100,
+          enabled: Boolean(selectedDocument),
+          handler: () => {
+            setFocusMode((current) => !current);
           },
         },
         ...[1, 2, 3].map(
@@ -1677,6 +1550,18 @@ const DocumentsPage: React.FC = () => {
           },
         },
         {
+          id: "documents-focus-mode",
+          title: focusMode
+            ? "Exit document focus mode"
+            : "Enter document focus mode",
+          category: "Documents",
+          description: "Hide app chrome and side panels for distraction-free writing",
+          shortcut: ["Ctrl", "Shift", "E"],
+          enabled: Boolean(selectedDocument),
+          disabledReason: "Select a document first.",
+          run: () => setFocusMode((current) => !current),
+        },
+        {
           id: "documents-duplicate",
           title: "Duplicate current document",
           category: "Documents",
@@ -1871,6 +1756,7 @@ const DocumentsPage: React.FC = () => {
         duplicating,
         editContent,
         editTitle,
+        focusMode,
         isSaving,
         librarySearch,
         libraryView,
@@ -1882,7 +1768,13 @@ const DocumentsPage: React.FC = () => {
   useCommands(documentCommands);
 
   return (
-    <div className="documents-v2-page">
+    <div
+      className={
+        focusMode
+          ? "documents-v2-page is-focus-mode"
+          : "documents-v2-page"
+      }
+    >
       {recoveryDraft && selectedDocument && (
         <DocumentRecoveryPrompt
           draft={recoveryDraft}
@@ -1896,12 +1788,11 @@ const DocumentsPage: React.FC = () => {
       <header className="documents-v2-header">
         <div>
           <p className="documents-v2-eyebrow">
-            Documents v2
+            Documents 3.0
           </p>
-          <h2>Documents</h2>
+          <h1>Documents</h1>
           <p>
-            Write, organize, search, and export
-            your work from one workspace.
+            A focused, page-based writing workspace with everything close at hand.
           </p>
         </div>
 
@@ -1919,14 +1810,20 @@ const DocumentsPage: React.FC = () => {
         </button>
       </header>
 
-      <div className="documents-v2-layout">
+      <div
+        className={`documents-v2-layout${libraryOpen ? "" : " is-library-collapsed"}${inspectorOpen ? " has-inspector" : ""}`}
+      >
         <aside
-          className="documents-v2-library"
+          className={
+            libraryOpen
+              ? "documents-v2-library"
+              : "documents-v2-library is-collapsed"
+          }
           aria-label="Document library"
         >
           <div className="documents-v2-library-header">
             <div>
-              <h3>Library</h3>
+              <h2>Library</h2>
               <span>
                 {documents.length} document
                 {documents.length === 1
@@ -1961,7 +1858,7 @@ const DocumentsPage: React.FC = () => {
                 ["pinned", "Pinned"],
                 ["favorites", "Favorites"],
               ] as Array<
-                [LibraryView, string]
+                [DocumentLibraryView, string]
               >
             ).map(([value, label]) => (
               <button
@@ -2134,9 +2031,9 @@ const DocumentsPage: React.FC = () => {
         <main className="documents-v2-editor-shell">
           {!selectedDocument ? (
             <div className="documents-v2-no-selection">
-              <h3>
+              <h2>
                 Select or create a document
-              </h3>
+              </h2>
               <p>
                 Choose something from the
                 library, or create a new
@@ -2172,6 +2069,15 @@ const DocumentsPage: React.FC = () => {
                   <div className="documents-v2-document-actions">
                     <button
                       type="button"
+                      className={libraryOpen ? "is-active" : ""}
+                      onClick={() => setLibraryOpen((current) => !current)}
+                      aria-pressed={libraryOpen}
+                    >
+                      Library
+                    </button>
+
+                    <button
+                      type="button"
                       className={
                         selectedDocument.isPinned
                           ? "is-active"
@@ -2204,6 +2110,24 @@ const DocumentsPage: React.FC = () => {
                       {selectedDocument.isFavorite
                         ? "Favorite"
                         : "Favorite"}
+                    </button>
+
+                    <button
+                      type="button"
+                      className={inspectorOpen ? "is-active" : ""}
+                      onClick={() => setInspectorOpen((current) => !current)}
+                      aria-pressed={inspectorOpen}
+                    >
+                      Details
+                    </button>
+
+                    <button
+                      type="button"
+                      className={focusMode ? "is-active" : ""}
+                      onClick={() => setFocusMode((current) => !current)}
+                      aria-pressed={focusMode}
+                    >
+                      {focusMode ? "Exit focus" : "Focus"}
                     </button>
 
                     <button
@@ -2414,158 +2338,34 @@ const DocumentsPage: React.FC = () => {
                 </section>
               )}
 
-              <section className="documents-v2-editor">
-                <input
-                  ref={fileInputRef}
-                  type="file"
-                  accept="image/*"
-                  hidden
-                  onChange={
-                    handleImageFileChange
-                  }
+              <DocumentEditor
+                key={`${selectedId ?? "no-document"}-${editorRevision}`}
+                ref={quillRef}
+                initialValue={editContent}
+                documentTitle={editTitle}
+                onChange={(html) => {
+                  setEditContent(html);
+                  setHasLocalChanges(true);
+                  setSaveError(null);
+                }}
+                onCursorChange={setCursorPosition}
+              />
+
+              {inspectorOpen && !focusMode && (
+                <DocumentInspector
+                  document={selectedDocument}
+                  statistics={statistics}
+                  lastSavedAt={lastSavedAt}
+                  cursorPosition={cursorPosition}
+                  onClose={() => setInspectorOpen(false)}
                 />
-
-                <ReactQuill
-                  key={
-                    `${selectedId ?? "no-document"}-${editorRevision}`
-                  }
-                  ref={quillRef}
-                  defaultValue={editContent}
-                  onChange={(html) => {
-                    setEditContent(html);
-                    setHasLocalChanges(true);
-                    setSaveError(null);
-                  }}
-                  onChangeSelection={(range) => {
-                    if (!range) return;
-
-                    const textBeforeCursor =
-                      quillRef.current
-                        ?.getEditor?.()
-                        ?.getText?.(0, range.index) ?? "";
-                    const lines = textBeforeCursor.split("\n");
-
-                    setCursorPosition({
-                      line: lines.length,
-                      column: (lines[lines.length - 1]?.length ?? 0) + 1,
-                    });
-                  }}
-                  placeholder="Start writing your document here..."
-                  theme="snow"
-                  modules={quillModules}
-                  formats={quillFormats}
-                />
-              </section>
-
-              <section className="documents-v2-information">
-                <div className="documents-v2-stat-grid">
-                  <Stat
-                    label="Words"
-                    value={statistics.words}
-                  />
-                  <Stat
-                    label="Characters"
-                    value={
-                      statistics.characters
-                    }
-                  />
-                  <Stat
-                    label="No spaces"
-                    value={
-                      statistics.charactersWithoutSpaces
-                    }
-                  />
-                  <Stat
-                    label="Reading time"
-                    value={
-                      statistics.readingMinutes
-                    }
-                    suffix="min"
-                  />
-                  <Stat
-                    label="Paragraphs"
-                    value={
-                      statistics.paragraphs
-                    }
-                  />
-                  <Stat
-                    label="Lines"
-                    value={statistics.lines}
-                  />
-                </div>
-
-                <div className="documents-v2-metadata">
-                  <h4>Metadata</h4>
-                  <dl>
-                    <div>
-                      <dt>Created</dt>
-                      <dd>
-                        {formatDocumentDate(
-                          selectedDocument.createdAt,
-                          true
-                        )}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Modified</dt>
-                      <dd>
-                        {formatDocumentDate(
-                          lastSavedAt ||
-                            selectedDocument.updatedAt,
-                          true
-                        )}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Reading time</dt>
-                      <dd>
-                        {
-                          statistics.readingMinutes
-                        }{" "}
-                        minute
-                        {statistics.readingMinutes ===
-                        1
-                          ? ""
-                          : "s"}
-                      </dd>
-                    </div>
-                    <div>
-                      <dt>Word count</dt>
-                      <dd>
-                        {statistics.words}
-                      </dd>
-                    </div>
-                  </dl>
-                </div>
-              </section>
+              )}
             </>
           )}
         </main>
       </div>
       {confirmationDialog}
     </div>
-  );
-};
-
-interface StatProps {
-  label: string;
-  value: number;
-  suffix?: string;
-}
-
-const Stat: React.FC<StatProps> = ({
-  label,
-  value,
-  suffix,
-}) => {
-  return (
-    <article className="documents-v2-stat">
-      <span>{label}</span>
-      <strong>
-        {value}
-        {suffix ? ` ${suffix}` : ""}
-      </strong>
-    </article>
   );
 };
 

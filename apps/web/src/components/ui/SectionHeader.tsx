@@ -20,7 +20,7 @@ const SectionHeader: React.FC<SectionHeaderProps> = ({
   <header className="ui-section-header">
     <div>
       {eyebrow && <p className="ui-section-header__eyebrow">{eyebrow}</p>}
-      <h3 id={headingId}>{title}</h3>
+      <h2 id={headingId}>{title}</h2>
       {description && <p>{description}</p>}
     </div>
     {actions && <div className="ui-section-header__actions">{actions}</div>}

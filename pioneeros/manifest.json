@@ -1,0 +1,15 @@
+{
+  "app_id": "com.pioneer.worksuite",
+  "name": "Pioneer Work Suite",
+  "version": "0.1.17",
+  "abi": "1.5.0",
+  "entry_path": "/boot/APPS/WORKSUIT.ELF",
+  "author": "Pioneer",
+  "application_type": "graphical",
+  "capabilities": [
+    "files.read",
+    "files.write",
+    "settings",
+    "network.client"
+  ]
+}

@@ -15,6 +15,8 @@
     "build:web": "pnpm --filter pioneer-student-web build",
     "build:api": "pnpm --filter pioneer-student-api build",
     "build:desktop": "pnpm --filter pioneer-work-suite-desktop tauri:build",
+    "build:pioneeros": "make -C pioneeros",
+    "package:pioneeros": "make -C pioneeros package",
     "build": "pnpm build:api && pnpm build:web && pnpm build:desktop"
   },
   "devDependencies": {

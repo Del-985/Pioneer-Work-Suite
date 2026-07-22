@@ -6,8 +6,11 @@ const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(scriptDirectory, "..");
 const envPath = path.join(root, "apps", "web", ".env");
 const webPackagePath = path.join(root, "apps", "web", "package.json");
+const apiPackagePath = path.join(root, "apps", "api", "package.json");
 const desktopPackagePath = path.join(root, "desktop", "package.json");
 const cargoPath = path.join(root, "desktop", "src-tauri", "Cargo.toml");
+const pioneerManifestPath = path.join(root, "pioneeros", "manifest.json");
+const pioneerSourcePath = path.join(root, "pioneeros", "src", "main.c");
 const tauriConfigPath = path.join(
   root,
   "desktop",
@@ -100,11 +103,35 @@ function updateTauriVersion(filePath, version) {
   fs.writeFileSync(filePath, `${JSON.stringify(json, null, 2)}\n`);
 }
 
+function updateCDefineVersion(filePath, defineName, version) {
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`Missing file: ${filePath}`);
+  }
+
+  const source = fs.readFileSync(filePath, "utf8");
+  const versionPattern = new RegExp(
+    `^(#define\\s+${defineName}\\s+)"[^"]*"`,
+    "m"
+  );
+
+  if (!versionPattern.test(source)) {
+    throw new Error(`Could not find ${defineName} in ${filePath}`);
+  }
+
+  fs.writeFileSync(
+    filePath,
+    source.replace(versionPattern, `$1"${version}"`)
+  );
+}
+
 const version = readVersion();
 
 updateJsonVersion(webPackagePath, version);
+updateJsonVersion(apiPackagePath, version);
 updateJsonVersion(desktopPackagePath, version);
 updateCargoVersion(cargoPath, version);
 updateTauriVersion(tauriConfigPath, version);
+updateJsonVersion(pioneerManifestPath, version);
+updateCDefineVersion(pioneerSourcePath, "PWS_VERSION", version);
 
 console.log(`Version synchronized: ${version}`);
