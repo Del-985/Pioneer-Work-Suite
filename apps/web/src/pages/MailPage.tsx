@@ -1,5 +1,6 @@
 // apps/web/src/pages/MailPage.tsx
 import React, { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   fetchMailMessages,
   sendMail,
@@ -8,8 +9,12 @@ import {
   MailMessage,
   MailFolder,
 } from "../api/mail";
+import { hasCloudSession, SESSION_CHANGED_EVENT } from "../api/session";
+import { isRecoverableOfflineError } from "../api/syncSupport";
 import { toast } from "../toasts/toastStore";
 import { useConfirmation } from "../hooks/useConfirmation";
+
+import "../styles/mail.css";
 
 type MailView = "list-detail" | "compose";
 
@@ -21,7 +26,10 @@ const folderLabels: Record<MailFolder, string> = {
 };
 
 const MailPage: React.FC = () => {
+  const navigate = useNavigate();
   const { confirm, confirmationDialog } = useConfirmation();
+  const [cloudConnected, setCloudConnected] = useState(hasCloudSession());
+  const [reloadKey, setReloadKey] = useState(0);
   // Folder & view state
   const [activeFolder, setActiveFolder] = useState<MailFolder>("inbox");
   const [view, setView] = useState<MailView>("list-detail");
@@ -68,9 +76,25 @@ const MailPage: React.FC = () => {
     }));
   }
 
+  useEffect(() => {
+    const updateCloudState = () => setCloudConnected(hasCloudSession());
+    window.addEventListener(SESSION_CHANGED_EVENT, updateCloudState);
+    return () => window.removeEventListener(SESSION_CHANGED_EVENT, updateCloudState);
+  }, []);
+
   // Load messages when folder changes
   useEffect(() => {
     let cancelled = false;
+
+    if (!cloudConnected) {
+      setListLoading(false);
+      setListError(null);
+      setMessages([]);
+      resetSelection();
+      return () => {
+        cancelled = true;
+      };
+    }
 
     async function load() {
       try {
@@ -93,7 +117,11 @@ const MailPage: React.FC = () => {
       } catch (err) {
         console.error("Error loading mail messages:", err);
         if (!cancelled) {
-          setListError("Unable to load messages.");
+          setListError(
+            isRecoverableOfflineError(err)
+              ? "Mail service is unavailable right now. Your local workspace remains available."
+              : "Unable to load messages."
+          );
           setMessages(() => {
             recalcUnread([], activeFolder);
             return [];
@@ -111,7 +139,7 @@ const MailPage: React.FC = () => {
     return () => {
       cancelled = true;
     };
-  }, [activeFolder]);
+  }, [activeFolder, cloudConnected, reloadKey]);
 
   // Filter messages client-side for now
   const visibleMessages = messages.filter((m) => {
@@ -515,9 +543,12 @@ const MailPage: React.FC = () => {
 
     if (listError) {
       return (
-        <p style={{ fontSize: 12, color: "var(--danger)", margin: 0 }}>
-          {listError}
-        </p>
+        <div className="mail-list-error" role="alert">
+          <p>{listError}</p>
+          <button type="button" onClick={() => setReloadKey((value) => value + 1)}>
+            Try again
+          </button>
+        </div>
       );
     }
 
@@ -1000,33 +1031,49 @@ const MailPage: React.FC = () => {
           </p>
         </div>
 
-        {renderFolderTabs()}
-        {renderToolbar()}
+        {cloudConnected && renderFolderTabs()}
+        {cloudConnected && renderToolbar()}
       </div>
 
       {/* List + detail / compose */}
-      <div
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: 12,
-        }}
-      >
-        {/* List card */}
+      {cloudConnected ? (
         <div
           style={{
-            padding: 10,
-            borderRadius: 12,
-            border: "1px solid var(--border-subtle)",
-            background: "var(--surface-1)",
+            display: "flex",
+            flexDirection: "column",
+            gap: 12,
           }}
         >
-          {renderList()}
-        </div>
+          {/* List card */}
+          <div
+            style={{
+              padding: 10,
+              borderRadius: 12,
+              border: "1px solid var(--border-subtle)",
+              background: "var(--surface-1)",
+            }}
+          >
+            {renderList()}
+          </div>
 
-        {/* Detail or compose card */}
-        {view === "compose" ? renderCompose() : renderDetail()}
-      </div>
+          {/* Detail or compose card */}
+          {view === "compose" ? renderCompose() : renderDetail()}
+        </div>
+      ) : (
+        <section className="mail-cloud-state" aria-labelledby="mail-cloud-state-heading">
+          <div>
+            <p className="mail-cloud-state__eyebrow">Cloud feature</p>
+            <h3 id="mail-cloud-state-heading">Connect cloud to use Mail</h3>
+            <p>
+              Mail requires the Pioneer backend. Tasks, Documents, and Calendar remain available
+              locally while cloud services are disconnected.
+            </p>
+            <button type="button" onClick={() => navigate("/login")}>
+              Connect cloud
+            </button>
+          </div>
+        </section>
+      )}
       {confirmationDialog}
     </div>
   );

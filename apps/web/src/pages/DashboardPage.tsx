@@ -5,6 +5,7 @@ import { useNavigate } from "react-router-dom";
 import { Document as SuiteDocument, fetchDocuments } from "../api/documents";
 import { getWorkspaceName } from "../api/session";
 import { fetchTasks, Task } from "../api/tasks";
+import { getLastWorkspaceBackupAt } from "../api/workspaceBackup";
 import { openGlobalSearch } from "../components/GlobalSearch";
 import { formatDocumentDate } from "../utils/documentText";
 import {
@@ -50,6 +51,13 @@ function parseDate(raw?: string | null): Date | null {
   return Number.isNaN(value.getTime())
     ? null
     : value;
+}
+
+function formatBackupTimestamp(raw: string | null): string {
+  const timestamp = parseDate(raw);
+  return timestamp
+    ? timestamp.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" })
+    : "Not yet";
 }
 
 function formatBytes(bytes: number): string {
@@ -958,8 +966,8 @@ const DashboardPage: React.FC<
 
           <StatCard
             label="Last backup"
-            value="Not available"
-            detail="Backup is deferred to version 0.2.0"
+            value={formatBackupTimestamp(getLastWorkspaceBackupAt())}
+            detail={getLastWorkspaceBackupAt() ? "Local workspace export" : "Create a backup from Settings"}
           />
         </div>
       </section>

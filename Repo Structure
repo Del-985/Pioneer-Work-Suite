@@ -1,6 +1,6 @@
 # Pioneer Work Suite repository structure
 
-This document describes the current source layout for 0.1.14 after the Documents workspace modernization and the settings, shared UI, accessibility, performance, notification, and recovery passes. Generated folders such as `node_modules`, `dist`, Prisma output, and Tauri build artifacts are intentionally omitted.
+This document describes the current source layout for 0.1.15 after the Documents workspace modernization, responsive-shell pass, backend-aware Mail work, local backup and restore, and the settings, shared UI, accessibility, performance, notification, and recovery passes. Generated folders such as `node_modules`, `dist`, Prisma output, and Tauri build artifacts are intentionally omitted.
 
 ```text
 Pioneer-Work-Suite/
@@ -80,6 +80,7 @@ Pioneer-Work-Suite/
 - `components/ui/` and `styles/ui-primitives.css` provide the shared button, card, section-heading, and confirmation-dialog primitives used across settings and destructive workflows.
 - `hooks/useConfirmation.tsx` owns the promise-based confirmation lifecycle used by tasks, documents, calendar, mail, and settings.
 - `api/` owns local-first persistence, cloud requests, queues, synchronization, session state, and settings.
+- `api/workspaceBackup.ts` owns the credential-free, versioned local workspace export and transactional restore workflow.
 - `pages/` owns feature-level screens; shared shell behavior should not be added there.
 - `config/`, `types/`, and `utils/` contain centralized metadata, shared contracts, and behavior-neutral helpers.
 - `styles/` contains feature-scoped styles plus the global theme and application shell styles.

@@ -1,6 +1,7 @@
 /* apps/web/src/styles/tasks.css */
 
 .tasks-v2-page {
+  container-type: inline-size;
   display: flex;
   width: 100%;
   min-width: 0;
@@ -597,7 +598,7 @@
   animation: pioneer-shimmer 1.3s linear infinite;
 }
 
-@media (max-width: 1180px) {
+@container (max-width: 1080px) {
   .tasks-v2-summary {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
@@ -616,7 +617,7 @@
   }
 }
 
-@media (max-width: 720px) {
+@container (max-width: 650px) {
   .tasks-v2-summary {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -645,7 +646,7 @@
   }
 }
 
-@media (max-width: 460px) {
+@container (max-width: 420px) {
   .tasks-v2-summary {
     grid-template-columns: 1fr;
   }

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 
 import { fetchDocuments, refreshPendingDocumentSyncCount } from "../api/documents";
 import { fetchEvents, refreshPendingEventSyncCount } from "../api/events";
@@ -21,6 +21,12 @@ import {
   updateSettings,
 } from "../api/settings";
 import { fetchTasks, refreshPendingTaskSyncCount } from "../api/tasks";
+import {
+  downloadWorkspaceBackup,
+  getLastWorkspaceBackupAt,
+  getLastWorkspaceRestoreAt,
+  restoreWorkspaceBackup,
+} from "../api/workspaceBackup";
 import DeveloperConsole from "../components/developer/DeveloperConsole";
 import { openShortcutReference } from "../components/KeyboardShortcutsManager";
 import Button from "../components/ui/Button";
@@ -104,6 +110,10 @@ const SettingsPage: React.FC = () => {
   const [saving, setSaving] = useState(false);
   const [resetting, setResetting] = useState(false);
   const [diagnostics, setDiagnostics] = useState(EMPTY_DIAGNOSTICS);
+  const backupFileInputRef = useRef<HTMLInputElement>(null);
+  const [backupAction, setBackupAction] = useState<"export" | "restore" | null>(null);
+  const [lastBackupAt, setLastBackupAt] = useState(getLastWorkspaceBackupAt());
+  const [lastRestoreAt, setLastRestoreAt] = useState(getLastWorkspaceRestoreAt());
 
   async function applySettings(patch: AppSettingsPatch): Promise<void> {
     setSaving(true);
@@ -169,6 +179,51 @@ const SettingsPage: React.FC = () => {
         loading: false,
         error: "Unable to load local diagnostics.",
       }));
+    }
+  }
+
+  async function handleExportBackup(): Promise<void> {
+    setBackupAction("export");
+    try {
+      const summary = await downloadWorkspaceBackup();
+      setLastBackupAt(getLastWorkspaceBackupAt());
+      toast.success(
+        `Backup downloaded: ${summary.tasks} tasks, ${summary.documents} documents, and ${summary.events} events.`
+      );
+    } catch (error) {
+      console.error("Unable to export workspace backup:", error);
+      toast.error("Unable to export the local workspace backup");
+    } finally {
+      setBackupAction(null);
+    }
+  }
+
+  async function handleRestoreBackup(event: React.ChangeEvent<HTMLInputElement>): Promise<void> {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+
+    const accepted = await confirm({
+      title: "Restore local workspace backup?",
+      description:
+        "This replaces local tasks, documents, calendar events, recovery drafts, settings, and pending sync queues. Cloud credentials are not changed.",
+      confirmLabel: "Restore backup",
+      dangerous: true,
+    });
+    if (!accepted) return;
+
+    setBackupAction("restore");
+    try {
+      const summary = await restoreWorkspaceBackup(file);
+      setLastRestoreAt(getLastWorkspaceRestoreAt());
+      toast.success(
+        `Backup restored: ${summary.tasks} tasks, ${summary.documents} documents, and ${summary.events} events. Reloading...`
+      );
+      window.setTimeout(() => window.location.reload(), 500);
+    } catch (error) {
+      console.error("Unable to restore workspace backup:", error);
+      toast.error(error instanceof Error ? error.message : "Unable to restore the backup");
+      setBackupAction(null);
     }
   }
 
@@ -316,8 +371,27 @@ const SettingsPage: React.FC = () => {
           headingId="settings-data"
           eyebrow="Data"
           title="Local workspace"
-          description="Local data remains available without the backend. Backup and restore arrive in 0.2.0."
-          actions={<Button disabled={diagnostics.loading} onClick={() => void loadDiagnostics()}>{diagnostics.loading ? "Refreshing…" : "Refresh"}</Button>}
+          description="Export a portable copy of local workspace data or restore it on this device. Cloud credentials are never included."
+          actions={
+            <div className="settings-data-actions">
+              <Button disabled={backupAction !== null} onClick={() => void handleExportBackup()}>
+                {backupAction === "export" ? "Exporting…" : "Export backup"}
+              </Button>
+              <Button disabled={backupAction !== null} onClick={() => backupFileInputRef.current?.click()}>
+                {backupAction === "restore" ? "Restoring…" : "Import backup"}
+              </Button>
+              <Button disabled={diagnostics.loading} onClick={() => void loadDiagnostics()}>
+                {diagnostics.loading ? "Refreshing…" : "Refresh"}
+              </Button>
+            </div>
+          }
+        />
+        <input
+          ref={backupFileInputRef}
+          className="settings-file-input"
+          type="file"
+          accept="application/json,.json"
+          onChange={(event) => void handleRestoreBackup(event)}
         />
         {diagnostics.error && <p className="settings-error" role="alert">{diagnostics.error}</p>}
         <div className="settings-diagnostic-grid">
@@ -325,6 +399,10 @@ const SettingsPage: React.FC = () => {
           <Diagnostic label="Documents" value={diagnostics.documents} />
           <Diagnostic label="Events" value={diagnostics.events} />
           <Diagnostic label="Pending sync" value={totalPending} />
+        </div>
+        <div className="settings-backup-status" aria-label="Backup history">
+          <span>Last export: {formatBackupTimestamp(lastBackupAt)}</span>
+          <span>Last restore: {formatBackupTimestamp(lastRestoreAt)}</span>
         </div>
       </Card>
 
@@ -348,5 +426,11 @@ const SettingsPage: React.FC = () => {
 const Diagnostic: React.FC<{ label: string; value: number }> = ({ label, value }) => (
   <div className="settings-diagnostic"><span>{label}</span><strong>{value}</strong></div>
 );
+
+function formatBackupTimestamp(value: string | null): string {
+  if (!value) return "Not yet";
+  const timestamp = new Date(value);
+  return Number.isNaN(timestamp.getTime()) ? "Unknown" : timestamp.toLocaleString();
+}
 
 export default SettingsPage;

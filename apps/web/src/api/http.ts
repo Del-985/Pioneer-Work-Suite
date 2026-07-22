@@ -19,6 +19,7 @@ const API_BASE_URL = "https://pioneer-work-suite.onrender.com";
 
 export const http = axios.create({
   baseURL: API_BASE_URL,
+  timeout: 12_000,
 });
 
 // Attach Authorization header if a cloud token is present.
