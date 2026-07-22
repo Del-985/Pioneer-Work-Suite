@@ -1,6 +1,6 @@
 {
   "name": "pioneer-work-suite-desktop",
-  "version": "0.1.13",
+  "version": "0.1.14",
   "private": true,
   "scripts": {
     "tauri:dev": "node ../scripts/sync-version.mjs && tauri dev",

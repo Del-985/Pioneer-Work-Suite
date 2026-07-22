@@ -1,6 +1,6 @@
 # Pioneer Work Suite repository structure
 
-This document describes the current source layout for 0.1.13 after the settings, shared UI, accessibility, performance, notification, and recovery passes. Generated folders such as `node_modules`, `dist`, Prisma output, and Tauri build artifacts are intentionally omitted.
+This document describes the current source layout for 0.1.14 after the Documents workspace modernization and the settings, shared UI, accessibility, performance, notification, and recovery passes. Generated folders such as `node_modules`, `dist`, Prisma output, and Tauri build artifacts are intentionally omitted.
 
 ```text
 Pioneer-Work-Suite/
@@ -23,6 +23,7 @@ Pioneer-Work-Suite/
 |       |   |-- api/
 |       |   |-- commands/
 |       |   |-- components/
+|       |   |   |-- documents/
 |       |   |   |-- recovery/
 |       |   |   |-- right-sidebar/
 |       |   |   `-- ui/
@@ -67,6 +68,7 @@ Pioneer-Work-Suite/
 - `components/RightSidebar.tsx` composes the right sidebar without owning data-loading details.
 - `hooks/useRightSidebarData.ts` owns right-sidebar loading, mutation, and refresh behavior.
 - `components/right-sidebar/` contains the sidebar's focused presentation panels and shared messages.
+- `components/documents/` contains the Documents editor adapter, inspector, and shared workspace UI types.
 - `commands/` owns the command registry, global commands, and page-level command lifecycle.
 - `keyboard/` owns keyboard shortcut matching, registration, and display metadata.
 - `status/` and `hooks/useStatusBarItems.ts` provide the page-context registry used by the application status bar.
@@ -74,6 +76,7 @@ Pioneer-Work-Suite/
 - `toasts/`, `components/ToastViewport.tsx`, and `hooks/useToasts.ts` provide centralized, accessible action feedback.
 - `hooks/useAccessibleDialog.ts` owns focus trapping, initial focus, focus restoration, Escape handling, and dialog diagnostics for overlays.
 - `hooks/useAppSettings.ts` provides live, normalized settings to feature pages without duplicating subscription effects.
+- `hooks/useDocumentWorkspaceUi.ts` owns Documents workspace layout, focus mode, inspector, and keyboard state.
 - `components/ui/` and `styles/ui-primitives.css` provide the shared button, card, section-heading, and confirmation-dialog primitives used across settings and destructive workflows.
 - `hooks/useConfirmation.tsx` owns the promise-based confirmation lifecycle used by tasks, documents, calendar, mail, and settings.
 - `api/` owns local-first persistence, cloud requests, queues, synchronization, session state, and settings.
