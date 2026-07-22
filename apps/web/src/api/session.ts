@@ -11,6 +11,7 @@ const LOCAL_WORKSPACE_ENABLED_KEY = "pioneer.localWorkspace.enabled.v1";
 const LOCAL_PROFILE_NAME_KEY = "pioneer.localWorkspace.name.v1";
 
 const TOKEN_KEY = "token";
+const USER_ID_KEY = "userId";
 const USER_EMAIL_KEY = "userEmail";
 const USER_NAME_KEY = "userName";
 const USER_ROLE_KEY = "userRole";
@@ -32,6 +33,7 @@ function removeCloudCredentials(): void {
   if (!hasWindow()) return;
 
   window.localStorage.removeItem(TOKEN_KEY);
+  window.localStorage.removeItem(USER_ID_KEY);
   window.localStorage.removeItem(USER_EMAIL_KEY);
   window.localStorage.removeItem(USER_NAME_KEY);
   window.localStorage.removeItem(USER_ROLE_KEY);
@@ -85,6 +87,11 @@ export function hasCloudSession(): boolean {
   return hasWindow() && Boolean(window.localStorage.getItem(TOKEN_KEY));
 }
 
+export function getCloudSessionKey(): string | null {
+  if (!hasWindow()) return null;
+  return window.localStorage.getItem(USER_ID_KEY) ?? window.localStorage.getItem(USER_EMAIL_KEY);
+}
+
 export function isCloudReconnectRequired(): boolean {
   return (
     hasWindow() &&
@@ -108,6 +115,7 @@ export function connectCloudSession(user: CloudUser, token: string): void {
   window.localStorage.setItem(LOCAL_PROFILE_NAME_KEY, cleanName(user.name));
 
   window.localStorage.setItem(TOKEN_KEY, token);
+  window.localStorage.setItem(USER_ID_KEY, user.id);
   window.localStorage.setItem(USER_EMAIL_KEY, user.email);
   window.localStorage.setItem(USER_NAME_KEY, user.name);
   window.localStorage.setItem(USER_ROLE_KEY, user.role);

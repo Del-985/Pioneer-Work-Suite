@@ -1,7 +1,10 @@
 {
   "name": "pioneer-student-api",
-  "version": "0.1.17",
+  "version": "0.1.18",
   "private": true,
+  "engines": {
+    "node": ">=20.12"
+  },
   "main": "dist/server.js",
   "scripts": {
     "prebuild": "prisma generate",
@@ -10,7 +13,9 @@
     "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
-    "prisma:migrate:deploy": "prisma migrate deploy"
+    "prisma:migrate:deploy": "prisma migrate deploy",
+    "prisma:deploy:safe": "node scripts/migrate-deploy.mjs",
+    "test": "pnpm run build && node --test dist/tests/api.test.js"
   },
   "dependencies": {
     "@prisma/client": "^5.20.0",

@@ -6,7 +6,7 @@
 
 #include "web_runtime.h"
 
-#define PWS_VERSION "0.1.17"
+#define PWS_VERSION "0.1.18"
 #define PWS_WINDOW_WIDTH 760u
 #define PWS_WINDOW_HEIGHT 520u
 #define PWS_SIDEBAR_WIDTH 176u

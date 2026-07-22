@@ -5,7 +5,9 @@ import {
   hasBrowserWindow,
   isBrowserOffline,
   isRecoverableOfflineError,
+  makeSyncMutationId,
   notifySyncStateChanged,
+  readVersionConflictEntity,
 } from "./syncSupport";
 import {
   migrateLegacyLocalStorage,
@@ -28,6 +30,7 @@ export interface Document {
   isFavorite: boolean;
   createdAt: string;
   updatedAt: string;
+  version: number;
 }
 
 export interface DocumentPatch {
@@ -45,6 +48,7 @@ interface CreateDocumentOptions {
 interface CreateDocumentOp {
   kind: "create";
   tempId: string;
+  mutationId: string;
   payload: {
     title: string;
     content: string;
@@ -57,6 +61,8 @@ interface CreateDocumentOp {
 interface UpdateDocumentOp {
   kind: "update";
   id: string;
+  mutationId: string;
+  baseVersion: number;
   patch: DocumentPatch;
   timestamp: number;
 }
@@ -64,6 +70,8 @@ interface UpdateDocumentOp {
 interface DeleteDocumentOp {
   kind: "delete";
   id: string;
+  mutationId: string;
+  baseVersion: number;
   timestamp: number;
 }
 
@@ -125,6 +133,9 @@ function normalizeDocument(raw: any): Document {
     isFavorite: Boolean(raw?.isFavorite),
     createdAt: raw?.createdAt ? String(raw.createdAt) : now,
     updatedAt: raw?.updatedAt ? String(raw.updatedAt) : now,
+    version: Number.isInteger(Number(raw?.version)) && Number(raw.version) > 0
+      ? Number(raw.version)
+      : 1,
   };
 }
 
@@ -213,6 +224,7 @@ function normalizeQueueOperation(
     return {
       kind: "create",
       tempId: String(operation.tempId),
+      mutationId: String(operation.mutationId || makeSyncMutationId("document-create")),
       payload: {
         title: String(
           operation.payload?.title ?? "Untitled document"
@@ -232,6 +244,8 @@ function normalizeQueueOperation(
     return {
       kind: "update",
       id: String(operation.id),
+      mutationId: String(operation.mutationId || makeSyncMutationId("document-update")),
+      baseVersion: Math.max(1, Number(operation.baseVersion) || 1),
       patch: normalizePatch(operation.patch ?? {}),
       timestamp:
         Number(operation.timestamp) || Date.now(),
@@ -242,6 +256,8 @@ function normalizeQueueOperation(
     return {
       kind: "delete",
       id: String(operation.id),
+      mutationId: String(operation.mutationId || makeSyncMutationId("document-delete")),
+      baseVersion: Math.max(1, Number(operation.baseVersion) || 1),
       timestamp:
         Number(operation.timestamp) || Date.now(),
     };
@@ -298,7 +314,9 @@ async function enqueueCreate(
 
 async function enqueueUpdate(
   id: string,
-  patch: DocumentPatch
+  patch: DocumentPatch,
+  baseVersion: number,
+  mutationId: string
 ): Promise<void> {
   const normalizedPatch = normalizePatch(patch);
   const queue = await readQueue();
@@ -310,17 +328,14 @@ async function enqueueUpdate(
   );
 
   if (createIndex !== -1) {
-    const create =
-      queue[createIndex] as CreateDocumentOp;
-
-    queue[createIndex] = {
-      ...create,
-      payload: {
-        ...create.payload,
-        ...normalizedPatch,
-      },
+    queue.push({
+      kind: "update",
+      id,
+      patch: normalizedPatch,
+      mutationId,
+      baseVersion,
       timestamp: Date.now(),
-    };
+    });
 
     await writeQueue(queue);
     return;
@@ -348,6 +363,7 @@ async function enqueueUpdate(
 
     queue[updateIndex] = {
       ...previous,
+      mutationId,
       patch: {
         ...previous.patch,
         ...normalizedPatch,
@@ -358,6 +374,8 @@ async function enqueueUpdate(
     queue.push({
       kind: "update",
       id,
+      mutationId,
+      baseVersion,
       patch: normalizedPatch,
       timestamp: Date.now(),
     });
@@ -367,17 +385,12 @@ async function enqueueUpdate(
 }
 
 async function enqueueDelete(
-  id: string
+  id: string,
+  baseVersion: number,
+  mutationId: string
 ): Promise<void> {
   const queue = (await readQueue()).filter(
     (operation) => {
-      if (
-        operation.kind === "create" &&
-        operation.tempId === id
-      ) {
-        return false;
-      }
-
       if (
         operation.kind === "update" &&
         operation.id === id
@@ -396,13 +409,13 @@ async function enqueueDelete(
     }
   );
 
-  if (!isOfflineId(id)) {
-    queue.push({
-      kind: "delete",
-      id,
-      timestamp: Date.now(),
-    });
-  }
+  queue.push({
+    kind: "delete",
+    id,
+    mutationId,
+    baseVersion,
+    timestamp: Date.now(),
+  });
 
   await writeQueue(queue);
 }
@@ -424,11 +437,13 @@ async function fetchDocumentsOnlineOnly(): Promise<Document[]> {
 }
 
 async function createDocumentOnlineOnly(
-  payload: CreateDocumentOp["payload"]
+  payload: CreateDocumentOp["payload"],
+  mutationId: string
 ): Promise<Document> {
   const { data } = await http.post(
     "/documents",
-    payload
+    payload,
+    { headers: { "Idempotency-Key": mutationId } }
   );
 
   return normalizeDocument(data?.document ?? data);
@@ -436,20 +451,47 @@ async function createDocumentOnlineOnly(
 
 async function updateDocumentOnlineOnly(
   id: string,
-  updates: DocumentPatch
+  updates: DocumentPatch,
+  baseVersion: number,
+  mutationId: string
 ): Promise<Document> {
-  const { data } = await http.put(
-    `/documents/${id}`,
-    updates
-  );
-
-  return normalizeDocument(data?.document ?? data);
+  try {
+    const { data } = await http.put(`/documents/${id}`, {
+      ...updates,
+      ifVersion: baseVersion,
+    }, { headers: { "Idempotency-Key": mutationId } });
+    return normalizeDocument(data?.document ?? data);
+  } catch (error) {
+    const current = readVersionConflictEntity<Document>(error);
+    if (!current) throw error;
+    const normalizedCurrent = normalizeDocument(current);
+    const { data } = await http.put(`/documents/${id}`, {
+      ...updates,
+      ifVersion: normalizedCurrent.version,
+    }, { headers: { "Idempotency-Key": mutationId } });
+    return normalizeDocument(data?.document ?? data);
+  }
 }
 
 async function deleteDocumentOnlineOnly(
-  id: string
+  id: string,
+  baseVersion: number,
+  mutationId: string
 ): Promise<void> {
-  await http.delete(`/documents/${id}`);
+  try {
+    await http.delete(`/documents/${id}`, {
+      headers: { "Idempotency-Key": mutationId, "If-Match": String(baseVersion) },
+    });
+  } catch (error) {
+    const current = readVersionConflictEntity<Document>(error);
+    if (!current) throw error;
+    await http.delete(`/documents/${id}`, {
+      headers: {
+        "Idempotency-Key": mutationId,
+        "If-Match": String(normalizeDocument(current).version),
+      },
+    });
+  }
 }
 
 // ---------- Public API ----------
@@ -553,7 +595,9 @@ export async function createDocument(
     ...payload,
     createdAt: nowIso(),
     updatedAt: nowIso(),
+    version: 1,
   };
+  const mutationId = makeSyncMutationId("document-create");
 
   if (
     !hasCloudSession() ||
@@ -564,6 +608,7 @@ export async function createDocument(
     await enqueueCreate({
       kind: "create",
       tempId: localDocument.id,
+      mutationId,
       payload,
       timestamp: Date.now(),
     });
@@ -573,7 +618,7 @@ export async function createDocument(
 
   try {
     const created =
-      await createDocumentOnlineOnly(payload);
+      await createDocumentOnlineOnly(payload, mutationId);
 
     await mergeDocumentIntoCache(created);
 
@@ -588,6 +633,7 @@ export async function createDocument(
     await enqueueCreate({
       kind: "create",
       tempId: localDocument.id,
+      mutationId,
       payload,
       timestamp: Date.now(),
     });
@@ -625,6 +671,8 @@ export async function updateDocument(
   const current = (
     await readDocumentsCache()
   ).find((document) => document.id === id);
+  const baseVersion = current?.version ?? 1;
+  const mutationId = makeSyncMutationId("document-update");
 
   const optimistic = normalizeDocument({
     ...(current ?? {
@@ -634,9 +682,11 @@ export async function updateDocument(
       isPinned: false,
       isFavorite: false,
       createdAt: nowIso(),
+      version: baseVersion,
     }),
     ...normalizedUpdates,
     updatedAt: nowIso(),
+    version: baseVersion + 1,
   });
 
   await mergeDocumentIntoCache(optimistic);
@@ -647,7 +697,9 @@ export async function updateDocument(
   ) {
     await enqueueUpdate(
       id,
-      normalizedUpdates
+      normalizedUpdates,
+      baseVersion,
+      mutationId
     );
 
     return optimistic;
@@ -657,7 +709,9 @@ export async function updateDocument(
     const updated =
       await updateDocumentOnlineOnly(
         id,
-        normalizedUpdates
+        normalizedUpdates,
+        baseVersion,
+        mutationId
       );
 
     await mergeDocumentIntoCache(updated);
@@ -670,7 +724,9 @@ export async function updateDocument(
 
     await enqueueUpdate(
       id,
-      normalizedUpdates
+      normalizedUpdates,
+      baseVersion,
+      mutationId
     );
 
     return optimistic;
@@ -681,18 +737,21 @@ export async function deleteDocument(
   id: string
 ): Promise<void> {
   await ensureDocumentStorageReady();
+  const existing = (await readDocumentsCache()).find((document) => document.id === id);
+  const baseVersion = existing?.version ?? 1;
+  const mutationId = makeSyncMutationId("document-delete");
   await removeDocumentFromCache(id);
 
   if (
     !hasCloudSession() ||
     isBrowserOffline()
   ) {
-    await enqueueDelete(id);
+    await enqueueDelete(id, baseVersion, mutationId);
     return;
   }
 
   try {
-    await deleteDocumentOnlineOnly(id);
+    await deleteDocumentOnlineOnly(id, baseVersion, mutationId);
   } catch (error: any) {
     if (error?.response?.status === 404) {
       return;
@@ -702,7 +761,7 @@ export async function deleteDocument(
       throw error;
     }
 
-    await enqueueDelete(id);
+    await enqueueDelete(id, baseVersion, mutationId);
   }
 }
 
@@ -738,7 +797,8 @@ export async function syncOfflineDocumentQueue(): Promise<void> {
       if (operation.kind === "create") {
         const created =
           await createDocumentOnlineOnly(
-            operation.payload
+            operation.payload,
+            operation.mutationId
           );
 
         const cached =
@@ -790,7 +850,9 @@ export async function syncOfflineDocumentQueue(): Promise<void> {
         const updated =
           await updateDocumentOnlineOnly(
             operation.id,
-            operation.patch
+            operation.patch,
+            operation.baseVersion,
+            operation.mutationId
           );
 
         await mergeDocumentIntoCache(updated);
@@ -806,13 +868,19 @@ export async function syncOfflineDocumentQueue(): Promise<void> {
         }
 
         await deleteDocumentOnlineOnly(
-          operation.id
+          operation.id,
+          operation.baseVersion,
+          operation.mutationId
         );
         await removeDocumentFromCache(
           operation.id
         );
       }
     } catch (error) {
+      if ((error as any)?.response?.status === 404 && operation.kind === "update") {
+        await removeDocumentFromCache(operation.id);
+        continue;
+      }
       if (isRecoverableOfflineError(error)) {
         remaining.push(
           operation,
@@ -838,5 +906,14 @@ export async function syncOfflineDocumentQueue(): Promise<void> {
   } catch {
     // IndexedDB remains available until a later successful sync.
   }
+}
+
+export async function applyDocumentCloudChange(
+  id: string,
+  document: Document | null
+): Promise<void> {
+  await ensureDocumentStorageReady();
+  if (document) await mergeDocumentIntoCache(normalizeDocument(document));
+  else await removeDocumentFromCache(id);
 }
 

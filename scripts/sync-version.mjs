@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 const scriptDirectory = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(scriptDirectory, "..");
 const envPath = path.join(root, "apps", "web", ".env");
+const rootPackagePath = path.join(root, "package.json");
 const webPackagePath = path.join(root, "apps", "web", "package.json");
 const apiPackagePath = path.join(root, "apps", "api", "package.json");
 const desktopPackagePath = path.join(root, "desktop", "package.json");
@@ -126,6 +127,7 @@ function updateCDefineVersion(filePath, defineName, version) {
 
 const version = readVersion();
 
+updateJsonVersion(rootPackagePath, version);
 updateJsonVersion(webPackagePath, version);
 updateJsonVersion(apiPackagePath, version);
 updateJsonVersion(desktopPackagePath, version);

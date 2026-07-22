@@ -1,77 +1,66 @@
-// apps/api/src/documents.ts
 import express from "express";
 import { authMiddleware, User } from "./auth";
 import { prisma } from "./prisma";
+import {
+  ApiMutationError,
+  readExpectedVersion,
+  readIdempotencyKey,
+  recordSyncChange,
+  runIdempotentMutation,
+  sendMutationError,
+} from "./syncMutation";
 
 const router = express.Router();
-
-// All /documents routes require authentication
 router.use(authMiddleware);
 
-interface DocumentResponse {
+export interface DocumentResponse {
   id: string;
   title: string;
   content: string;
   isPinned: boolean;
   isFavorite: boolean;
+  version: number;
   createdAt: string;
   updatedAt: string;
 }
 
-function mapDocument(doc: any): DocumentResponse {
+export function mapDocument(doc: any): DocumentResponse {
+  const toIso = (value: unknown): string =>
+    value instanceof Date ? value.toISOString() : String(value);
   return {
-    id: doc.id,
-    title: doc.title,
-    content: doc.content ?? "",
+    id: String(doc.id),
+    title: String(doc.title),
+    content: String(doc.content ?? ""),
     isPinned: Boolean(doc.isPinned),
     isFavorite: Boolean(doc.isFavorite),
-    createdAt:
-      doc.createdAt instanceof Date
-        ? doc.createdAt.toISOString()
-        : String(doc.createdAt),
-    updatedAt:
-      doc.updatedAt instanceof Date
-        ? doc.updatedAt.toISOString()
-        : String(doc.updatedAt),
+    version: Number(doc.version) || 1,
+    createdAt: toIso(doc.createdAt),
+    updatedAt: toIso(doc.updatedAt),
   };
 }
 
-// GET /documents - list documents for current user
 router.get("/", async (req, res) => {
   const user = (req as any).user as User | undefined;
-
-  if (!user) {
-    return res.status(401).json({ error: "Unauthenticated" });
-  }
+  if (!user) return res.status(401).json({ error: "Unauthenticated" });
 
   try {
     const docs = await prisma.document.findMany({
-      where: { userId: user.id },
+      where: { userId: user.id, deletedAt: null },
       orderBy: { updatedAt: "desc" },
     });
-
-    const mapped = docs.map(mapDocument);
-    // Return raw array (frontend can also handle { documents: [...] } if needed)
-    return res.json(mapped);
-  } catch (err) {
-    console.error("Error in GET /documents:", err);
+    return res.json(docs.map(mapDocument));
+  } catch (error) {
+    console.error("Error in GET /documents:", error);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// POST /documents - create new doc (empty content by default)
 router.post("/", async (req, res) => {
   const user = (req as any).user as User | undefined;
-
-  if (!user) {
-    return res.status(401).json({ error: "Unauthenticated" });
-  }
+  if (!user) return res.status(401).json({ error: "Unauthenticated" });
 
   const { title, content, isPinned, isFavorite } = req.body || {};
-  const finalTitle =
-    typeof title === "string" && title.trim().length > 0
-      ? title.trim()
-      : "Untitled document";
+  const finalTitle = typeof title === "string" && title.trim() ? title.trim() : "Untitled document";
   if (finalTitle.length > 240) {
     return res.status(400).json({ error: "Document title is too long" });
   }
@@ -83,69 +72,60 @@ router.post("/", async (req, res) => {
   }
 
   try {
-    const created = await prisma.document.create({
-      data: {
-        userId: user.id,
-        title: finalTitle,
-        content: typeof content === "string" ? content : "",
-        isPinned: Boolean(isPinned),
-        isFavorite: Boolean(isFavorite),
+    const key = readIdempotencyKey(req);
+    const result = await runIdempotentMutation<DocumentResponse>({
+      userId: user.id,
+      scope: "documents:create",
+      key,
+      work: async (tx) => {
+        const created = await tx.document.create({
+          data: {
+            userId: user.id,
+            title: finalTitle,
+            content: typeof content === "string" ? content : "",
+            isPinned: Boolean(isPinned),
+            isFavorite: Boolean(isFavorite),
+          },
+        });
+        await recordSyncChange(tx, user.id, "document", created.id, "upsert");
+        return { statusCode: 201, body: mapDocument(created) };
       },
     });
-
-    const mapped = mapDocument(created);
-    // Flexible: frontend can treat this as either { document } or bare object
-    return res.status(201).json(mapped);
-  } catch (err) {
-    console.error("Error in POST /documents:", err);
-    return res.status(500).json({ error: "Internal server error" });
+    if (result.replayed) res.setHeader("idempotency-replayed", "true");
+    return res.status(result.statusCode).json(result.body);
+  } catch (error) {
+    return sendMutationError(error, res, "Error in POST /documents:");
   }
 });
 
-// GET /documents/:id - fetch a single document (with full content)
 router.get("/:id", async (req, res) => {
   const user = (req as any).user as User | undefined;
-
-  if (!user) {
-    return res.status(401).json({ error: "Unauthenticated" });
-  }
-
-  const { id } = req.params;
+  if (!user) return res.status(401).json({ error: "Unauthenticated" });
 
   try {
     const doc = await prisma.document.findFirst({
-      where: { id, userId: user.id },
+      where: { id: req.params.id, userId: user.id, deletedAt: null },
     });
-
-    if (!doc) {
-      return res.status(404).json({ error: "Document not found" });
-    }
-
-    const mapped = mapDocument(doc);
-    return res.json(mapped);
-  } catch (err) {
-    console.error("Error in GET /documents/:id:", err);
+    if (!doc) return res.status(404).json({ error: "Document not found" });
+    return res.json(mapDocument(doc));
+  } catch (error) {
+    console.error("Error in GET /documents/:id:", error);
     return res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// PUT /documents/:id - update title/content
 router.put("/:id", async (req, res) => {
   const user = (req as any).user as User | undefined;
+  if (!user) return res.status(401).json({ error: "Unauthenticated" });
 
-  if (!user) {
-    return res.status(401).json({ error: "Unauthenticated" });
-  }
-
-  const { id } = req.params;
   const { title, content, isPinned, isFavorite } = req.body || {};
-
   const data: any = {};
-  if (typeof title === "string" && title.trim().length > 0) {
-    data.title = title.trim();
-  }
+  if (typeof title === "string" && title.trim()) data.title = title.trim();
   if (typeof data.title === "string" && data.title.length > 240) {
     return res.status(400).json({ error: "Document title is too long" });
+  }
+  if (content !== undefined && typeof content !== "string") {
+    return res.status(400).json({ error: "Document content must be text" });
   }
   if (typeof content === "string") {
     if (content.length > 1_500_000) {
@@ -157,54 +137,79 @@ router.put("/:id", async (req, res) => {
   if (typeof isFavorite === "boolean") data.isFavorite = isFavorite;
 
   try {
-    const existing = await prisma.document.findFirst({
-      where: { id, userId: user.id },
+    const key = readIdempotencyKey(req);
+    const expectedVersion = readExpectedVersion(req);
+    const result = await runIdempotentMutation<DocumentResponse>({
+      userId: user.id,
+      scope: `documents:update:${req.params.id}`,
+      key,
+      work: async (tx) => {
+        const existing = await tx.document.findFirst({
+          where: { id: req.params.id, userId: user.id, deletedAt: null },
+        });
+        if (!existing) throw new ApiMutationError(404, { error: "Document not found" });
+        const version = expectedVersion ?? existing.version;
+        const update = await tx.document.updateMany({
+          where: { id: existing.id, userId: user.id, deletedAt: null, version },
+          data: { ...data, version: { increment: 1 } },
+        });
+        if (update.count !== 1) {
+          const current = await tx.document.findFirst({ where: { id: existing.id, userId: user.id } });
+          throw new ApiMutationError(409, {
+            error: "Document changed on another device",
+            code: "VERSION_CONFLICT",
+            current: current && !current.deletedAt ? mapDocument(current) : null,
+          });
+        }
+        const updated = await tx.document.findUniqueOrThrow({ where: { id: existing.id } });
+        await recordSyncChange(tx, user.id, "document", updated.id, "upsert");
+        return { statusCode: 200, body: mapDocument(updated) };
+      },
     });
-
-    if (!existing) {
-      return res.status(404).json({ error: "Document not found" });
-    }
-
-    const updated = await prisma.document.update({
-      where: { id: existing.id },
-      data,
-    });
-
-    const mapped = mapDocument(updated);
-    return res.json(mapped);
-  } catch (err) {
-    console.error("Error in PUT /documents/:id:", err);
-    return res.status(500).json({ error: "Internal server error" });
+    if (result.replayed) res.setHeader("idempotency-replayed", "true");
+    return res.status(result.statusCode).json(result.body);
+  } catch (error) {
+    return sendMutationError(error, res, "Error in PUT /documents/:id:");
   }
 });
 
-// DELETE /documents/:id - delete a document
 router.delete("/:id", async (req, res) => {
   const user = (req as any).user as User | undefined;
-
-  if (!user) {
-    return res.status(401).json({ error: "Unauthenticated" });
-  }
-
-  const { id } = req.params;
+  if (!user) return res.status(401).json({ error: "Unauthenticated" });
 
   try {
-    const existing = await prisma.document.findFirst({
-      where: { id, userId: user.id },
+    const key = readIdempotencyKey(req);
+    const expectedVersion = readExpectedVersion(req);
+    const result = await runIdempotentMutation<Record<string, never>>({
+      userId: user.id,
+      scope: `documents:delete:${req.params.id}`,
+      key,
+      work: async (tx) => {
+        const existing = await tx.document.findFirst({
+          where: { id: req.params.id, userId: user.id },
+        });
+        if (!existing || existing.deletedAt) return { statusCode: 204, body: {} };
+        const version = expectedVersion ?? existing.version;
+        const update = await tx.document.updateMany({
+          where: { id: existing.id, userId: user.id, deletedAt: null, version },
+          data: { deletedAt: new Date(), version: { increment: 1 } },
+        });
+        if (update.count !== 1) {
+          const current = await tx.document.findFirst({ where: { id: existing.id, userId: user.id } });
+          throw new ApiMutationError(409, {
+            error: "Document changed on another device",
+            code: "VERSION_CONFLICT",
+            current: current && !current.deletedAt ? mapDocument(current) : null,
+          });
+        }
+        await recordSyncChange(tx, user.id, "document", existing.id, "delete");
+        return { statusCode: 204, body: {} };
+      },
     });
-
-    if (!existing) {
-      return res.status(404).json({ error: "Document not found" });
-    }
-
-    await prisma.document.delete({
-      where: { id: existing.id },
-    });
-
+    if (result.replayed) res.setHeader("idempotency-replayed", "true");
     return res.status(204).send();
-  } catch (err) {
-    console.error("Error in DELETE /documents/:id:", err);
-    return res.status(500).json({ error: "Internal server error" });
+  } catch (error) {
+    return sendMutationError(error, res, "Error in DELETE /documents/:id:");
   }
 });
 

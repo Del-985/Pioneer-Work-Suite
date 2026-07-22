@@ -1,5 +1,14 @@
 type NodeEnvironment = "development" | "test" | "production";
 
+try {
+  const loadEnvFile = (process as typeof process & {
+    loadEnvFile?: (path?: string) => void;
+  }).loadEnvFile;
+  loadEnvFile?.();
+} catch (error: any) {
+  if (error?.code !== "ENOENT") throw error;
+}
+
 function parseEnvironment(value: string | undefined): NodeEnvironment {
   return value === "production" || value === "test" ? value : "development";
 }

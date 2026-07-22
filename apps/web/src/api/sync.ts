@@ -29,6 +29,7 @@ import {
 import {
   developerLogger,
 } from "../developer/logger";
+import { pullCloudChanges } from "./cloudChanges";
 
 export type SyncPhase =
   | "local-only"
@@ -210,17 +211,27 @@ export async function syncAllNow(): Promise<SyncSnapshot> {
         result.status === "rejected"
     );
 
+    let pullError: unknown = null;
+    if (!rejected) {
+      try {
+        await pullCloudChanges();
+      } catch (error) {
+        pullError = error;
+        developerLogger.error("sync", "Unable to pull cloud changes", error);
+      }
+    }
+
     const counts = await readPendingCounts();
     const pendingTotal =
       counts.pendingTasks +
       counts.pendingDocuments +
       counts.pendingEvents;
 
-    if (rejected) {
+    if (rejected || pullError) {
       developerLogger.error(
         "sync",
         "Cloud synchronization failed",
-        rejected.reason
+        rejected?.reason ?? pullError
       );
       errorMessage = "Cloud synchronization failed. Local changes are safe.";
     } else if (pendingTotal > 0 && isOnline() && hasCloudSession()) {

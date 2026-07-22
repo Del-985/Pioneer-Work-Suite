@@ -1,13 +1,19 @@
 # Pioneer Work Suite repository structure
 
-This document describes the current source layout for 0.1.17 after the modernized local/cloud entry experience, responsive Calendar presentation, live productivity metrics, page-owned heading pass, Mail workspace modernization, opt-in developer tooling, responsive-shell work, local backup and restore, and the settings, shared UI, accessibility, performance, notification, and recovery passes. Generated folders such as `node_modules`, `dist`, Prisma output, and Tauri build artifacts are intentionally omitted.
+This document describes the current source layout for 0.1.18 after the backend deployment, migration, replay-safe mutation, version-conflict, tombstone, incremental-sync, and API test foundation. Generated folders such as `node_modules`, `dist`, Prisma output, and Tauri build artifacts are intentionally omitted.
 
 ```text
 Pioneer-Work-Suite/
+|-- .github/
+|   `-- workflows/backend.yml
 |-- apps/
 |   |-- api/
 |   |   |-- prisma/
+|   |   |   |-- migrations/
+|   |   |   |-- migration_lock.toml
 |   |   |   `-- schema.prisma
+|   |   |-- scripts/
+|   |   |   `-- migrate-deploy.mjs
 |   |   |-- src/
 |   |   |   |-- auth.ts
 |   |   |   |-- config.ts
@@ -16,7 +22,10 @@ Pioneer-Work-Suite/
 |   |   |   |-- mail.ts
 |   |   |   |-- prisma.ts
 |   |   |   |-- server.ts
-|   |   |   `-- tasks.ts
+|   |   |   |-- sync.ts
+|   |   |   |-- syncMutation.ts
+|   |   |   |-- tasks.ts
+|   |   |   `-- tests/
 |   |   |-- .env.example
 |   |   |-- package.json
 |   |   `-- tsconfig.json
@@ -64,7 +73,9 @@ Pioneer-Work-Suite/
 |-- scripts/
 |   `-- sync-version.mjs
 |-- package.json
+|-- pnpm-lock.yaml
 |-- pnpm-workspace.yaml
+|-- render.yaml
 |-- README.md
 `-- tsconfig.base.json
 ```
@@ -101,8 +112,12 @@ Pioneer-Work-Suite/
 - `config.ts` validates runtime configuration, production secrets, CORS origins, request limits, and shutdown timing.
 - `auth.ts` owns registration and login endpoints.
 - `tasks.ts`, `documents.ts`, `events.ts`, and `mail.ts` own their feature endpoints.
+- `syncMutation.ts` owns transactional idempotency, version preconditions, and change-log writes.
+- `sync.ts` exposes the ordered, user-scoped incremental change feed.
+- `src/tests/` contains API boundary and synchronization regression tests.
 - `prisma.ts` owns the shared Prisma client.
-- `prisma/schema.prisma` is the database schema source of truth.
+- `prisma/schema.prisma` is the database schema source of truth; `prisma/migrations/` contains the deployable history.
+- `scripts/migrate-deploy.mjs` safely baselines pre-migration databases before applying pending migrations.
 - `.env.example` documents the local and hosted runtime configuration contract.
 
 ## Desktop ownership
@@ -118,9 +133,9 @@ The `pioneeros/` target packages Pioneer Work Suite as a freestanding ELF32/PAP 
 From the repository root:
 
 ```text
-npx tsc --noEmit -p apps/web/tsconfig.json
-npx tsc --noEmit -p apps/api/tsconfig.json
-npm run build --workspace apps/web
+pnpm --filter pioneer-student-api test
+pnpm --filter pioneer-student-api exec prisma validate
+pnpm --filter pioneer-student-web build
 PIONEER_SDK=/absolute/path/to/pioneeros-sdk-1.5.0 make -C pioneeros package
 ```
 

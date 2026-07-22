@@ -14,8 +14,15 @@ import {
   developerLogger,
 } from "../developer/logger";
 
-// For v1, the backend API base URL remains fixed for desktop and Pages builds.
-const API_BASE_URL = "https://pioneer-work-suite.onrender.com";
+const configuredApiBaseUrl = String(
+  import.meta.env.VITE_API_BASE_URL ?? ""
+).trim();
+
+// Local development is the safe fallback. Production builds provide their
+// endpoint through .env.production or the deployment environment.
+const API_BASE_URL = (
+  configuredApiBaseUrl || "http://localhost:4000"
+).replace(/\/+$/, "");
 
 export const http = axios.create({
   baseURL: API_BASE_URL,

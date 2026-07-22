@@ -10,6 +10,7 @@ import { eventsRouter } from "./events";
 import { mailRouter } from "./mail";
 import { prisma } from "./prisma";
 import { tasksRouter } from "./tasks";
+import { syncRouter } from "./sync";
 
 const apiPackage = require("../package.json") as { version: string };
 
@@ -56,6 +57,7 @@ export function createApp(): express.Express {
   app.use("/tasks", tasksRouter);
   app.use("/events", eventsRouter);
   app.use("/mail", mailRouter);
+  app.use("/sync", syncRouter);
 
   app.use((_req, res) => res.status(404).json({ error: "Route not found" }));
 

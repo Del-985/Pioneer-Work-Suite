@@ -28,6 +28,7 @@ const LEGACY_DOCUMENTS_CACHE_KEY_V1 = "pioneer.documents.cache.v1";
 const LEGACY_DOCUMENTS_QUEUE_KEY_V1 = "pioneer.documents.queue.v1";
 
 const MIGRATION_FLAG_KEY = "localStorageMigrationComplete";
+const CLOUD_SYNC_CURSOR_KEY = "cloudSyncCursor.v1";
 
 type StoreName =
   | typeof TASKS_STORE
@@ -236,6 +237,21 @@ async function deleteMetaValue(key: string): Promise<void> {
   await runTransaction(META_STORE, "readwrite", (store) =>
     store.delete(key)
   );
+}
+
+function cloudSyncCursorKey(sessionKey: string): string {
+  return `${CLOUD_SYNC_CURSOR_KEY}:${sessionKey}`;
+}
+
+export async function readStoredCloudSyncCursor(sessionKey: string): Promise<string> {
+  return (await getMetaValue<string>(cloudSyncCursorKey(sessionKey))) ?? "0";
+}
+
+export async function writeStoredCloudSyncCursor(
+  sessionKey: string,
+  cursor: string
+): Promise<void> {
+  await setMetaValue(cloudSyncCursorKey(sessionKey), cursor);
 }
 
 function readLegacyJson<T>(key: string): T | null {

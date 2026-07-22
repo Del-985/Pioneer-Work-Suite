@@ -5,7 +5,9 @@ import {
   hasBrowserWindow,
   isBrowserOffline,
   isRecoverableOfflineError,
+  makeSyncMutationId,
   notifySyncStateChanged,
+  readVersionConflictEntity,
 } from "./syncSupport";
 import {
   migrateLegacyLocalStorage,
@@ -35,6 +37,7 @@ export interface CalendarEvent {
   urgency: EventUrgency | null;
   createdAt: string;
   updatedAt: string;
+  version: number;
 }
 
 export interface EventQueryParams {
@@ -58,6 +61,7 @@ export type EventPatch = Partial<EventPayload>;
 interface CreateEventOp {
   kind: "create";
   tempId: string;
+  mutationId: string;
   payload: EventPayload;
   timestamp: number;
 }
@@ -65,6 +69,8 @@ interface CreateEventOp {
 interface UpdateEventOp {
   kind: "update";
   id: string;
+  mutationId: string;
+  baseVersion: number;
   patch: EventPatch;
   timestamp: number;
 }
@@ -72,6 +78,8 @@ interface UpdateEventOp {
 interface DeleteEventOp {
   kind: "delete";
   id: string;
+  mutationId: string;
+  baseVersion: number;
   timestamp: number;
 }
 
@@ -127,6 +135,9 @@ function normalizeEvent(raw: any): CalendarEvent {
     urgency: normalizeEventUrgency(raw?.urgency),
     createdAt: raw?.createdAt ? String(raw.createdAt) : now,
     updatedAt: raw?.updatedAt ? String(raw.updatedAt) : now,
+    version: Number.isInteger(Number(raw?.version)) && Number(raw.version) > 0
+      ? Number(raw.version)
+      : 1,
   };
 }
 
@@ -229,15 +240,27 @@ async function readQueue(): Promise<EventOp[]> {
 
   const queue = await readStoredEventQueue<EventOp>();
 
-  return queue.filter((operation) => {
-    return (
-      operation &&
-      typeof operation === "object" &&
-      (operation.kind === "create" ||
-        operation.kind === "update" ||
-        operation.kind === "delete")
-    );
-  });
+  return queue
+    .filter((operation) => operation && typeof operation === "object")
+    .map((operation: any): EventOp | null => {
+      if (operation.kind === "create") {
+        return {
+          ...operation,
+          mutationId: String(operation.mutationId || makeSyncMutationId("event-create")),
+          timestamp: Number(operation.timestamp) || Date.now(),
+        };
+      }
+      if (operation.kind === "update" || operation.kind === "delete") {
+        return {
+          ...operation,
+          mutationId: String(operation.mutationId || makeSyncMutationId(`event-${operation.kind}`)),
+          baseVersion: Math.max(1, Number(operation.baseVersion) || 1),
+          timestamp: Number(operation.timestamp) || Date.now(),
+        } as EventOp;
+      }
+      return null;
+    })
+    .filter((operation): operation is EventOp => operation !== null);
 }
 
 async function writeQueue(queue: EventOp[]): Promise<void> {
@@ -259,12 +282,13 @@ export async function refreshPendingEventSyncCount(): Promise<number> {
   return pendingEventSyncCount;
 }
 
-async function enqueueCreate(event: CalendarEvent): Promise<void> {
+async function enqueueCreate(event: CalendarEvent, mutationId: string): Promise<void> {
   const queue = await readQueue();
 
   queue.push({
     kind: "create",
     tempId: event.id,
+    mutationId,
     payload: {
       title: event.title,
       description: event.description,
@@ -280,7 +304,12 @@ async function enqueueCreate(event: CalendarEvent): Promise<void> {
   await writeQueue(queue);
 }
 
-async function enqueueUpdate(id: string, patch: EventPatch): Promise<void> {
+async function enqueueUpdate(
+  id: string,
+  patch: EventPatch,
+  baseVersion: number,
+  mutationId: string
+): Promise<void> {
   const queue = await readQueue();
 
   const createIndex = queue.findIndex(
@@ -288,16 +317,14 @@ async function enqueueUpdate(id: string, patch: EventPatch): Promise<void> {
   );
 
   if (createIndex !== -1) {
-    const create = queue[createIndex] as CreateEventOp;
-
-    queue[createIndex] = {
-      ...create,
-      payload: {
-        ...create.payload,
-        ...patch,
-      },
+    queue.push({
+      kind: "update",
+      id,
+      patch,
+      mutationId,
+      baseVersion,
       timestamp: Date.now(),
-    };
+    });
 
     await writeQueue(queue);
     return;
@@ -320,6 +347,7 @@ async function enqueueUpdate(id: string, patch: EventPatch): Promise<void> {
 
     queue[updateIndex] = {
       ...existing,
+      mutationId,
       patch: {
         ...existing.patch,
         ...patch,
@@ -330,6 +358,8 @@ async function enqueueUpdate(id: string, patch: EventPatch): Promise<void> {
     queue.push({
       kind: "update",
       id,
+      mutationId,
+      baseVersion,
       patch,
       timestamp: Date.now(),
     });
@@ -338,12 +368,12 @@ async function enqueueUpdate(id: string, patch: EventPatch): Promise<void> {
   await writeQueue(queue);
 }
 
-async function enqueueDelete(id: string): Promise<void> {
+async function enqueueDelete(
+  id: string,
+  baseVersion: number,
+  mutationId: string
+): Promise<void> {
   const queue = (await readQueue()).filter((operation) => {
-    if (operation.kind === "create" && operation.tempId === id) {
-      return false;
-    }
-
     if (operation.kind === "update" && operation.id === id) {
       return false;
     }
@@ -355,13 +385,13 @@ async function enqueueDelete(id: string): Promise<void> {
     return true;
   });
 
-  if (!isOfflineEventId(id)) {
-    queue.push({
-      kind: "delete",
-      id,
-      timestamp: Date.now(),
-    });
-  }
+  queue.push({
+    kind: "delete",
+    id,
+    mutationId,
+    baseVersion,
+    timestamp: Date.now(),
+  });
 
   await writeQueue(queue);
 }
@@ -389,24 +419,59 @@ async function fetchEventOnlineOnly(id: string): Promise<CalendarEvent> {
 }
 
 async function createEventOnlineOnly(
-  payload: EventPayload
+  payload: EventPayload,
+  mutationId: string
 ): Promise<CalendarEvent> {
-  const { data } = await http.post("/events", payload);
+  const { data } = await http.post("/events", payload, {
+    headers: { "Idempotency-Key": mutationId },
+  });
 
   return normalizeEvent(data?.event ?? data);
 }
 
 async function updateEventOnlineOnly(
   id: string,
-  patch: EventPatch
+  patch: EventPatch,
+  baseVersion: number,
+  mutationId: string
 ): Promise<CalendarEvent> {
-  const { data } = await http.put(`/events/${id}`, patch);
-
-  return normalizeEvent(data?.event ?? data);
+  try {
+    const { data } = await http.put(`/events/${id}`, {
+      ...patch,
+      ifVersion: baseVersion,
+    }, { headers: { "Idempotency-Key": mutationId } });
+    return normalizeEvent(data?.event ?? data);
+  } catch (error) {
+    const current = readVersionConflictEntity<CalendarEvent>(error);
+    if (!current) throw error;
+    const normalizedCurrent = normalizeEvent(current);
+    const { data } = await http.put(`/events/${id}`, {
+      ...patch,
+      ifVersion: normalizedCurrent.version,
+    }, { headers: { "Idempotency-Key": mutationId } });
+    return normalizeEvent(data?.event ?? data);
+  }
 }
 
-async function deleteEventOnlineOnly(id: string): Promise<void> {
-  await http.delete(`/events/${id}`);
+async function deleteEventOnlineOnly(
+  id: string,
+  baseVersion: number,
+  mutationId: string
+): Promise<void> {
+  try {
+    await http.delete(`/events/${id}`, {
+      headers: { "Idempotency-Key": mutationId, "If-Match": String(baseVersion) },
+    });
+  } catch (error) {
+    const current = readVersionConflictEntity<CalendarEvent>(error);
+    if (!current) throw error;
+    await http.delete(`/events/${id}`, {
+      headers: {
+        "Idempotency-Key": mutationId,
+        "If-Match": String(normalizeEvent(current).version),
+      },
+    });
+  }
 }
 
 // ---------- Public API ----------
@@ -529,6 +594,7 @@ export async function createEvent(
   payload: EventPayload
 ): Promise<CalendarEvent> {
   await ensureEventStorageReady();
+  const mutationId = makeSyncMutationId("event-create");
 
   const localEvent: CalendarEvent = {
     id: makeOfflineEventId(),
@@ -541,11 +607,12 @@ export async function createEvent(
     urgency: normalizeEventUrgency(payload.urgency),
     createdAt: nowIso(),
     updatedAt: nowIso(),
+    version: 1,
   };
 
   if (!hasCloudSession() || isBrowserOffline()) {
     await mergeEventIntoCache(localEvent);
-    await enqueueCreate(localEvent);
+    await enqueueCreate(localEvent, mutationId);
     notifyEventsChanged();
 
     return localEvent;
@@ -558,7 +625,7 @@ export async function createEvent(
       description: localEvent.description,
       kind: localEvent.kind,
       urgency: localEvent.urgency,
-    });
+    }, mutationId);
 
     await mergeEventIntoCache(created);
     notifyEventsChanged();
@@ -570,7 +637,7 @@ export async function createEvent(
     }
 
     await mergeEventIntoCache(localEvent);
-    await enqueueCreate(localEvent);
+    await enqueueCreate(localEvent, mutationId);
     notifyEventsChanged();
 
     return localEvent;
@@ -584,6 +651,8 @@ export async function updateEvent(
   await ensureEventStorageReady();
 
   const existing = (await readEventsCache()).find((event) => event.id === id);
+  const baseVersion = existing?.version ?? 1;
+  const mutationId = makeSyncMutationId("event-update");
 
   const optimistic = normalizeEvent({
     ...(existing ?? {
@@ -596,22 +665,29 @@ export async function updateEvent(
       kind: "event",
       urgency: null,
       createdAt: nowIso(),
+      version: baseVersion,
     }),
     ...updates,
     updatedAt: nowIso(),
+    version: baseVersion + 1,
   });
 
   await mergeEventIntoCache(optimistic);
   notifyEventsChanged();
 
   if (!hasCloudSession() || isBrowserOffline()) {
-    await enqueueUpdate(id, updates);
+    await enqueueUpdate(id, updates, baseVersion, mutationId);
 
     return optimistic;
   }
 
   try {
-    const updated = await updateEventOnlineOnly(id, updates);
+    const updated = await updateEventOnlineOnly(
+      id,
+      updates,
+      baseVersion,
+      mutationId
+    );
 
     await mergeEventIntoCache(updated);
 
@@ -621,7 +697,7 @@ export async function updateEvent(
       throw error;
     }
 
-    await enqueueUpdate(id, updates);
+    await enqueueUpdate(id, updates, baseVersion, mutationId);
 
     return optimistic;
   }
@@ -629,17 +705,20 @@ export async function updateEvent(
 
 export async function deleteEvent(id: string): Promise<void> {
   await ensureEventStorageReady();
+  const existing = (await readEventsCache()).find((event) => event.id === id);
+  const baseVersion = existing?.version ?? 1;
+  const mutationId = makeSyncMutationId("event-delete");
 
   await removeEventFromCache(id);
   notifyEventsChanged();
 
   if (!hasCloudSession() || isBrowserOffline()) {
-    await enqueueDelete(id);
+    await enqueueDelete(id, baseVersion, mutationId);
     return;
   }
 
   try {
-    await deleteEventOnlineOnly(id);
+    await deleteEventOnlineOnly(id, baseVersion, mutationId);
   } catch (error: any) {
     if (error?.response?.status === 404) {
       return;
@@ -649,7 +728,7 @@ export async function deleteEvent(id: string): Promise<void> {
       throw error;
     }
 
-    await enqueueDelete(id);
+    await enqueueDelete(id, baseVersion, mutationId);
   }
 }
 
@@ -675,7 +754,10 @@ export async function syncOfflineEventQueue(): Promise<void> {
 
     try {
       if (operation.kind === "create") {
-        const created = await createEventOnlineOnly(operation.payload);
+        const created = await createEventOnlineOnly(
+          operation.payload,
+          operation.mutationId
+        );
 
         const cached = await readEventsCache();
         const cachedIndex = cached.findIndex(
@@ -716,7 +798,9 @@ export async function syncOfflineEventQueue(): Promise<void> {
 
         const updated = await updateEventOnlineOnly(
           operation.id,
-          operation.patch
+          operation.patch,
+          operation.baseVersion,
+          operation.mutationId
         );
 
         await mergeEventIntoCache(updated);
@@ -729,10 +813,18 @@ export async function syncOfflineEventQueue(): Promise<void> {
           continue;
         }
 
-        await deleteEventOnlineOnly(operation.id);
+        await deleteEventOnlineOnly(
+          operation.id,
+          operation.baseVersion,
+          operation.mutationId
+        );
         await removeEventFromCache(operation.id);
       }
     } catch (error) {
+      if ((error as any)?.response?.status === 404 && operation.kind === "update") {
+        await removeEventFromCache(operation.id);
+        continue;
+      }
       if (isRecoverableOfflineError(error)) {
         remaining.push(operation, ...queue.slice(index + 1));
         await writeQueue(remaining);
@@ -751,5 +843,15 @@ export async function syncOfflineEventQueue(): Promise<void> {
   } catch {
     // IndexedDB remains usable until a later successful cloud sync.
   }
+}
+
+export async function applyEventCloudChange(
+  id: string,
+  event: CalendarEvent | null
+): Promise<void> {
+  await ensureEventStorageReady();
+  if (event) await mergeEventIntoCache(normalizeEvent(event));
+  else await removeEventFromCache(id);
+  notifyEventsChanged();
 }
 

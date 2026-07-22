@@ -1,0 +1,43 @@
+services:
+  - type: web
+    name: pioneer-work-suite
+    runtime: node
+    plan: starter
+    buildCommand: corepack enable && pnpm install --frozen-lockfile && pnpm --filter pioneer-student-api build
+    preDeployCommand: pnpm --filter pioneer-student-api prisma:deploy:safe
+    startCommand: pnpm --filter pioneer-student-api start
+    healthCheckPath: /health/ready
+    maxShutdownDelaySeconds: 15
+    autoDeployTrigger: checksPass
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: "22"
+      - key: DATABASE_URL
+        fromDatabase:
+          name: pioneer-work-suite-db
+          property: connectionString
+      - key: JWT_SECRET
+        generateValue: true
+      - key: CORS_ORIGINS
+        value: https://del-985.github.io,tauri://localhost,https://tauri.localhost
+      - key: JSON_BODY_LIMIT
+        value: 2mb
+      - key: SHUTDOWN_TIMEOUT_MS
+        value: "10000"
+      - key: MAIL_SMTP_HOST
+        sync: false
+      - key: MAIL_SMTP_PORT
+        value: "587"
+      - key: MAIL_SMTP_USER
+        sync: false
+      - key: MAIL_SMTP_PASS
+        sync: false
+
+databases:
+  - name: pioneer-work-suite-db
+    plan: basic-256mb
+    databaseName: pioneer_work_suite
+    user: pioneer_work_suite
+    ipAllowList: []

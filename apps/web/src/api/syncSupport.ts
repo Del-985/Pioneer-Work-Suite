@@ -5,10 +5,30 @@ export const SYNC_STATE_EVENT = "pioneer:sync-state-changed";
 interface HttpLikeError {
   response?: {
     status?: unknown;
+    data?: unknown;
   };
   isAxiosError?: boolean;
   code?: unknown;
   message?: unknown;
+}
+
+export function makeSyncMutationId(scope: string): string {
+  const random = typeof crypto !== "undefined" && "randomUUID" in crypto
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `${scope}:${random}`;
+}
+
+export function readVersionConflictEntity<T>(error: unknown): T | null {
+  if (!error || typeof error !== "object") return null;
+  const response = (error as HttpLikeError).response;
+  if (response?.status !== 409 || !response.data || typeof response.data !== "object") {
+    return null;
+  }
+  const body = response.data as { code?: unknown; current?: unknown };
+  return body.code === "VERSION_CONFLICT" && body.current
+    ? body.current as T
+    : null;
 }
 
 export function hasBrowserWindow(): boolean {

@@ -1,7 +1,8 @@
 {
   "name": "work-suite",
   "private": true,
-  "version": "0.0.1",
+  "version": "0.1.18",
+  "packageManager": "pnpm@11.9.0",
   "workspaces": [
     "apps/*",
     "desktop"
@@ -17,6 +18,8 @@
     "build:desktop": "pnpm --filter pioneer-work-suite-desktop tauri:build",
     "build:pioneeros": "make -C pioneeros",
     "package:pioneeros": "make -C pioneeros package",
+    "test:api": "pnpm --filter pioneer-student-api test",
+    "ci:backend": "pnpm test:api && pnpm build:web",
     "build": "pnpm build:api && pnpm build:web && pnpm build:desktop"
   },
   "devDependencies": {
@@ -24,4 +27,3 @@
     "typescript": "^5.0.0"
   }
 }
-

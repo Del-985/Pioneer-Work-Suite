@@ -5,7 +5,9 @@ import {
   hasBrowserWindow,
   isBrowserOffline,
   isRecoverableOfflineError,
+  makeSyncMutationId,
   notifySyncStateChanged,
+  readVersionConflictEntity,
 } from "./syncSupport";
 import {
   migrateLegacyLocalStorage,
@@ -31,6 +33,7 @@ export interface Task {
   updatedAt: string;
   completedAt: string | null;
   archivedAt: string | null;
+  version: number;
 }
 
 export interface TaskPatch {
@@ -55,6 +58,7 @@ interface CreateTaskOptions {
 interface CreateOp {
   kind: "create";
   tempId: string;
+  mutationId: string;
   payload: {
     title: string;
     description: string;
@@ -69,6 +73,8 @@ interface CreateOp {
 interface UpdateOp {
   kind: "update";
   id: string;
+  mutationId: string;
+  baseVersion: number;
   patch: TaskPatch;
   timestamp: number;
 }
@@ -76,6 +82,8 @@ interface UpdateOp {
 interface DeleteOp {
   kind: "delete";
   id: string;
+  mutationId: string;
+  baseVersion: number;
   timestamp: number;
 }
 
@@ -206,6 +214,9 @@ function normalizeTask(raw: any): Task {
       new Date().toISOString(),
     completedAt: normalizeTimestamp(raw?.completedAt),
     archivedAt: normalizeTimestamp(raw?.archivedAt),
+    version: Number.isInteger(Number(raw?.version)) && Number(raw.version) > 0
+      ? Number(raw.version)
+      : 1,
   };
 }
 
@@ -231,6 +242,7 @@ function normalizeQueueOperation(operation: any): TaskOp | null {
       ...operation,
       kind: "create",
       tempId: String(operation.tempId),
+      mutationId: String(operation.mutationId || makeSyncMutationId("task-create")),
       payload: {
         title: String(operation.payload?.title ?? ""),
         description: String(operation.payload?.description ?? ""),
@@ -252,6 +264,8 @@ function normalizeQueueOperation(operation: any): TaskOp | null {
       ...operation,
       kind: "update",
       id: String(operation.id),
+      mutationId: String(operation.mutationId || makeSyncMutationId("task-update")),
+      baseVersion: Math.max(1, Number(operation.baseVersion) || 1),
       patch: normalizeTaskPatch(operation.patch ?? {}),
       timestamp: Number(operation.timestamp) || Date.now(),
     };
@@ -262,6 +276,8 @@ function normalizeQueueOperation(operation: any): TaskOp | null {
       ...operation,
       kind: "delete",
       id: String(operation.id),
+      mutationId: String(operation.mutationId || makeSyncMutationId("task-delete")),
+      baseVersion: Math.max(1, Number(operation.baseVersion) || 1),
       timestamp: Number(operation.timestamp) || Date.now(),
     };
   }
@@ -321,12 +337,13 @@ async function removeTaskFromCache(id: string): Promise<void> {
   await writeTasksCache(tasks.filter((task) => task.id !== id));
 }
 
-async function enqueueCreate(task: Task): Promise<void> {
+async function enqueueCreate(task: Task, mutationId: string): Promise<void> {
   const queue = await readQueue();
 
   queue.push({
     kind: "create",
     tempId: task.id,
+    mutationId,
     payload: {
       title: task.title,
       description: task.description,
@@ -343,7 +360,9 @@ async function enqueueCreate(task: Task): Promise<void> {
 
 async function enqueueUpdate(
   id: string,
-  patch: TaskPatch
+  patch: TaskPatch,
+  baseVersion: number,
+  mutationId: string
 ): Promise<void> {
   const normalizedPatch = normalizeTaskPatch(patch);
   const queue = await readQueue();
@@ -353,16 +372,14 @@ async function enqueueUpdate(
   );
 
   if (createIndex !== -1) {
-    const create = queue[createIndex] as CreateOp;
-
-    queue[createIndex] = {
-      ...create,
-      payload: {
-        ...create.payload,
-        ...normalizedPatch,
-      },
+    queue.push({
+      kind: "update",
+      id,
+      patch: normalizedPatch,
+      mutationId,
+      baseVersion,
       timestamp: Date.now(),
-    };
+    });
 
     await writeQueue(queue);
     return;
@@ -385,6 +402,7 @@ async function enqueueUpdate(
 
     queue[updateIndex] = {
       ...existing,
+      mutationId,
       patch: {
         ...existing.patch,
         ...normalizedPatch,
@@ -395,6 +413,8 @@ async function enqueueUpdate(
     queue.push({
       kind: "update",
       id,
+      mutationId,
+      baseVersion,
       patch: normalizedPatch,
       timestamp: Date.now(),
     });
@@ -403,12 +423,12 @@ async function enqueueUpdate(
   await writeQueue(queue);
 }
 
-async function enqueueDelete(id: string): Promise<void> {
+async function enqueueDelete(
+  id: string,
+  baseVersion: number,
+  mutationId: string
+): Promise<void> {
   const queue = (await readQueue()).filter((operation) => {
-    if (operation.kind === "create" && operation.tempId === id) {
-      return false;
-    }
-
     if (operation.kind === "update" && operation.id === id) {
       return false;
     }
@@ -420,13 +440,13 @@ async function enqueueDelete(id: string): Promise<void> {
     return true;
   });
 
-  if (!isOfflineTaskId(id)) {
-    queue.push({
-      kind: "delete",
-      id,
-      timestamp: Date.now(),
-    });
-  }
+  queue.push({
+    kind: "delete",
+    id,
+    mutationId,
+    baseVersion,
+    timestamp: Date.now(),
+  });
 
   await writeQueue(queue);
 }
@@ -444,24 +464,59 @@ async function fetchTasksOnlineOnly(): Promise<Task[]> {
 }
 
 async function createTaskOnlineOnly(
-  payload: CreateOp["payload"]
+  payload: CreateOp["payload"],
+  mutationId: string
 ): Promise<Task> {
-  const { data } = await http.post<any>("/tasks", payload);
+  const { data } = await http.post<any>("/tasks", payload, {
+    headers: { "Idempotency-Key": mutationId },
+  });
 
   return normalizeTask(data?.task ?? data);
 }
 
 async function updateTaskOnlineOnly(
   id: string,
-  patch: TaskPatch
+  patch: TaskPatch,
+  baseVersion: number,
+  mutationId: string
 ): Promise<Task> {
-  const { data } = await http.put<any>(`/tasks/${id}`, patch);
-
-  return normalizeTask(data?.task ?? data);
+  try {
+    const { data } = await http.put<any>(`/tasks/${id}`, {
+      ...patch,
+      ifVersion: baseVersion,
+    }, { headers: { "Idempotency-Key": mutationId } });
+    return normalizeTask(data?.task ?? data);
+  } catch (error) {
+    const current = readVersionConflictEntity<Task>(error);
+    if (!current) throw error;
+    const normalizedCurrent = normalizeTask(current);
+    const { data } = await http.put<any>(`/tasks/${id}`, {
+      ...patch,
+      ifVersion: normalizedCurrent.version,
+    }, { headers: { "Idempotency-Key": mutationId } });
+    return normalizeTask(data?.task ?? data);
+  }
 }
 
-async function deleteTaskOnlineOnly(id: string): Promise<void> {
-  await http.delete(`/tasks/${id}`);
+async function deleteTaskOnlineOnly(
+  id: string,
+  baseVersion: number,
+  mutationId: string
+): Promise<void> {
+  try {
+    await http.delete(`/tasks/${id}`, {
+      headers: { "Idempotency-Key": mutationId, "If-Match": String(baseVersion) },
+    });
+  } catch (error) {
+    const current = readVersionConflictEntity<Task>(error);
+    if (!current) throw error;
+    await http.delete(`/tasks/${id}`, {
+      headers: {
+        "Idempotency-Key": mutationId,
+        "If-Match": String(normalizeTask(current).version),
+      },
+    });
+  }
 }
 
 export async function fetchTasks(): Promise<Task[]> {
@@ -543,6 +598,7 @@ export async function createTask(
   const description = String(options.description ?? "").trim();
   const tags = normalizeTags(options.tags);
   const now = new Date().toISOString();
+  const mutationId = makeSyncMutationId("task-create");
 
   const localTask: Task = {
     id: makeOfflineTaskId(),
@@ -556,11 +612,12 @@ export async function createTask(
     updatedAt: now,
     completedAt: status === "done" ? now : null,
     archivedAt: null,
+    version: 1,
   };
 
   if (!hasCloudSession() || isBrowserOffline()) {
     await mergeTaskIntoCache(localTask);
-    await enqueueCreate(localTask);
+    await enqueueCreate(localTask, mutationId);
     notifyTasksChanged();
 
     return localTask;
@@ -574,7 +631,7 @@ export async function createTask(
       description,
       tags,
       dueDate,
-    });
+    }, mutationId);
 
     await mergeTaskIntoCache(created);
     notifyTasksChanged();
@@ -585,7 +642,7 @@ export async function createTask(
     }
 
     await mergeTaskIntoCache(localTask);
-    await enqueueCreate(localTask);
+    await enqueueCreate(localTask, mutationId);
     notifyTasksChanged();
 
     return localTask;
@@ -601,6 +658,8 @@ export async function updateTask(
   const normalizedPatch = normalizeTaskPatch(patch);
   const existing = (await readTasksCache()).find((task) => task.id === id);
   const now = new Date().toISOString();
+  const baseVersion = existing?.version ?? 1;
+  const mutationId = makeSyncMutationId("task-update");
 
   const completionPatch =
     normalizedPatch.status === "done"
@@ -621,22 +680,29 @@ export async function updateTask(
       createdAt: now,
       completedAt: null,
       archivedAt: null,
+      version: baseVersion,
     }),
     ...normalizedPatch,
     ...completionPatch,
     updatedAt: now,
+    version: baseVersion + 1,
   });
 
   await mergeTaskIntoCache(optimistic);
   notifyTasksChanged();
 
   if (!hasCloudSession() || isBrowserOffline()) {
-    await enqueueUpdate(id, normalizedPatch);
+    await enqueueUpdate(id, normalizedPatch, baseVersion, mutationId);
     return optimistic;
   }
 
   try {
-    const updated = await updateTaskOnlineOnly(id, normalizedPatch);
+    const updated = await updateTaskOnlineOnly(
+      id,
+      normalizedPatch,
+      baseVersion,
+      mutationId
+    );
 
     await mergeTaskIntoCache(updated);
     return updated;
@@ -645,23 +711,26 @@ export async function updateTask(
       throw error;
     }
 
-    await enqueueUpdate(id, normalizedPatch);
+    await enqueueUpdate(id, normalizedPatch, baseVersion, mutationId);
     return optimistic;
   }
 }
 
 export async function deleteTask(id: string): Promise<void> {
   await ensureTaskStorageReady();
+  const existing = (await readTasksCache()).find((task) => task.id === id);
+  const baseVersion = existing?.version ?? 1;
+  const mutationId = makeSyncMutationId("task-delete");
   await removeTaskFromCache(id);
   notifyTasksChanged();
 
   if (!hasCloudSession() || isBrowserOffline()) {
-    await enqueueDelete(id);
+    await enqueueDelete(id, baseVersion, mutationId);
     return;
   }
 
   try {
-    await deleteTaskOnlineOnly(id);
+    await deleteTaskOnlineOnly(id, baseVersion, mutationId);
   } catch (error: any) {
     if (error?.response?.status === 404) {
       return;
@@ -671,7 +740,7 @@ export async function deleteTask(id: string): Promise<void> {
       throw error;
     }
 
-    await enqueueDelete(id);
+    await enqueueDelete(id, baseVersion, mutationId);
   }
 }
 
@@ -695,7 +764,10 @@ export async function syncOfflineTaskQueue(): Promise<void> {
 
     try {
       if (operation.kind === "create") {
-        const created = await createTaskOnlineOnly(operation.payload);
+        const created = await createTaskOnlineOnly(
+          operation.payload,
+          operation.mutationId
+        );
 
         const cached = await readTasksCache();
         const cachedIndex = cached.findIndex(
@@ -736,7 +808,9 @@ export async function syncOfflineTaskQueue(): Promise<void> {
 
         const updated = await updateTaskOnlineOnly(
           operation.id,
-          operation.patch
+          operation.patch,
+          operation.baseVersion,
+          operation.mutationId
         );
 
         await mergeTaskIntoCache(updated);
@@ -749,10 +823,18 @@ export async function syncOfflineTaskQueue(): Promise<void> {
           continue;
         }
 
-        await deleteTaskOnlineOnly(operation.id);
+        await deleteTaskOnlineOnly(
+          operation.id,
+          operation.baseVersion,
+          operation.mutationId
+        );
         await removeTaskFromCache(operation.id);
       }
     } catch (error) {
+      if ((error as any)?.response?.status === 404 && operation.kind === "update") {
+        await removeTaskFromCache(operation.id);
+        continue;
+      }
       if (isRecoverableOfflineError(error)) {
         remaining.push(operation, ...queue.slice(index + 1));
         await writeQueue(remaining);
@@ -771,4 +853,14 @@ export async function syncOfflineTaskQueue(): Promise<void> {
   } catch {
     // Local IndexedDB data remains available until a later successful sync.
   }
+}
+
+export async function applyTaskCloudChange(
+  id: string,
+  task: Task | null
+): Promise<void> {
+  await ensureTaskStorageReady();
+  if (task) await mergeTaskIntoCache(normalizeTask(task));
+  else await removeTaskFromCache(id);
+  notifyTasksChanged();
 }
