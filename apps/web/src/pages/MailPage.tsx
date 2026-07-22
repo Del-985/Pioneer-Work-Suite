@@ -13,6 +13,7 @@ import { hasCloudSession, SESSION_CHANGED_EVENT } from "../api/session";
 import { isRecoverableOfflineError } from "../api/syncSupport";
 import { toast } from "../toasts/toastStore";
 import { useConfirmation } from "../hooks/useConfirmation";
+import { htmlToPlainText } from "../utils/documentText";
 
 import "../styles/mail.css";
 
@@ -397,14 +398,7 @@ const MailPage: React.FC = () => {
     const folders: MailFolder[] = ["inbox", "sent", "draft", "archive"];
 
     return (
-      <div
-        style={{
-          display: "flex",
-          gap: 8,
-          marginBottom: 8,
-          flexWrap: "wrap",
-        }}
-      >
+      <div className="mail-folders" aria-label="Mail folders">
         {folders.map((folder) => {
           const isActive = activeFolder === folder;
           const unread = unreadCounts[folder] ?? 0;
@@ -413,42 +407,16 @@ const MailPage: React.FC = () => {
             <button
               key={folder}
               type="button"
+              className={`mail-folder${isActive ? " is-active" : ""}`}
+              aria-pressed={isActive}
               onClick={() => {
                 setActiveFolder(folder);
                 setView("list-detail");
               }}
-              style={{
-                padding: "6px 10px",
-                borderRadius: 999,
-                border: isActive
-                  ? "1px solid var(--border-strong)"
-                  : "1px solid var(--border)",
-                background: isActive
-                  ? "var(--accent-gradient)"
-                  : "var(--surface-overlay)",
-                color: isActive ? "var(--text-on-accent)" : "var(--accent-text)",
-                fontSize: 12,
-                cursor: "pointer",
-                display: "inline-flex",
-                alignItems: "center",
-                gap: 6,
-              }}
             >
               <span>{folderLabels[folder]}</span>
               {unread > 0 && (
-                <span
-                  style={{
-                    minWidth: 18,
-                    padding: "1px 6px",
-                    borderRadius: 999,
-                    background: isActive
-                      ? "rgba(0,0,0,0.25)"
-                      : "var(--accent-soft)",
-                    color: "var(--text-on-accent)",
-                    fontSize: 11,
-                    textAlign: "center",
-                  }}
-                >
+                <span className="mail-folder__count">
                   {unread}
                 </span>
               )}
@@ -461,49 +429,17 @@ const MailPage: React.FC = () => {
 
   function renderToolbar() {
     return (
-      <div
-        style={{
-          display: "flex",
-          flexWrap: "wrap",
-          gap: 8,
-          alignItems: "center",
-          justifyContent: "space-between",
-          marginBottom: 8,
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            gap: 8,
-            alignItems: "center",
-            flexWrap: "wrap",
-          }}
-        >
+      <div className="mail-toolbar">
+        <div className="mail-toolbar__actions">
           <button
             type="button"
+            className="mail-primary-button"
             onClick={() => setView("compose")}
-            style={{
-              padding: "6px 12px",
-              borderRadius: 999,
-              border: "none",
-              background: "var(--accent-gradient)",
-              color: "var(--text-on-accent)",
-              fontSize: 12,
-              cursor: "pointer",
-            }}
           >
             Compose
           </button>
 
-          <label
-            style={{
-              display: "flex",
-              alignItems: "center",
-              gap: 4,
-              fontSize: 11,
-              color: "var(--text-muted)",
-            }}
-          >
+          <label className="mail-starred-filter">
             <input
               type="checkbox"
               checked={starredOnly}
@@ -515,18 +451,11 @@ const MailPage: React.FC = () => {
 
         <input
           type="search"
+          className="mail-search"
+          aria-label="Search mail"
           value={searchText}
           onChange={(e) => setSearchText(e.target.value)}
           placeholder="Search mail..."
-          style={{
-            flex: "0 0 180px",
-            padding: "6px 10px",
-            borderRadius: 999,
-            border: "1px solid var(--border)",
-            background: "var(--surface-input)",
-            color: "var(--text)",
-            fontSize: 12,
-          }}
         />
       </div>
     );
@@ -535,7 +464,7 @@ const MailPage: React.FC = () => {
   function renderList() {
     if (listLoading) {
       return (
-        <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
+        <p className="mail-list-state" role="status">
           Loading messages…
         </p>
       );
@@ -554,122 +483,60 @@ const MailPage: React.FC = () => {
 
     if (visibleMessages.length === 0) {
       return (
-        <p style={{ fontSize: 12, color: "var(--text-muted)", margin: 0 }}>
+        <p className="mail-list-state">
           No messages in this view.
         </p>
       );
     }
 
     return (
-      <ul
-        style={{
-          listStyle: "none",
-          padding: 0,
-          margin: 0,
-          maxHeight: 260,
-          overflowY: "auto",
-        }}
-      >
+      <ul className="mail-message-list">
         {visibleMessages.map((msg) => {
           const isActive = selectedMessage && selectedMessage.id === msg.id;
           return (
             <li
               key={msg.id}
-              style={{
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                padding: "6px 8px",
-                borderRadius: 8,
-                background: isActive
-                  ? "var(--accent-soft)"
-                  : "transparent",
-                cursor: "pointer",
-              }}
-              onClick={() => handleSelectMessage(msg.id)}
+              className={`mail-message${isActive ? " is-active" : ""}${msg.isRead ? "" : " is-unread"}`}
             >
               <button
                 type="button"
+                className="mail-message__icon-button mail-message__star"
                 onClick={(e) => {
                   e.stopPropagation();
                   void toggleStar(msg);
-                }}
-                style={{
-                  all: "unset",
-                  cursor: "pointer",
-                  fontSize: 13,
-                  width: 18,
-                  textAlign: "center",
                 }}
                 aria-label={msg.isStarred ? "Unstar" : "Star"}
               >
                 {msg.isStarred ? "★" : "☆"}
               </button>
 
-              <div
-                style={{
-                  flex: 1,
-                  display: "flex",
-                  flexDirection: "column",
-                  gap: 2,
-                  minWidth: 0,
-                }}
+              <button
+                type="button"
+                className="mail-message__select"
+                onClick={() => handleSelectMessage(msg.id)}
+                aria-label={`Open ${msg.subject || "message without a subject"}`}
               >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    gap: 8,
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: 13,
-                      fontWeight: msg.isRead ? 400 : 600,
-                      whiteSpace: "nowrap",
-                      overflow: "hidden",
-                      textOverflow: "ellipsis",
-                    }}
-                  >
+                <span className="mail-message__heading">
+                  <span className="mail-message__subject">
                     {msg.subject || "(No subject)"}
                   </span>
-                  <span
-                    style={{
-                      fontSize: 11,
-                      color: "var(--text-faint)",
-                      flexShrink: 0,
-                    }}
-                  >
+                  <span className="mail-message__date">
                     {formatDate(msg.receivedAt || msg.sentAt)}
                   </span>
-                </div>
-                <span
-                  style={{
-                    fontSize: 11,
-                    color: "var(--text-muted)",
-                    whiteSpace: "nowrap",
-                    overflow: "hidden",
-                    textOverflow: "ellipsis",
-                  }}
-                >
+                </span>
+                <span className="mail-message__sender">
                   {msg.fromAddress}
                 </span>
-              </div>
+              </button>
 
               <button
                 type="button"
+                className="mail-message__icon-button mail-message__delete"
                 onClick={(e) => {
                   e.stopPropagation();
                   void handleDelete(msg);
                 }}
-                style={{
-                  all: "unset",
-                  cursor: "pointer",
-                  fontSize: 11,
-                  opacity: 0.7,
-                  padding: "0 4px",
-                }}
-                aria-label="Delete"
+                aria-label={`Delete ${msg.subject || "message without a subject"}`}
               >
                 ✕
               </button>
@@ -683,17 +550,10 @@ const MailPage: React.FC = () => {
   function renderDetail() {
     if (!selectedMessage) {
       return (
-        <div
-          style={{
-            padding: 12,
-            borderRadius: 10,
-            border: "1px solid var(--border-subtle)",
-            background: "var(--surface-1)",
-            fontSize: 13,
-            color: "var(--text-muted)",
-          }}
-        >
-          Select a message from the list to read it.
+        <div className="mail-detail mail-detail--empty">
+          <span aria-hidden="true">✉</span>
+          <strong>Select a message</strong>
+          <p>Choose a message from the list to read it here.</p>
         </div>
       );
     }
@@ -701,113 +561,40 @@ const MailPage: React.FC = () => {
     const msg = selectedMessage;
 
     return (
-      <div
-        style={{
-          padding: 12,
-          borderRadius: 10,
-          border: "1px solid var(--border-subtle)",
-          background: "var(--surface-1)",
-          display: "flex",
-          flexDirection: "column",
-          gap: 8,
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 8,
-            alignItems: "center",
-          }}
-        >
-          <h3
-            style={{
-              margin: 0,
-              fontSize: 16,
-              fontWeight: 500,
-            }}
-          >
+      <article className="mail-detail">
+        <header className="mail-detail__header">
+          <h2>
             {msg.subject || "(No subject)"}
-          </h3>
-          <div
-            style={{
-              display: "flex",
-              gap: 8,
-              alignItems: "center",
-            }}
-          >
+          </h2>
+          <div className="mail-detail__actions">
             <button
               type="button"
               onClick={() => void handleArchive(msg)}
-              style={{
-                padding: "4px 8px",
-                borderRadius: 999,
-                border: "1px solid var(--border)",
-                background: "transparent",
-                color: "var(--text)",
-                fontSize: 11,
-                cursor: "pointer",
-              }}
             >
               Archive
             </button>
             <button
               type="button"
               onClick={() => void startReply(msg)}
-              style={{
-                padding: "4px 8px",
-                borderRadius: 999,
-                border: "1px solid var(--border)",
-                background: "transparent",
-                color: "var(--text)",
-                fontSize: 11,
-                cursor: "pointer",
-              }}
             >
               Reply
             </button>
             <button
               type="button"
               onClick={() => void startForward(msg)}
-              style={{
-                padding: "4px 8px",
-                borderRadius: 999,
-                border: "1px solid var(--border)",
-                background: "transparent",
-                color: "var(--text)",
-                fontSize: 11,
-                cursor: "pointer",
-              }}
             >
               Forward
             </button>
             <button
               type="button"
               onClick={() => void toggleRead(msg, !msg.isRead)}
-              style={{
-                padding: "4px 8px",
-                borderRadius: 999,
-                border: "1px solid var(--border)",
-                background: "transparent",
-                color: "var(--text)",
-                fontSize: 11,
-                cursor: "pointer",
-              }}
             >
               {msg.isRead ? "Mark unread" : "Mark read"}
             </button>
           </div>
-        </div>
+        </header>
 
-        <div
-          style={{
-            fontSize: 11,
-            color: "var(--text-muted)",
-            display: "flex",
-            flexDirection: "column",
-            gap: 2,
-          }}
-        >
+        <div className="mail-detail__meta">
           <span>
             From: <strong>{msg.fromAddress}</strong>
           </span>
@@ -818,31 +605,10 @@ const MailPage: React.FC = () => {
           </span>
         </div>
 
-        <div
-          style={{
-            marginTop: 8,
-            paddingTop: 8,
-            borderTop: "1px solid var(--border)",
-            fontSize: 13,
-            lineHeight: 1.5,
-            color: "var(--text)",
-          }}
-        >
-          {msg.bodyHtml ? (
-            <div dangerouslySetInnerHTML={{ __html: msg.bodyHtml }} />
-          ) : (
-            <pre
-              style={{
-                margin: 0,
-                whiteSpace: "pre-wrap",
-                fontFamily: "inherit",
-              }}
-            >
-              {msg.bodyText}
-            </pre>
-          )}
+        <div className="mail-detail__body">
+          <pre>{msg.bodyText || htmlToPlainText(msg.bodyHtml)}</pre>
         </div>
-      </div>
+      </article>
     );
   }
 
@@ -850,128 +616,59 @@ const MailPage: React.FC = () => {
     return (
       <form
         onSubmit={handleSend}
-        style={{
-          padding: 12,
-          borderRadius: 10,
-          border: "1px solid var(--border-subtle)",
-          background: "var(--surface-1)",
-          display: "flex",
-          flexDirection: "column",
-          gap: 8,
-        }}
+        className="mail-compose"
       >
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "space-between",
-            gap: 8,
-            alignItems: "center",
-          }}
-        >
-          <h3
-            style={{
-              margin: 0,
-              fontSize: 15,
-              fontWeight: 500,
-            }}
-          >
-            New message
-          </h3>
+        <header className="mail-compose__header">
+          <div>
+            <p>Compose</p>
+            <h2>New message</h2>
+          </div>
           <button
             type="button"
             onClick={() => setView("list-detail")}
-            style={{
-              padding: "4px 8px",
-              borderRadius: 999,
-              border: "1px solid var(--border)",
-              background: "transparent",
-              color: "var(--text)",
-              fontSize: 11,
-              cursor: "pointer",
-            }}
           >
             Close
           </button>
-        </div>
+        </header>
 
-        <input
-          type="email"
-          value={composeTo}
-          onChange={(e) => setComposeTo(e.target.value)}
-          placeholder="To"
-          style={{
-            padding: "6px 8px",
-            borderRadius: 6,
-            border: "1px solid var(--border)",
-            background: "var(--surface-input)",
-            color: "var(--text)",
-            fontSize: 12,
-          }}
-        />
-        <input
-          type="text"
-          value={composeSubject}
-          onChange={(e) => setComposeSubject(e.target.value)}
-          placeholder="Subject"
-          style={{
-            padding: "6px 8px",
-            borderRadius: 6,
-            border: "1px solid var(--border)",
-            background: "var(--surface-input)",
-            color: "var(--text)",
-            fontSize: 12,
-          }}
-        />
-        <textarea
-          value={composeBody}
-          onChange={(e) => setComposeBody(e.target.value)}
-          placeholder="Message body"
-          style={{
-            minHeight: 160,
-            padding: "8px 8px",
-            borderRadius: 6,
-            border: "1px solid var(--border)",
-            background: "var(--surface-input)",
-            color: "var(--text)",
-            fontSize: 13,
-            resize: "vertical",
-          }}
-        />
+        <label>
+          <span>To</span>
+          <input
+            type="email"
+            value={composeTo}
+            onChange={(e) => setComposeTo(e.target.value)}
+            placeholder="name@example.com"
+          />
+        </label>
+        <label>
+          <span>Subject</span>
+          <input
+            type="text"
+            value={composeSubject}
+            onChange={(e) => setComposeSubject(e.target.value)}
+            placeholder="Message subject"
+          />
+        </label>
+        <label>
+          <span>Message</span>
+          <textarea
+            value={composeBody}
+            onChange={(e) => setComposeBody(e.target.value)}
+            placeholder="Write your message…"
+          />
+        </label>
 
         {sendError && (
-          <p
-            style={{
-              margin: 0,
-              fontSize: 12,
-              color: "var(--danger)",
-            }}
-          >
+          <p className="mail-compose__error" role="alert">
             {sendError}
           </p>
         )}
 
-        <div
-          style={{
-            display: "flex",
-            justifyContent: "flex-end",
-            gap: 8,
-            marginTop: 4,
-          }}
-        >
+        <div className="mail-compose__footer">
           <button
             type="submit"
+            className="mail-primary-button"
             disabled={sending}
-            style={{
-              padding: "6px 12px",
-              borderRadius: 999,
-              border: "none",
-              background: sending
-                ? "var(--accent-border)"
-                : "var(--accent-gradient)",
-              color: "var(--text-on-accent)",
-              fontSize: 12,
-              cursor: sending ? "default" : "pointer",
-            }}
           >
             {sending ? "Sending…" : "Send"}
           </button>
@@ -983,81 +680,37 @@ const MailPage: React.FC = () => {
   // ---- Page layout ----
 
   return (
-    <div
-      style={{
-        display: "flex",
-        flexDirection: "column",
-        gap: 12,
-        height: "100%",
-      }}
-    >
-      {/* Top controls card */}
-      <div
-        style={{
-          padding: 12,
-          borderRadius: 12,
-          border: "1px solid var(--border-subtle)",
-          background: "var(--surface-1)",
-          display: "flex",
-          flexDirection: "column",
-          gap: 8,
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 4,
-          }}
-        >
-          <h2
-            style={{
-              margin: 0,
-              fontSize: 16,
-              fontWeight: 500,
-            }}
-          >
-            Mail
-          </h2>
-          <p
-            style={{
-              margin: 0,
-              fontSize: 12,
-              color: "var(--text-muted)",
-            }}
-          >
+    <div className="mail-page">
+      <header className="mail-page__header">
+        <div>
+          <p className="mail-page__eyebrow">Communication</p>
+          <h1>Mail</h1>
+          <p className="mail-page__description">
             View your messages by folder, search, star important items, and
             compose new mail.
           </p>
         </div>
 
-        {cloudConnected && renderFolderTabs()}
-        {cloudConnected && renderToolbar()}
-      </div>
+        {cloudConnected && <span className="mail-page__connection">Cloud connected</span>}
+      </header>
 
-      {/* List + detail / compose */}
       {cloudConnected ? (
-        <div
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 12,
-          }}
-        >
-          {/* List card */}
-          <div
-            style={{
-              padding: 10,
-              borderRadius: 12,
-              border: "1px solid var(--border-subtle)",
-              background: "var(--surface-1)",
-            }}
-          >
-            {renderList()}
-          </div>
+        <div className="mail-workspace">
+          <section className="mail-list-panel" aria-label={`${folderLabels[activeFolder]} messages`}>
+            {renderFolderTabs()}
+            {renderToolbar()}
+            <div className="mail-list-panel__body">
+              <div className="mail-list-panel__heading">
+                <h2>{folderLabels[activeFolder]}</h2>
+                <span>{visibleMessages.length} {visibleMessages.length === 1 ? "message" : "messages"}</span>
+              </div>
+              {renderList()}
+            </div>
+          </section>
 
-          {/* Detail or compose card */}
-          {view === "compose" ? renderCompose() : renderDetail()}
+          <section className="mail-reading-panel" aria-label={view === "compose" ? "Compose message" : "Message reader"}>
+            {view === "compose" ? renderCompose() : renderDetail()}
+          </section>
         </div>
       ) : (
         <section className="mail-cloud-state" aria-labelledby="mail-cloud-state-heading">

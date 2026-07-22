@@ -86,9 +86,9 @@ const LoginPage: React.FC = () => {
         minHeight: 520,
       }}
     >
-      <h2 style={{ marginTop: 0 }}>
+      <h1 style={{ marginTop: 0 }}>
         Open your workspace
-      </h2>
+      </h1>
 
       <p
         style={{

@@ -191,14 +191,6 @@ const App: React.FC = () => {
 
       <div className="main-layout">
         <main className="workspace">
-          <header className="workspace-header">
-            <h1>Student Workspace</h1>
-            <p className="workspace-subtitle">
-              Work locally by default. Connect a cloud account when you want
-              to sync across devices.
-            </p>
-          </header>
-
           <section
             id="workspace-content"
             className="workspace-body"

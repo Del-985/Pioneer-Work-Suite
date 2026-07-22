@@ -538,10 +538,10 @@ const DashboardPage: React.FC<
             Today
           </p>
 
-          <h2 id="dashboard-title">
+          <h1 id="dashboard-title">
             Welcome back,{" "}
             {userName}
-          </h2>
+          </h1>
 
           <p className="dashboard-hero-copy">
             Review what needs
@@ -595,9 +595,9 @@ const DashboardPage: React.FC<
               Start here
             </p>
 
-            <h3 id="dashboard-quick-actions">
+            <h2 id="dashboard-quick-actions">
               Quick actions
-            </h3>
+            </h2>
           </div>
 
           {lastLoadedAt && (
@@ -738,9 +738,9 @@ const DashboardPage: React.FC<
               Focus
             </p>
 
-            <h3 id="dashboard-tasks">
+            <h2 id="dashboard-tasks">
               Task overview
-            </h3>
+            </h2>
           </div>
 
           <button
@@ -832,9 +832,9 @@ const DashboardPage: React.FC<
               Continue working
             </p>
 
-            <h3 id="dashboard-documents">
+            <h2 id="dashboard-documents">
               Document activity
-            </h3>
+            </h2>
           </div>
 
           <button
@@ -895,9 +895,9 @@ const DashboardPage: React.FC<
               Workspace pulse
             </p>
 
-            <h3 id="dashboard-productivity">
+            <h2 id="dashboard-productivity">
               Productivity
-            </h3>
+            </h2>
           </div>
         </div>
 
@@ -981,10 +981,10 @@ const DashboardPage: React.FC<
             Workspace layout
           </p>
 
-          <h3 id="dashboard-sidebar-heading">
+          <h2 id="dashboard-sidebar-heading">
             Right sidebar
             content
-          </h3>
+          </h2>
 
           <p>
             Choose which

@@ -1,7 +1,7 @@
 .settings-page { display: grid; gap: var(--space-4); max-width: 1040px; margin: 0 auto; }
 .settings-page__header { margin-bottom: var(--space-2); }
 .settings-page__header > p { margin: 0 0 var(--space-1); color: var(--accent-text); font-size: var(--font-size-xs); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
-.settings-page__header h2 { margin: 0; color: var(--text-strong); }
+.settings-page__header h1 { margin: 0; color: var(--text-strong); }
 .settings-page__header > span { display: block; margin-top: var(--space-2); color: var(--text-muted); }
 
 .settings-row { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(180px, 280px); align-items: center; gap: var(--space-5); padding: var(--space-3) 0; border-top: 1px solid var(--border-subtle); }

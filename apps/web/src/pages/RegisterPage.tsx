@@ -94,9 +94,9 @@ const RegisterPage: React.FC = () => {
         minHeight: 520,
       }}
     >
-      <h2 style={{ marginTop: 0 }}>
+      <h1 style={{ marginTop: 0 }}>
         Connect a cloud account
-      </h2>
+      </h1>
 
       <p
         style={{

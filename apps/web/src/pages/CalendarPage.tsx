@@ -416,12 +416,15 @@ const CalendarPage: React.FC = () => {
   );
 
   return (
-    <div>
-      <h2>Calendar</h2>
-      <p className="workspace-subtitle">
-        Select a day to review its tasks and events, delete events, or quickly
-        schedule something new.
-      </p>
+    <div className="calendar-page">
+      <header className="calendar-page__header">
+        <p>Schedule</p>
+        <h1>Calendar</h1>
+        <span>
+          Select a day to review its tasks and events, delete events, or quickly
+          schedule something new.
+        </span>
+      </header>
 
       <div
         style={{
@@ -549,14 +552,14 @@ const CalendarPage: React.FC = () => {
           <header>
             <div>
               <p>Selected day</p>
-              <h3 id="calendar-day-agenda-title">
+              <h2 id="calendar-day-agenda-title">
                 {selectedDay.toLocaleDateString(undefined, {
                   weekday: "long",
                   month: "long",
                   day: "numeric",
                   year: "numeric",
                 })}
-              </h3>
+              </h2>
             </div>
             <button
               type="button"
@@ -569,7 +572,7 @@ const CalendarPage: React.FC = () => {
 
           <div className="calendar-day-agenda__grid">
             <article>
-              <h4>Tasks ({selectedDayTasks.length})</h4>
+              <h3>Tasks ({selectedDayTasks.length})</h3>
               {selectedDayTasks.length === 0 ? (
                 <p className="calendar-day-agenda__empty">
                   No tasks are due this day.
@@ -601,7 +604,7 @@ const CalendarPage: React.FC = () => {
             </article>
 
             <article>
-              <h4>Events ({selectedDayEvents.length})</h4>
+              <h3>Events ({selectedDayEvents.length})</h3>
               {selectedDayEvents.length === 0 ? (
                 <p className="calendar-day-agenda__empty">
                   No events are scheduled this day.

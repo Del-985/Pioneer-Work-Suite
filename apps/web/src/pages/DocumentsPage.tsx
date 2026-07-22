@@ -1790,7 +1790,7 @@ const DocumentsPage: React.FC = () => {
           <p className="documents-v2-eyebrow">
             Documents 3.0
           </p>
-          <h2>Documents</h2>
+          <h1>Documents</h1>
           <p>
             A focused, page-based writing workspace with everything close at hand.
           </p>
@@ -1823,7 +1823,7 @@ const DocumentsPage: React.FC = () => {
         >
           <div className="documents-v2-library-header">
             <div>
-              <h3>Library</h3>
+              <h2>Library</h2>
               <span>
                 {documents.length} document
                 {documents.length === 1
@@ -2031,9 +2031,9 @@ const DocumentsPage: React.FC = () => {
         <main className="documents-v2-editor-shell">
           {!selectedDocument ? (
             <div className="documents-v2-no-selection">
-              <h3>
+              <h2>
                 Select or create a document
-              </h3>
+              </h2>
               <p>
                 Choose something from the
                 library, or create a new

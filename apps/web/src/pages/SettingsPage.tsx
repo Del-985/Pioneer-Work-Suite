@@ -238,7 +238,7 @@ const SettingsPage: React.FC = () => {
     <div className="settings-page">
       <header className="settings-page__header">
         <p>Workspace preferences</p>
-        <h2>Settings</h2>
+        <h1>Settings</h1>
         <span>Customize the interface and choose practical defaults for documents and tasks.</span>
       </header>
 

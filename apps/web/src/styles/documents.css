@@ -24,7 +24,7 @@
   gap: var(--space-4);
 }
 
-.documents-v2-header h2 {
+.documents-v2-header h1 {
   margin: 0;
   color: var(--text-strong);
   font-size: clamp(1.55rem, 4vw, 2.1rem);
@@ -100,7 +100,7 @@
   padding: 19px 18px 12px;
 }
 
-.documents-v2-library-header h3 {
+.documents-v2-library-header h2 {
   margin: 0;
   color: var(--text-strong);
   font-size: 1rem;
@@ -348,7 +348,7 @@
   font-size: 1.35rem;
 }
 
-.documents-v2-no-selection h3 {
+.documents-v2-no-selection h2 {
   margin: 0;
   color: var(--text-strong);
 }

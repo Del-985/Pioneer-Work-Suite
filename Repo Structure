@@ -1,6 +1,6 @@
 # Pioneer Work Suite repository structure
 
-This document describes the current source layout for 0.1.15 after the Documents workspace modernization, responsive-shell pass, backend-aware Mail work, local backup and restore, and the settings, shared UI, accessibility, performance, notification, and recovery passes. Generated folders such as `node_modules`, `dist`, Prisma output, and Tauri build artifacts are intentionally omitted.
+This document describes the current source layout for 0.1.16 after the page-owned heading pass, Mail workspace modernization, opt-in developer tooling, responsive-shell work, local backup and restore, and the settings, shared UI, accessibility, performance, notification, and recovery passes. Generated folders such as `node_modules`, `dist`, Prisma output, and Tauri build artifacts are intentionally omitted.
 
 ```text
 Pioneer-Work-Suite/

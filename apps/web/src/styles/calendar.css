@@ -1,3 +1,9 @@
+.calendar-page { min-width: 0; }
+.calendar-page__header { margin-bottom: var(--space-4); }
+.calendar-page__header > p { margin: 0 0 var(--space-1); color: var(--accent-text); font-size: var(--font-size-xs); font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.calendar-page__header h1 { margin: 0; color: var(--text-strong); font-size: clamp(1.55rem, 4vw, 2.15rem); }
+.calendar-page__header > span { display: block; max-width: 720px; margin-top: var(--space-2); color: var(--text-muted); line-height: 1.55; }
+
 .calendar-event-urgency-field,
 .calendar-event-time-field {
   display: flex;
@@ -89,7 +95,7 @@
 }
 
 .calendar-day-agenda > header p,
-.calendar-day-agenda > header h3 {
+.calendar-day-agenda > header h2 {
   margin: 0;
 }
 
@@ -101,7 +107,7 @@
   letter-spacing: 0.08em;
 }
 
-.calendar-day-agenda > header h3 {
+.calendar-day-agenda > header h2 {
   color: var(--text-strong);
   font-size: var(--font-size-lg);
 }
@@ -128,7 +134,7 @@
   min-width: 0;
 }
 
-.calendar-day-agenda__grid h4 {
+.calendar-day-agenda__grid h3 {
   margin: 0 0 var(--space-2);
   color: var(--text);
   font-size: var(--font-size-sm);
