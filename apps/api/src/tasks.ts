@@ -66,6 +66,10 @@ function parseDate(input: unknown): Date | null {
   return Number.isNaN(parsed.getTime()) ? null : parsed;
 }
 
+function hasInvalidDate(input: unknown): boolean {
+  return input !== null && input !== undefined && input !== "" && parseDate(input) === null;
+}
+
 function toIso(value: unknown): string | null {
   if (!value) return null;
   const date = value instanceof Date ? value : new Date(String(value));
@@ -120,6 +124,15 @@ router.post("/", async (req, res) => {
   if (!title || typeof title !== "string" || !title.trim()) {
     return res.status(400).json({ error: "Title is required" });
   }
+  if (title.trim().length > 240) {
+    return res.status(400).json({ error: "Task title is too long" });
+  }
+  if (typeof description === "string" && description.length > 20_000) {
+    return res.status(413).json({ error: "Task description is too large" });
+  }
+  if (hasInvalidDate(dueDate)) {
+    return res.status(400).json({ error: "Invalid task due date" });
+  }
 
   const statusValue = normalizeStatus(status);
 
@@ -149,46 +162,45 @@ router.put("/:id", async (req, res) => {
   const user = (req as any).user as User | undefined;
   if (!user) return res.status(401).json({ error: "Unauthenticated" });
 
-  const existing = await prisma.task.findFirst({
-    where: { id: req.params.id, userId: user.id },
-  });
-
-  if (!existing) return res.status(404).json({ error: "Task not found" });
-
-  const patch = req.body || {};
-  const data: any = {};
-
-  if (typeof patch.title === "string" && patch.title.trim()) {
-    data.title = patch.title.trim();
-  }
-  if (typeof patch.description === "string") {
-    data.description = patch.description.trim();
-  }
-  if (patch.priority !== undefined) {
-    data.priority = normalizePriority(patch.priority);
-  }
-  if (patch.tags !== undefined) {
-    data.tags = normalizeTags(patch.tags);
-  }
-  if (patch.dueDate !== undefined) {
-    data.dueDate = parseDate(patch.dueDate);
-  }
-  if (
-    patch.status === "todo" ||
-    patch.status === "in_progress" ||
-    patch.status === "done"
-  ) {
-    data.status = patch.status;
-    data.completedAt =
-      patch.status === "done"
-        ? existing.completedAt ?? new Date()
-        : null;
-  }
-  if (patch.archivedAt !== undefined) {
-    data.archivedAt = parseDate(patch.archivedAt);
-  }
-
   try {
+    const existing = await prisma.task.findFirst({
+      where: { id: req.params.id, userId: user.id },
+    });
+    if (!existing) return res.status(404).json({ error: "Task not found" });
+
+    const patch = req.body || {};
+    const data: any = {};
+    if (typeof patch.title === "string" && patch.title.trim()) {
+      if (patch.title.trim().length > 240) {
+        return res.status(400).json({ error: "Task title is too long" });
+      }
+      data.title = patch.title.trim();
+    }
+    if (typeof patch.description === "string") {
+      if (patch.description.length > 20_000) {
+        return res.status(413).json({ error: "Task description is too large" });
+      }
+      data.description = patch.description.trim();
+    }
+    if (patch.priority !== undefined) data.priority = normalizePriority(patch.priority);
+    if (patch.tags !== undefined) data.tags = normalizeTags(patch.tags);
+    if (patch.dueDate !== undefined) {
+      if (hasInvalidDate(patch.dueDate)) {
+        return res.status(400).json({ error: "Invalid task due date" });
+      }
+      data.dueDate = parseDate(patch.dueDate);
+    }
+    if (patch.status === "todo" || patch.status === "in_progress" || patch.status === "done") {
+      data.status = patch.status;
+      data.completedAt = patch.status === "done" ? existing.completedAt ?? new Date() : null;
+    }
+    if (patch.archivedAt !== undefined) {
+      if (hasInvalidDate(patch.archivedAt)) {
+        return res.status(400).json({ error: "Invalid task archive date" });
+      }
+      data.archivedAt = parseDate(patch.archivedAt);
+    }
+
     const updated = await prisma.task.update({
       where: { id: existing.id },
       data,

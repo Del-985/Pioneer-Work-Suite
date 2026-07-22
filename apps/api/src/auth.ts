@@ -2,15 +2,13 @@
 import express from "express";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
+import { Prisma } from "@prisma/client";
+import { config } from "./config";
 import { prisma } from "./prisma";
 
 const router = express.Router();
 
-// For now, we'll hardcode a JWT secret.
-// Later you can move this to a stronger secret in the environment.
-const JWT_SECRET = process.env.JWT_SECRET || "dev-student-secret-change-me";
-
-export type UserRole = "student";
+export type UserRole = "student" | "professional";
 
 export interface User {
   id: string;
@@ -23,9 +21,22 @@ export interface User {
 function signToken(user: User): string {
   return jwt.sign(
     { sub: user.id, role: user.role },
-    JWT_SECRET,
+    config.jwtSecret,
     { expiresIn: "7d" }
   );
+}
+
+function normalizeRole(value: unknown): UserRole {
+  return value === "professional" ? "professional" : "student";
+}
+
+function normalizeEmail(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const email = value.trim().toLowerCase();
+  if (email.length < 3 || email.length > 320 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    return null;
+  }
+  return email;
 }
 
 // Middleware: attach user to request if token is valid (DB-backed)
@@ -44,10 +55,14 @@ export async function authMiddleware(
   const token = authHeader.slice("Bearer ".length).trim();
 
   try {
-    const payload = jwt.verify(token, JWT_SECRET) as {
-      sub: string;
+    const payload = jwt.verify(token, config.jwtSecret) as {
+      sub?: string;
       role: string;
     };
+
+    if (typeof payload.sub !== "string" || !payload.sub) {
+      return res.status(401).json({ error: "Invalid or expired token" });
+    }
 
     // Look up the user in the database
     const dbUser = await prisma.user.findUnique({
@@ -62,14 +77,13 @@ export async function authMiddleware(
       id: dbUser.id,
       email: dbUser.email,
       name: dbUser.name,
-      role: (dbUser.role as UserRole) || "student",
+      role: normalizeRole(dbUser.role),
     };
 
     // Attach user to request (compatible with tasks/documents routes)
     (req as any).user = user;
     next();
-  } catch (err) {
-    console.error("authMiddleware error:", err);
+  } catch (_err) {
     return res.status(401).json({ error: "Invalid or expired token" });
   }
 }
@@ -78,13 +92,17 @@ export async function authMiddleware(
 router.post("/register", async (req, res) => {
   const { email, password, name } = req.body || {};
 
-  if (!email || !password || !name) {
-    return res
-      .status(400)
-      .json({ error: "Missing email, password, or name" });
+  const normalizedEmail = normalizeEmail(email);
+  const normalizedName = typeof name === "string" ? name.trim() : "";
+  if (!normalizedEmail) {
+    return res.status(400).json({ error: "A valid email address is required" });
   }
-
-  const normalizedEmail = String(email).toLowerCase();
+  if (normalizedName.length < 1 || normalizedName.length > 120) {
+    return res.status(400).json({ error: "Name must contain 1 to 120 characters" });
+  }
+  if (typeof password !== "string" || password.length < 8 || password.length > 128) {
+    return res.status(400).json({ error: "Password must contain 8 to 128 characters" });
+  }
 
   try {
     // Check if user already exists
@@ -93,7 +111,7 @@ router.post("/register", async (req, res) => {
     });
 
     if (existing) {
-      return res.status(400).json({ error: "Email already in use" });
+      return res.status(409).json({ error: "Email already in use" });
     }
 
     const passwordHash = await bcrypt.hash(password, 10);
@@ -101,7 +119,7 @@ router.post("/register", async (req, res) => {
     const created = await prisma.user.create({
       data: {
         email: normalizedEmail,
-        name: String(name),
+        name: normalizedName,
         passwordHash,
         role: "student",
       },
@@ -118,6 +136,9 @@ router.post("/register", async (req, res) => {
 
     return res.status(201).json({ user, token });
   } catch (err) {
+    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === "P2002") {
+      return res.status(409).json({ error: "Email already in use" });
+    }
     console.error("Error in /auth/register:", err);
     return res.status(500).json({ error: "Internal server error" });
   }
@@ -127,11 +148,10 @@ router.post("/register", async (req, res) => {
 router.post("/login", async (req, res) => {
   const { email, password } = req.body || {};
 
-  if (!email || !password) {
+  const normalizedEmail = normalizeEmail(email);
+  if (!normalizedEmail || typeof password !== "string" || password.length < 1 || password.length > 128) {
     return res.status(400).json({ error: "Missing email or password" });
   }
-
-  const normalizedEmail = String(email).toLowerCase();
 
   try {
     const dbUser = await prisma.user.findUnique({
@@ -151,7 +171,7 @@ router.post("/login", async (req, res) => {
       id: dbUser.id,
       email: dbUser.email,
       name: dbUser.name,
-      role: (dbUser.role as UserRole) || "student",
+      role: normalizeRole(dbUser.role),
     };
 
     const token = signToken(user);

@@ -12,6 +12,8 @@ interface DocumentResponse {
   id: string;
   title: string;
   content: string;
+  isPinned: boolean;
+  isFavorite: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -21,6 +23,8 @@ function mapDocument(doc: any): DocumentResponse {
     id: doc.id,
     title: doc.title,
     content: doc.content ?? "",
+    isPinned: Boolean(doc.isPinned),
+    isFavorite: Boolean(doc.isFavorite),
     createdAt:
       doc.createdAt instanceof Date
         ? doc.createdAt.toISOString()
@@ -63,18 +67,29 @@ router.post("/", async (req, res) => {
     return res.status(401).json({ error: "Unauthenticated" });
   }
 
-  const { title } = req.body || {};
+  const { title, content, isPinned, isFavorite } = req.body || {};
   const finalTitle =
     typeof title === "string" && title.trim().length > 0
       ? title.trim()
       : "Untitled document";
+  if (finalTitle.length > 240) {
+    return res.status(400).json({ error: "Document title is too long" });
+  }
+  if (content !== undefined && typeof content !== "string") {
+    return res.status(400).json({ error: "Document content must be text" });
+  }
+  if (typeof content === "string" && content.length > 1_500_000) {
+    return res.status(413).json({ error: "Document content is too large" });
+  }
 
   try {
     const created = await prisma.document.create({
       data: {
         userId: user.id,
         title: finalTitle,
-        content: "",
+        content: typeof content === "string" ? content : "",
+        isPinned: Boolean(isPinned),
+        isFavorite: Boolean(isFavorite),
       },
     });
 
@@ -123,15 +138,23 @@ router.put("/:id", async (req, res) => {
   }
 
   const { id } = req.params;
-  const { title, content } = req.body || {};
+  const { title, content, isPinned, isFavorite } = req.body || {};
 
   const data: any = {};
   if (typeof title === "string" && title.trim().length > 0) {
     data.title = title.trim();
   }
+  if (typeof data.title === "string" && data.title.length > 240) {
+    return res.status(400).json({ error: "Document title is too long" });
+  }
   if (typeof content === "string") {
+    if (content.length > 1_500_000) {
+      return res.status(413).json({ error: "Document content is too large" });
+    }
     data.content = content;
   }
+  if (typeof isPinned === "boolean") data.isPinned = isPinned;
+  if (typeof isFavorite === "boolean") data.isFavorite = isFavorite;
 
   try {
     const existing = await prisma.document.findFirst({

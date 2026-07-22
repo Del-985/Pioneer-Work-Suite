@@ -426,123 +426,49 @@ const CalendarPage: React.FC = () => {
         </span>
       </header>
 
-      <div
-        style={{
-          marginTop: 16,
-          marginBottom: 16,
-          display: "flex",
-          flexWrap: "wrap",
-          alignItems: "center",
-          gap: 12,
-          justifyContent: "space-between",
-        }}
-      >
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-          }}
-        >
+      <div className="calendar-toolbar">
+        <div className="calendar-toolbar__controls">
           <button
             type="button"
+            className="calendar-toolbar__button"
             onClick={() => setCurrentMonth((m) => addMonths(m, -1))}
-            style={{
-              padding: "6px 10px",
-              borderRadius: 999,
-              border: "1px solid var(--border-strong)",
-              background: "transparent",
-              color: "var(--text)",
-              fontSize: 13,
-              cursor: "pointer",
-            }}
           >
-            Prev
+            Previous
           </button>
           <button
             type="button"
+            className="calendar-toolbar__button is-primary"
             onClick={handleToday}
-            style={{
-              padding: "6px 12px",
-              borderRadius: 999,
-              border: "none",
-              background: "var(--accent-gradient)",
-              color: "var(--text-on-accent)",
-              fontSize: 13,
-              cursor: "pointer",
-            }}
           >
             Today
           </button>
           <button
             type="button"
+            className="calendar-toolbar__button"
             onClick={() => setCurrentMonth((m) => addMonths(m, 1))}
-            style={{
-              padding: "6px 10px",
-              borderRadius: 999,
-              border: "1px solid var(--border-strong)",
-              background: "transparent",
-              color: "var(--text)",
-              fontSize: 13,
-              cursor: "pointer",
-            }}
           >
             Next
           </button>
         </div>
 
-        <div style={{ fontSize: 15, fontWeight: 600 }}>
+        <h2 className="calendar-toolbar__month" aria-live="polite">
           {formatMonthYear(currentMonth)}
-        </div>
+        </h2>
 
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 12,
-            fontSize: 11,
-            color: "var(--text-muted)",
-          }}
-        >
-          <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-            }}
-          >
-            <span
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: "50%",
-                background: "var(--accent)",
-              }}
-            />
+        <div className="calendar-legend" aria-label="Calendar legend">
+          <span>
+            <span className="calendar-legend__dot is-task" />
             Tasks due
           </span>
-          <span
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 4,
-            }}
-          >
-            <span
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: "50%",
-                background: "var(--accent-2)",
-              }}
-            />
+          <span>
+            <span className="calendar-legend__dot is-event" />
             Events
           </span>
         </div>
       </div>
 
-      {loading && <p style={{ fontSize: 13 }}>Loading calendar...</p>}
-      {error && <p style={{ fontSize: 13, color: "var(--danger)" }}>{error}</p>}
+      {loading && <p className="calendar-state" role="status">Loading calendar…</p>}
+      {error && <p className="calendar-state is-error" role="alert">{error}</p>}
 
       {selectedDay && (
         <section
@@ -654,49 +580,26 @@ const CalendarPage: React.FC = () => {
       {selectedDay && (
         <form
           onSubmit={handleCreateEventForSelectedDay}
-          style={{
-            marginBottom: 16,
-            padding: 10,
-            borderRadius: 10,
-            border: "1px solid var(--border)",
-            background: "var(--surface-1)",
-            display: "flex",
-            flexDirection: "column",
-            gap: 8,
-            fontSize: 13,
-          }}
+          className="calendar-quick-event"
         >
-          <div>
-            Quick event on{" "}
-            {selectedDay.toLocaleDateString(undefined, {
-              weekday: "short",
-              month: "short",
-              day: "numeric",
-            })}
+          <div className="calendar-quick-event__heading">
+            <h2>Quick event</h2>
+            <p>
+              {selectedDay.toLocaleDateString(undefined, {
+                weekday: "long",
+                month: "long",
+                day: "numeric",
+              })}
+            </p>
           </div>
           <input
             type="text"
             value={newEventTitle}
             onChange={(e) => setNewEventTitle(e.target.value)}
-            placeholder="Event title..."
-            style={{
-              padding: "8px 10px",
-              borderRadius: 8,
-              border: "1px solid var(--border-strong)",
-              background: "var(--surface-1)",
-              color: "var(--text)",
-              fontSize: 13,
-            }}
+            placeholder="Event title"
+            aria-label="Event title"
           />
-          <label
-            style={{
-              display: "inline-flex",
-              alignItems: "center",
-              gap: 6,
-              fontSize: 12,
-              color: "var(--accent-text)",
-            }}
-          >
+          <label className="calendar-quick-event__all-day">
             <input
               type="checkbox"
               checked={newEventAllDay}
@@ -748,56 +651,27 @@ const CalendarPage: React.FC = () => {
               ))}
             </select>
           </label>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "flex-end",
-              gap: 8,
-            }}
-          >
+          <div className="calendar-quick-event__actions">
             <button
               type="button"
+              className="calendar-quick-event__button"
               onClick={() => {
                 setSelectedDay(null);
                 setNewEventTitle("");
                 setNewEventUrgency("");
-              }}
-              style={{
-                padding: "6px 10px",
-                borderRadius: 999,
-                border: "1px solid var(--border-strong)",
-                background: "transparent",
-                color: "var(--accent-text)",
-                fontSize: 12,
-                cursor: "pointer",
               }}
             >
               Cancel
             </button>
             <button
               type="submit"
+              className="calendar-quick-event__button is-primary"
               disabled={
                 creatingEvent ||
                 !newEventTitle.trim() ||
                 (!newEventAllDay &&
                   (!newEventTime || !newEventEndTime))
               }
-              style={{
-                padding: "6px 12px",
-                borderRadius: 999,
-                border: "none",
-                background: "var(--accent-gradient)",
-                color: "var(--text-on-accent)",
-                fontSize: 12,
-                cursor: creatingEvent ? "default" : "pointer",
-                opacity:
-                  creatingEvent ||
-                  !newEventTitle.trim() ||
-                  (!newEventAllDay &&
-                    (!newEventTime || !newEventEndTime))
-                    ? 0.7
-                    : 1,
-              }}
             >
               {creatingEvent ? "Saving..." : "Add event"}
             </button>
@@ -805,44 +679,16 @@ const CalendarPage: React.FC = () => {
         </form>
       )}
 
-      <div
-        style={{
-          borderRadius: 12,
-          border: "1px solid var(--border)",
-          overflow: "hidden",
-          background: "var(--panel-gradient)",
-        }}
-      >
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
-            borderBottom: "1px solid var(--border)",
-          }}
-        >
+      <div className="calendar-grid">
+        <div className="calendar-weekdays" aria-hidden="true">
           {weekdayLabels.map((label) => (
-            <div
-              key={label}
-              style={{
-                padding: "6px 4px",
-                textAlign: "center",
-                fontSize: 11,
-                textTransform: "uppercase",
-                letterSpacing: "0.08em",
-                color: "var(--text-muted)",
-              }}
-            >
+            <div key={label}>
               {label}
             </div>
           ))}
         </div>
 
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "repeat(7, minmax(0, 1fr))",
-          }}
-        >
+        <div className="calendar-days">
           {calendarCells.map((day) => {
             const inCurrentMonth =
               day.getMonth() === currentMonth.getMonth();
@@ -860,81 +706,31 @@ const CalendarPage: React.FC = () => {
               <button
                 key={key + String(day.getMonth())}
                 type="button"
+                className={
+                  "calendar-day" +
+                  (inCurrentMonth ? "" : " is-outside") +
+                  (isToday ? " is-today" : "") +
+                  (isSelected ? " is-selected" : "")
+                }
                 onClick={() => handleSelectDay(day)}
                 aria-pressed={Boolean(isSelected)}
                 aria-label={`${day.toLocaleDateString()}: ${dayTasks.length} tasks, ${dayEvents.length} events`}
-                style={{
-                  all: "unset",
-                  boxSizing: "border-box",
-                  borderRight: "1px solid var(--border-subtle)",
-                  borderBottom: "1px solid var(--border-subtle)",
-                  padding: "6px 6px 8px",
-                  minHeight: 64,
-                  cursor: "pointer",
-                  background: isSelected
-                    ? "var(--accent-soft)"
-                    : "transparent",
-                }}
               >
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center",
-                    marginBottom: 4,
-                  }}
-                >
-                  <span
-                    style={{
-                      fontSize: 12,
-                      fontWeight: isToday ? 700 : 500,
-                      color: inCurrentMonth
-                        ? "var(--text)"
-                        : "var(--text-faint)",
-                    }}
-                  >
+                <div className="calendar-day__header">
+                  <span className="calendar-day__number">
                     {day.getDate()}
                   </span>
                   {isToday && (
-                    <span
-                      style={{
-                        fontSize: 9,
-                        padding: "2px 6px",
-                        borderRadius: 999,
-                        border: "1px solid var(--border-strong)",
-                        color: "var(--text)",
-                      }}
-                    >
+                    <span className="calendar-day__today">
                       Today
                     </span>
                   )}
                 </div>
 
-                <div
-                  style={{
-                    display: "flex",
-                    flexDirection: "column",
-                    gap: 2,
-                    fontSize: 10,
-                  }}
-                >
+                <div className="calendar-day__counts">
                   {dayTasks.length > 0 && (
-                    <div
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 4,
-                        color: "var(--accent-text)",
-                      }}
-                    >
-                      <span
-                        style={{
-                          width: 6,
-                          height: 6,
-                          borderRadius: "50%",
-                          background: "var(--accent)",
-                        }}
-                      />
+                    <div className="calendar-task-count">
+                      <span />
                       <span>
                         {dayTasks.length} task
                         {dayTasks.length === 1 ? "" : "s"}
@@ -949,19 +745,8 @@ const CalendarPage: React.FC = () => {
                           ? `urgency-${eventUrgency}`
                           : "urgency-none")
                       }
-                      style={{
-                        display: "inline-flex",
-                        alignItems: "center",
-                        gap: 4,
-                      }}
                     >
-                      <span
-                        style={{
-                          width: 6,
-                          height: 6,
-                          borderRadius: "50%",
-                        }}
-                      />
+                      <span />
                       <span>
                         {dayEvents.length} event
                         {dayEvents.length === 1 ? "" : "s"}

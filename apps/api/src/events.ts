@@ -76,16 +76,21 @@ router.get("/", async (req, res) => {
 
   const from = parseDateParam(req.query.from);
   const to = parseDateParam(req.query.to);
+  if (req.query.from !== undefined && !from) {
+    return res.status(400).json({ error: "Invalid from date" });
+  }
+  if (req.query.to !== undefined && !to) {
+    return res.status(400).json({ error: "Invalid to date" });
+  }
+  if (from && to && from >= to) {
+    return res.status(400).json({ error: "from must be earlier than to" });
+  }
 
   const where: any = { userId: user.id };
   if (from || to) {
-    where.start = {};
-    if (from) {
-      where.start.gte = from;
-    }
-    if (to) {
-      where.start.lt = to;
-    }
+    where.AND = [];
+    if (from) where.AND.push({ end: { gte: from } });
+    if (to) where.AND.push({ start: { lt: to } });
   }
 
   try {
@@ -118,8 +123,14 @@ router.post("/", async (req, res) => {
     urgency,
   } = req.body || {};
 
-  if (!title || typeof title !== "string") {
+  if (!title || typeof title !== "string" || !title.trim()) {
     return res.status(400).json({ error: "Title is required" });
+  }
+  if (title.trim().length > 240) {
+    return res.status(400).json({ error: "Event title is too long" });
+  }
+  if (typeof description === "string" && description.length > 20_000) {
+    return res.status(413).json({ error: "Event description is too large" });
   }
 
   const startDate = parseDateParam(start);
@@ -137,6 +148,9 @@ router.post("/", async (req, res) => {
     typeof kind === "string" && kind.trim().length > 0
       ? kind.trim()
       : "event";
+  if (finalKind.length > 40) {
+    return res.status(400).json({ error: "Event kind is too long" });
+  }
 
   if (!hasValidUrgency(urgency)) {
     return res.status(400).json({ error: "Invalid event urgency" });
@@ -212,23 +226,27 @@ router.put("/:id", async (req, res) => {
   if (typeof title === "string" && title.trim().length > 0) {
     data.title = title.trim();
   }
+  if (typeof data.title === "string" && data.title.length > 240) {
+    return res.status(400).json({ error: "Event title is too long" });
+  }
 
   if (typeof description === "string") {
+    if (description.length > 20_000) {
+      return res.status(413).json({ error: "Event description is too large" });
+    }
     data.description = description;
   }
 
   if (start !== undefined) {
     const startDate = parseDateParam(start);
-    if (startDate) {
-      data.start = startDate;
-    }
+    if (!startDate) return res.status(400).json({ error: "Invalid start date" });
+    data.start = startDate;
   }
 
   if (end !== undefined) {
     const endDate = parseDateParam(end);
-    if (endDate) {
-      data.end = endDate;
-    }
+    if (!endDate) return res.status(400).json({ error: "Invalid end date" });
+    data.end = endDate;
   }
 
   if (allDay !== undefined) {
@@ -237,6 +255,9 @@ router.put("/:id", async (req, res) => {
 
   if (typeof kind === "string" && kind.trim().length > 0) {
     data.kind = kind.trim();
+    if (data.kind.length > 40) {
+      return res.status(400).json({ error: "Event kind is too long" });
+    }
   }
 
   if (urgency !== undefined) {
@@ -256,9 +277,10 @@ router.put("/:id", async (req, res) => {
       return res.status(404).json({ error: "Event not found" });
     }
 
-    // Ensure end >= start if both present in update
-    if (data.start && data.end && data.end < data.start) {
-      data.end = data.start;
+    const effectiveStart = data.start ?? existing.start;
+    const effectiveEnd = data.end ?? existing.end;
+    if (effectiveEnd < effectiveStart) {
+      return res.status(400).json({ error: "Event end cannot be before its start" });
     }
 
     const updated = await prisma.event.update({

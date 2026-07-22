@@ -5,6 +5,7 @@ import React, {
   useState,
 } from "react";
 import {
+  useLocation,
   useNavigate,
 } from "react-router-dom";
 
@@ -52,6 +53,7 @@ function toSidebarMode(
 
 const App: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const recoveredPath = useSessionRecovery();
   const initialSettings = useRef(
     getSettingsSnapshot()
@@ -71,6 +73,9 @@ const App: React.FC = () => {
 
   const workspaceAccessible = hasWorkspaceAccess();
   const cloudConnected = hasCloudSession();
+  const isEntryRoute =
+    location.pathname === "/login" ||
+    location.pathname === "/register";
 
   useEffect(() => {
     return subscribeToSettings((nextSettings) => {
@@ -167,7 +172,7 @@ const App: React.FC = () => {
   }, [cloudConnected, handleDisconnectCloud, navigate]);
 
   return (
-    <div className="app">
+    <div className={`app${isEntryRoute ? " app-entry-mode" : ""}`}>
       <a className="skip-link" href="#workspace-content">
         Skip to workspace content
       </a>
@@ -184,10 +189,12 @@ const App: React.FC = () => {
         onToggleCloud={handleToggleCloud}
       />
 
-      <AppNavigation
-        cloudConnected={cloudConnected}
-        onToggleCloud={handleToggleCloud}
-      />
+      {!isEntryRoute && (
+        <AppNavigation
+          cloudConnected={cloudConnected}
+          onToggleCloud={handleToggleCloud}
+        />
+      )}
 
       <div className="main-layout">
         <main className="workspace">
@@ -206,7 +213,7 @@ const App: React.FC = () => {
           </section>
         </main>
 
-        {settings.sidebar.rightSidebarVisible && (
+        {!isEntryRoute && settings.sidebar.rightSidebarVisible && (
           <RightSidebar
             isOpen={isRightSidebarOpen}
             mode={sidebarMode}
@@ -218,7 +225,7 @@ const App: React.FC = () => {
         )}
       </div>
 
-      <StatusBar />
+      {!isEntryRoute && <StatusBar />}
     </div>
   );
 };

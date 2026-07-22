@@ -1,6 +1,3 @@
-
-// apps/web/src/pages/RegisterPage.tsx
-
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
@@ -14,71 +11,42 @@ import { getConfiguredStartupPath } from "../api/settings";
 import { APP_VERSION } from "../config/appMetadata";
 import { getApiErrorMessage } from "../utils/apiErrors";
 
+import "../styles/auth.css";
+
 const RegisterPage: React.FC = () => {
   const navigate = useNavigate();
-
-  const [name, setName] = useState(
-    getLocalWorkspaceName()
-  );
+  const [name, setName] = useState(getLocalWorkspaceName());
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-
-  const [isSubmitting, setIsSubmitting] =
-    useState(false);
-
-  const [error, setError] = useState<string | null>(
-    null
-  );
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   function openConfiguredStartupPage(): void {
-    navigate(getConfiguredStartupPath(), {
-      replace: true,
-    });
+    navigate(getConfiguredStartupPath(), { replace: true });
   }
 
   function continueLocally(): void {
-    const workspaceName = name.trim();
-
-    createOrUpdateLocalWorkspace(workspaceName);
+    createOrUpdateLocalWorkspace(name.trim());
     openConfiguredStartupPage();
   }
 
-  async function handleSubmit(
-    event: React.FormEvent<HTMLFormElement>
-  ): Promise<void> {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-
     const normalizedName = name.trim();
     const normalizedEmail = email.trim();
-
-    if (
-      !normalizedName ||
-      !normalizedEmail ||
-      !password
-    ) {
-      return;
-    }
+    if (!normalizedName || !normalizedEmail || !password) return;
 
     setIsSubmitting(true);
     setError(null);
 
     try {
-      const { user, token } = await register(
-        normalizedName,
-        normalizedEmail,
-        password
-      );
-
+      const { user, token } = await register(normalizedName, normalizedEmail, password);
       connectCloudSession(user, token);
       openConfiguredStartupPage();
-    } catch (error: unknown) {
-      console.error("Register error:", error);
-
+    } catch (submitError: unknown) {
+      console.error("Register error:", submitError);
       setError(
-        getApiErrorMessage(
-          error,
-          "Unable to create the cloud account."
-        )
+        getApiErrorMessage(submitError, "Unable to create the cloud account.")
       );
     } finally {
       setIsSubmitting(false);
@@ -86,207 +54,70 @@ const RegisterPage: React.FC = () => {
   }
 
   return (
-    <div
-      style={{
-        maxWidth: 420,
-        width: "100%",
-        position: "relative",
-        minHeight: 520,
-      }}
-    >
-      <h1 style={{ marginTop: 0 }}>
-        Connect a cloud account
-      </h1>
+    <div className="auth-page auth-page--register">
+      <section className="auth-intro" aria-labelledby="auth-register-title">
+        <p className="auth-brand">Pioneer Work Suite</p>
+        <h1 id="auth-register-title">Take your workspace across devices.</h1>
+        <p className="auth-intro__copy">
+          Create a cloud account for synchronization and Mail. Your local workspace remains
+          usable independently.
+        </p>
+        <div className="auth-local-note">
+          <strong>Not ready for cloud?</strong>
+          <span>You can continue locally now and connect later from the sidebar.</span>
+          <button type="button" onClick={continueLocally}>Continue locally</button>
+        </div>
+      </section>
 
-      <p
-        style={{
-          fontSize: 13,
-          color: "var(--text-muted)",
-        }}
-      >
-        A cloud account is optional. It will be used
-        for syncing across devices; your local
-        workspace remains available either way.
-      </p>
-
-      <form
-        onSubmit={handleSubmit}
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: 10,
-          marginTop: 16,
-        }}
-      >
-        <label
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 4,
-          }}
-        >
-          <span style={{ fontSize: 13 }}>
-            Name
-          </span>
-
-          <input
-            type="text"
-            value={name}
-            onChange={(event) =>
-              setName(event.target.value)
-            }
-            required
-            autoComplete="name"
-            style={{
-              padding: "8px 10px",
-              borderRadius: 6,
-              border: "1px solid var(--border)",
-              background: "var(--surface-input)",
-              color: "var(--text)",
-            }}
-          />
-        </label>
-
-        <label
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 4,
-          }}
-        >
-          <span style={{ fontSize: 13 }}>
-            Email
-          </span>
-
-          <input
-            type="email"
-            value={email}
-            onChange={(event) =>
-              setEmail(event.target.value)
-            }
-            required
-            autoComplete="email"
-            style={{
-              padding: "8px 10px",
-              borderRadius: 6,
-              border: "1px solid var(--border)",
-              background: "var(--surface-input)",
-              color: "var(--text)",
-            }}
-          />
-        </label>
-
-        <label
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 4,
-          }}
-        >
-          <span style={{ fontSize: 13 }}>
-            Password
-          </span>
-
-          <input
-            type="password"
-            value={password}
-            onChange={(event) =>
-              setPassword(event.target.value)
-            }
-            required
-            autoComplete="new-password"
-            style={{
-              padding: "8px 10px",
-              borderRadius: 6,
-              border: "1px solid var(--border)",
-              background: "var(--surface-input)",
-              color: "var(--text)",
-            }}
-          />
-        </label>
-
-        {error && (
-          <p
-            role="alert"
-            style={{
-              color: "var(--danger)",
-              fontSize: 13,
-              margin: "2px 0 0",
-            }}
-          >
-            {error}
-          </p>
-        )}
-
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          style={{
-            marginTop: 8,
-            padding: "8px 0",
-            borderRadius: 999,
-            border: "none",
-            cursor: isSubmitting
-              ? "default"
-              : "pointer",
-            background: "var(--accent-gradient)",
-            color: "var(--text-on-accent)",
-            fontWeight: 500,
-            fontSize: 14,
-            opacity: isSubmitting ? 0.7 : 1,
-          }}
-        >
-          {isSubmitting
-            ? "Creating account..."
-            : "Create cloud account"}
-        </button>
-      </form>
-
-      <button
-        type="button"
-        onClick={continueLocally}
-        style={{
-          width: "100%",
-          marginTop: 12,
-          padding: "8px 0",
-          borderRadius: 999,
-          border: "1px solid var(--border)",
-          cursor: "pointer",
-          background: "transparent",
-          color: "var(--accent-text)",
-          fontWeight: 500,
-          fontSize: 14,
-        }}
-      >
-        Continue with local workspace
-      </button>
-
-      <div
-        style={{
-          marginTop: 10,
-          fontSize: 13,
-        }}
-      >
-        <span>Already have a cloud account? </span>
-        <Link to="/login">Log in</Link>
-      </div>
-
-      <span
-        aria-label={`Pioneer Work Suite version ${APP_VERSION}`}
-        style={{
-          position: "absolute",
-          right: 0,
-          bottom: 0,
-          color: "var(--text-faint)",
-          fontSize: 11,
-          userSelect: "none",
-        }}
-      >
-        v{APP_VERSION}
-      </span>
+      <section className="auth-card auth-card--single" aria-label="Create cloud account">
+        <div className="auth-card__section">
+          <p className="auth-eyebrow">Cloud setup</p>
+          <h2>Create your account</h2>
+          <p>Use an email and password to prepare cross-device synchronization.</p>
+          <form className="auth-form" onSubmit={handleSubmit}>
+            <label>
+              <span>Name</span>
+              <input
+                type="text"
+                value={name}
+                onChange={(event) => setName(event.target.value)}
+                required
+                autoComplete="name"
+              />
+            </label>
+            <label>
+              <span>Email</span>
+              <input
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                required
+                autoComplete="email"
+              />
+            </label>
+            <label>
+              <span>Password</span>
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                required
+                autoComplete="new-password"
+              />
+            </label>
+            {error && <p className="auth-error" role="alert">{error}</p>}
+            <button className="auth-button auth-button--primary" type="submit" disabled={isSubmitting}>
+              {isSubmitting ? "Creating account…" : "Create cloud account"}
+            </button>
+          </form>
+          <p className="auth-switch">Already have a cloud account? <Link to="/login">Log in</Link></p>
+        </div>
+        <footer className="auth-version" aria-label={`Pioneer Work Suite version ${APP_VERSION}`}>
+          v{APP_VERSION}
+        </footer>
+      </section>
     </div>
   );
 };
 
 export default RegisterPage;
-

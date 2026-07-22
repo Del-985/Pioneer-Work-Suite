@@ -1,6 +1,3 @@
-
-// apps/web/src/pages/LoginPage.tsx
-
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 
@@ -14,26 +11,18 @@ import { getConfiguredStartupPath } from "../api/settings";
 import { APP_VERSION } from "../config/appMetadata";
 import { getApiErrorMessage } from "../utils/apiErrors";
 
+import "../styles/auth.css";
+
 const LoginPage: React.FC = () => {
   const navigate = useNavigate();
-
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [localName, setLocalName] = useState(
-    getLocalWorkspaceName()
-  );
-
-  const [isSubmitting, setIsSubmitting] =
-    useState(false);
-
-  const [error, setError] = useState<string | null>(
-    null
-  );
+  const [localName, setLocalName] = useState(getLocalWorkspaceName());
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   function openConfiguredStartupPage(): void {
-    navigate(getConfiguredStartupPath(), {
-      replace: true,
-    });
+    navigate(getConfiguredStartupPath(), { replace: true });
   }
 
   function continueLocally(): void {
@@ -41,36 +30,22 @@ const LoginPage: React.FC = () => {
     openConfiguredStartupPage();
   }
 
-  async function handleSubmit(
-    event: React.FormEvent<HTMLFormElement>
-  ): Promise<void> {
+  async function handleSubmit(event: React.FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-
     const normalizedEmail = email.trim();
-
-    if (!normalizedEmail || !password) {
-      return;
-    }
+    if (!normalizedEmail || !password) return;
 
     setIsSubmitting(true);
     setError(null);
 
     try {
-      const { user, token } = await login(
-        normalizedEmail,
-        password
-      );
-
+      const { user, token } = await login(normalizedEmail, password);
       connectCloudSession(user, token);
       openConfiguredStartupPage();
-    } catch (error: unknown) {
-      console.error("Login error:", error);
-
+    } catch (submitError: unknown) {
+      console.error("Login error:", submitError);
       setError(
-        getApiErrorMessage(
-          error,
-          "Unable to connect to your cloud account."
-        )
+        getApiErrorMessage(submitError, "Unable to connect to your cloud account.")
       );
     } finally {
       setIsSubmitting(false);
@@ -78,277 +53,89 @@ const LoginPage: React.FC = () => {
   }
 
   return (
-    <div
-      style={{
-        maxWidth: 420,
-        width: "100%",
-        position: "relative",
-        minHeight: 520,
-      }}
-    >
-      <h1 style={{ marginTop: 0 }}>
-        Open your workspace
-      </h1>
-
-      <p
-        style={{
-          fontSize: 13,
-          color: "var(--text-muted)",
-        }}
-      >
-        Pioneer works on this device without a
-        server. Cloud login is optional and only
-        enables syncing.
-      </p>
-
-      <section
-        style={{
-          marginTop: 16,
-          padding: 14,
-          borderRadius: 10,
-          border:
-            "1px solid var(--accent-border, rgba(127, 61, 255, 0.36))",
-          background:
-            "var(--accent-soft, rgba(127, 61, 255, 0.08))",
-        }}
-      >
-        <h3
-          style={{
-            margin: 0,
-            fontSize: 14,
-          }}
-        >
-          Continue locally
-        </h3>
-
-        <p
-          style={{
-            margin: "6px 0 10px",
-            fontSize: 12,
-            color: "var(--text-muted)",
-          }}
-        >
-          This creates or opens the local workspace
-          stored on this device.
+    <div className="auth-page">
+      <section className="auth-intro" aria-labelledby="auth-login-title">
+        <p className="auth-brand">Pioneer Work Suite</p>
+        <h1 id="auth-login-title">Your workspace, ready when you are.</h1>
+        <p className="auth-intro__copy">
+          Work locally without waiting for a server. Connect cloud only when you want syncing
+          across devices.
         </p>
-
-        <label
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 4,
-          }}
-        >
-          <span style={{ fontSize: 13 }}>
-            Workspace name
-          </span>
-
-          <input
-            type="text"
-            value={localName}
-            onChange={(event) =>
-              setLocalName(event.target.value)
-            }
-            placeholder="Your name"
-            style={{
-              padding: "8px 10px",
-              borderRadius: 6,
-              border:
-                "1px solid var(--border-control, var(--border-subtle))",
-              background:
-                "var(--input-bg, var(--bg-elevated))",
-              color: "var(--text)",
-            }}
-          />
-        </label>
-
-        <button
-          type="button"
-          onClick={continueLocally}
-          style={{
-            width: "100%",
-            marginTop: 10,
-            padding: "8px 0",
-            borderRadius: 999,
-            border: "none",
-            cursor: "pointer",
-            background:
-              "linear-gradient(135deg, var(--accent), var(--accent-secondary, var(--accent-2)))",
-            color: "var(--text-on-accent)",
-            fontWeight: 500,
-            fontSize: 14,
-          }}
-        >
-          Open local workspace
-        </button>
+        <ul className="auth-benefits">
+          <li><span aria-hidden="true">✓</span><div><strong>Local first</strong><small>Tasks, documents, and calendar stay available on this device.</small></div></li>
+          <li><span aria-hidden="true">✓</span><div><strong>Backup ready</strong><small>Export and restore your workspace from Settings.</small></div></li>
+          <li><span aria-hidden="true">✓</span><div><strong>Cloud optional</strong><small>Reconnect when the backend is available again.</small></div></li>
+        </ul>
       </section>
 
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 10,
-          margin: "18px 0",
-          color: "var(--text-muted)",
-          fontSize: 12,
-        }}
-      >
-        <span
-          aria-hidden="true"
-          style={{
-            height: 1,
-            flex: 1,
-            background: "var(--border-subtle)",
-          }}
-        />
-
-        or connect cloud
-
-        <span
-          aria-hidden="true"
-          style={{
-            height: 1,
-            flex: 1,
-            background: "var(--border-subtle)",
-          }}
-        />
-      </div>
-
-      <form
-        onSubmit={handleSubmit}
-        style={{
-          display: "flex",
-          flexDirection: "column",
-          gap: 10,
-        }}
-      >
-        <label
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 4,
-          }}
-        >
-          <span style={{ fontSize: 13 }}>
-            Email
-          </span>
-
-          <input
-            type="email"
-            value={email}
-            onChange={(event) =>
-              setEmail(event.target.value)
-            }
-            required
-            autoComplete="email"
-            style={{
-              padding: "8px 10px",
-              borderRadius: 6,
-              border:
-                "1px solid var(--border-control, var(--border-subtle))",
-              background:
-                "var(--input-bg, var(--bg-elevated))",
-              color: "var(--text)",
-            }}
-          />
-        </label>
-
-        <label
-          style={{
-            display: "flex",
-            flexDirection: "column",
-            gap: 4,
-          }}
-        >
-          <span style={{ fontSize: 13 }}>
-            Password
-          </span>
-
-          <input
-            type="password"
-            value={password}
-            onChange={(event) =>
-              setPassword(event.target.value)
-            }
-            required
-            autoComplete="current-password"
-            style={{
-              padding: "8px 10px",
-              borderRadius: 6,
-              border:
-                "1px solid var(--border-control, var(--border-subtle))",
-              background:
-                "var(--input-bg, var(--bg-elevated))",
-              color: "var(--text)",
-            }}
-          />
-        </label>
-
-        {error && (
-          <p
-            role="alert"
-            style={{
-              color: "var(--danger, var(--danger))",
-              fontSize: 13,
-              margin: "2px 0 0",
+      <section className="auth-card" aria-label="Open Pioneer Work Suite">
+        <div className="auth-card__section auth-card__section--local">
+          <p className="auth-eyebrow">Recommended</p>
+          <h2>Continue locally</h2>
+          <p>Open the workspace stored on this device. No account or network connection is required.</p>
+          <form
+            className="auth-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              continueLocally();
             }}
           >
-            {error}
-          </p>
-        )}
+            <label>
+              <span>Workspace name</span>
+              <input
+                type="text"
+                value={localName}
+                onChange={(event) => setLocalName(event.target.value)}
+                placeholder="Your name"
+                autoComplete="name"
+              />
+            </label>
+            <button className="auth-button auth-button--primary" type="submit">
+              Open local workspace
+            </button>
+          </form>
+        </div>
 
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          style={{
-            marginTop: 8,
-            padding: "8px 0",
-            borderRadius: 999,
-            border:
-              "1px solid var(--border-control, var(--border-subtle))",
-            cursor: isSubmitting
-              ? "default"
-              : "pointer",
-            background:
-              "var(--button-secondary-bg, var(--bg-elevated))",
-            color: "var(--text)",
-            fontWeight: 500,
-            fontSize: 14,
-            opacity: isSubmitting ? 0.7 : 1,
-          }}
-        >
-          {isSubmitting
-            ? "Connecting..."
-            : "Connect cloud account"}
-        </button>
-      </form>
+        <div className="auth-divider"><span>or connect cloud</span></div>
 
-      <div
-        style={{
-          marginTop: 10,
-          fontSize: 13,
-        }}
-      >
-        <span>Need a cloud account? </span>
-        <Link to="/register">Register</Link>
-      </div>
+        <div className="auth-card__section">
+          <h2>Cloud account</h2>
+          <p>Sign in to enable syncing and Mail when cloud services are available.</p>
+          <form className="auth-form" onSubmit={handleSubmit}>
+            <label>
+              <span>Email</span>
+              <input
+                type="email"
+                value={email}
+                onChange={(event) => setEmail(event.target.value)}
+                required
+                autoComplete="email"
+              />
+            </label>
+            <label>
+              <span>Password</span>
+              <input
+                type="password"
+                value={password}
+                onChange={(event) => setPassword(event.target.value)}
+                required
+                autoComplete="current-password"
+              />
+            </label>
+            {error && <p className="auth-error" role="alert">{error}</p>}
+            <button className="auth-button" type="submit" disabled={isSubmitting}>
+              {isSubmitting ? "Connecting…" : "Connect cloud account"}
+            </button>
+          </form>
+          <p className="auth-switch">Need a cloud account? <Link to="/register">Register</Link></p>
+        </div>
 
-      <span
-        aria-label={`Pioneer Work Suite version ${APP_VERSION}`}
-        style={{
-          position: "absolute",
-          right: 0,
-          bottom: 0,
-          color: "var(--text-muted)",
-          fontSize: 11,
-          userSelect: "none",
-        }}
-      >
-        v{APP_VERSION}
-      </span>
+        <footer className="auth-version" aria-label={`Pioneer Work Suite version ${APP_VERSION}`}>
+          v{APP_VERSION}
+        </footer>
+      </section>
     </div>
   );
 };
 
 export default LoginPage;
-

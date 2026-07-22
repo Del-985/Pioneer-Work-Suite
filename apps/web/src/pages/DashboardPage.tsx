@@ -30,11 +30,7 @@ interface DashboardPageProps {
   onSidebarModeChange: (mode: RightSidebarMode) => void;
 }
 
-type DashboardTask = Task & {
-  updatedAt?: string;
-  completedAt?: string;
-  archivedAt?: string | null;
-};
+type DashboardTask = Task;
 
 interface StorageSnapshot {
   usage: number | null;
@@ -474,22 +470,12 @@ const DashboardPage: React.FC<
           isTaskDone
         );
 
-      const completionMetadataAvailable =
-        completedTasks.some(
-          (task) =>
-            Boolean(
-              task.completedAt ||
-                task.updatedAt
-            )
-        );
-
       const tasksCompletedToday =
         completedTasks.filter(
           (task) => {
             const completedAt =
               parseDate(
-                task.completedAt ||
-                  task.updatedAt
+                task.completedAt
               );
 
             return completedAt
@@ -508,7 +494,8 @@ const DashboardPage: React.FC<
         recentlyEdited,
         recentlyCreated,
         documentsEditedToday,
-        completionMetadataAvailable,
+        completedTasksTotal:
+          completedTasks.length,
         tasksCompletedToday,
       };
     }, [
@@ -904,21 +891,19 @@ const DashboardPage: React.FC<
         <div className="dashboard-stat-grid">
           <StatCard
             label="Tasks completed today"
-            value={
+            value={String(
               dashboardData
-                .completionMetadataAvailable
-                ? String(
-                    dashboardData
-                      .tasksCompletedToday
-                  )
-                : "—"
-            }
-            detail={
+                .tasksCompletedToday
+            )}
+            detail={`${
               dashboardData
-                .completionMetadataAvailable
-                ? "Based on completion timestamps"
-                : "Completion timestamps arrive with Tasks v2"
-            }
+                .completedTasksTotal
+            } completed task${
+              dashboardData
+                .completedTasksTotal === 1
+                ? ""
+                : "s"
+            } tracked overall`}
           />
 
           <StatCard
