@@ -6,9 +6,16 @@ import {
   isBrowserOffline,
   isRecoverableOfflineError,
   makeSyncMutationId,
-  notifySyncStateChanged,
-  readVersionConflictEntity,
+  deleteWithVersionRetry,
+  updateWithVersionRetry,
 } from "./syncSupport";
+import {
+  createOfflineSyncQueue,
+  type OfflineCreateOperation,
+  type OfflineDeleteOperation,
+  type OfflineSyncOperation,
+  type OfflineUpdateOperation,
+} from "./offlineSyncQueue";
 import {
   migrateLegacyLocalStorage,
   readStoredEventQueue,
@@ -58,35 +65,10 @@ export type EventPayload = Pick<
 
 export type EventPatch = Partial<EventPayload>;
 
-interface CreateEventOp {
-  kind: "create";
-  tempId: string;
-  mutationId: string;
-  payload: EventPayload;
-  timestamp: number;
-}
-
-interface UpdateEventOp {
-  kind: "update";
-  id: string;
-  mutationId: string;
-  baseVersion: number;
-  patch: EventPatch;
-  timestamp: number;
-}
-
-interface DeleteEventOp {
-  kind: "delete";
-  id: string;
-  mutationId: string;
-  baseVersion: number;
-  timestamp: number;
-}
-
-type EventOp = CreateEventOp | UpdateEventOp | DeleteEventOp;
-
-let storageInitialization: Promise<void> | null = null;
-let pendingEventSyncCount = 0;
+type CreateEventOp = OfflineCreateOperation<EventPayload>;
+type UpdateEventOp = OfflineUpdateOperation<EventPatch>;
+type DeleteEventOp = OfflineDeleteOperation;
+type EventOp = OfflineSyncOperation<EventPayload, EventPatch>;
 
 
 
@@ -141,6 +123,36 @@ function normalizeEvent(raw: any): CalendarEvent {
   };
 }
 
+function normalizeEventPayload(value: unknown): EventPayload {
+  const raw = value && typeof value === "object"
+    ? value as Partial<EventPayload>
+    : {};
+  const now = nowIso();
+  return {
+    title: String(raw.title ?? "Untitled event"),
+    description: String(raw.description ?? ""),
+    start: String(raw.start ?? now),
+    end: String(raw.end ?? raw.start ?? now),
+    allDay: Boolean(raw.allDay),
+    kind: String(raw.kind ?? "event"),
+    urgency: normalizeEventUrgency(raw.urgency),
+  };
+}
+
+function normalizeEventPatch(value: unknown): EventPatch {
+  if (!value || typeof value !== "object") return {};
+  const raw = value as EventPatch;
+  const patch: EventPatch = {};
+  if (raw.title !== undefined) patch.title = String(raw.title);
+  if (raw.description !== undefined) patch.description = String(raw.description);
+  if (raw.start !== undefined) patch.start = String(raw.start);
+  if (raw.end !== undefined) patch.end = String(raw.end);
+  if (raw.allDay !== undefined) patch.allDay = Boolean(raw.allDay);
+  if (raw.kind !== undefined) patch.kind = String(raw.kind);
+  if (raw.urgency !== undefined) patch.urgency = normalizeEventUrgency(raw.urgency);
+  return patch;
+}
+
 function sortEvents(events: CalendarEvent[]): CalendarEvent[] {
   return [...events].sort((a, b) => {
     const aTime = new Date(a.start).getTime();
@@ -184,17 +196,6 @@ function eventTouchesRange(
   return true;
 }
 
-async function ensureEventStorageReady(): Promise<void> {
-  if (!storageInitialization) {
-    storageInitialization = (async () => {
-      await migrateLegacyLocalStorage();
-      await refreshPendingEventSyncCount();
-    })();
-  }
-
-  await storageInitialization;
-}
-
 // ---------- IndexedDB cache ----------
 
 async function readEventsCache(): Promise<CalendarEvent[]> {
@@ -235,61 +236,31 @@ async function removeEventFromCache(id: string): Promise<void> {
 
 // ---------- IndexedDB queue ----------
 
-async function readQueue(): Promise<EventOp[]> {
-  await ensureEventStorageReady();
+const eventQueue = createOfflineSyncQueue<EventPayload, EventPatch>({
+  scope: "event",
+  migrate: migrateLegacyLocalStorage,
+  readStored: () => readStoredEventQueue<unknown>(),
+  writeStored: writeStoredEventQueue,
+  normalizePayload: normalizeEventPayload,
+  normalizePatch: normalizeEventPatch,
+});
 
-  const queue = await readStoredEventQueue<EventOp>();
-
-  return queue
-    .filter((operation) => operation && typeof operation === "object")
-    .map((operation: any): EventOp | null => {
-      if (operation.kind === "create") {
-        return {
-          ...operation,
-          mutationId: String(operation.mutationId || makeSyncMutationId("event-create")),
-          timestamp: Number(operation.timestamp) || Date.now(),
-        };
-      }
-      if (operation.kind === "update" || operation.kind === "delete") {
-        return {
-          ...operation,
-          mutationId: String(operation.mutationId || makeSyncMutationId(`event-${operation.kind}`)),
-          baseVersion: Math.max(1, Number(operation.baseVersion) || 1),
-          timestamp: Number(operation.timestamp) || Date.now(),
-        } as EventOp;
-      }
-      return null;
-    })
-    .filter((operation): operation is EventOp => operation !== null);
-}
-
-async function writeQueue(queue: EventOp[]): Promise<void> {
-  await writeStoredEventQueue(queue);
-
-  pendingEventSyncCount = queue.length;
-  notifySyncStateChanged();
-}
+const ensureEventStorageReady = eventQueue.ensureReady;
+const readQueue = eventQueue.read;
+const writeQueue = eventQueue.replace;
 
 export function getPendingEventSyncCount(): number {
-  return pendingEventSyncCount;
+  return eventQueue.pendingCount();
 }
 
 export async function refreshPendingEventSyncCount(): Promise<number> {
-  const queue = await readStoredEventQueue<EventOp>();
-
-  pendingEventSyncCount = queue.length;
-
-  return pendingEventSyncCount;
+  return eventQueue.refreshPendingCount();
 }
 
 async function enqueueCreate(event: CalendarEvent, mutationId: string): Promise<void> {
-  const queue = await readQueue();
-
-  queue.push({
-    kind: "create",
-    tempId: event.id,
-    mutationId,
-    payload: {
+  await eventQueue.enqueueCreate(
+    event.id,
+    {
       title: event.title,
       description: event.description,
       start: event.start,
@@ -298,10 +269,8 @@ async function enqueueCreate(event: CalendarEvent, mutationId: string): Promise<
       kind: event.kind,
       urgency: event.urgency,
     },
-    timestamp: Date.now(),
-  });
-
-  await writeQueue(queue);
+    mutationId
+  );
 }
 
 async function enqueueUpdate(
@@ -310,62 +279,7 @@ async function enqueueUpdate(
   baseVersion: number,
   mutationId: string
 ): Promise<void> {
-  const queue = await readQueue();
-
-  const createIndex = queue.findIndex(
-    (operation) => operation.kind === "create" && operation.tempId === id
-  );
-
-  if (createIndex !== -1) {
-    queue.push({
-      kind: "update",
-      id,
-      patch,
-      mutationId,
-      baseVersion,
-      timestamp: Date.now(),
-    });
-
-    await writeQueue(queue);
-    return;
-  }
-
-  if (
-    queue.some(
-      (operation) => operation.kind === "delete" && operation.id === id
-    )
-  ) {
-    return;
-  }
-
-  const updateIndex = queue.findIndex(
-    (operation) => operation.kind === "update" && operation.id === id
-  );
-
-  if (updateIndex !== -1) {
-    const existing = queue[updateIndex] as UpdateEventOp;
-
-    queue[updateIndex] = {
-      ...existing,
-      mutationId,
-      patch: {
-        ...existing.patch,
-        ...patch,
-      },
-      timestamp: Date.now(),
-    };
-  } else {
-    queue.push({
-      kind: "update",
-      id,
-      mutationId,
-      baseVersion,
-      patch,
-      timestamp: Date.now(),
-    });
-  }
-
-  await writeQueue(queue);
+  await eventQueue.enqueueUpdate(id, patch, baseVersion, mutationId);
 }
 
 async function enqueueDelete(
@@ -373,27 +287,7 @@ async function enqueueDelete(
   baseVersion: number,
   mutationId: string
 ): Promise<void> {
-  const queue = (await readQueue()).filter((operation) => {
-    if (operation.kind === "update" && operation.id === id) {
-      return false;
-    }
-
-    if (operation.kind === "delete" && operation.id === id) {
-      return false;
-    }
-
-    return true;
-  });
-
-  queue.push({
-    kind: "delete",
-    id,
-    mutationId,
-    baseVersion,
-    timestamp: Date.now(),
-  });
-
-  await writeQueue(queue);
+  await eventQueue.enqueueDelete(id, baseVersion, mutationId);
 }
 
 // ---------- Cloud-only API ----------
@@ -435,22 +329,13 @@ async function updateEventOnlineOnly(
   baseVersion: number,
   mutationId: string
 ): Promise<CalendarEvent> {
-  try {
+  return updateWithVersionRetry<CalendarEvent>(baseVersion, async (version) => {
     const { data } = await http.put(`/events/${id}`, {
       ...patch,
-      ifVersion: baseVersion,
+      ifVersion: version,
     }, { headers: { "Idempotency-Key": mutationId } });
     return normalizeEvent(data?.event ?? data);
-  } catch (error) {
-    const current = readVersionConflictEntity<CalendarEvent>(error);
-    if (!current) throw error;
-    const normalizedCurrent = normalizeEvent(current);
-    const { data } = await http.put(`/events/${id}`, {
-      ...patch,
-      ifVersion: normalizedCurrent.version,
-    }, { headers: { "Idempotency-Key": mutationId } });
-    return normalizeEvent(data?.event ?? data);
-  }
+  }, normalizeEvent);
 }
 
 async function deleteEventOnlineOnly(
@@ -458,20 +343,11 @@ async function deleteEventOnlineOnly(
   baseVersion: number,
   mutationId: string
 ): Promise<void> {
-  try {
+  await deleteWithVersionRetry<CalendarEvent>(baseVersion, async (version) => {
     await http.delete(`/events/${id}`, {
-      headers: { "Idempotency-Key": mutationId, "If-Match": String(baseVersion) },
+      headers: { "Idempotency-Key": mutationId, "If-Match": String(version) },
     });
-  } catch (error) {
-    const current = readVersionConflictEntity<CalendarEvent>(error);
-    if (!current) throw error;
-    await http.delete(`/events/${id}`, {
-      headers: {
-        "Idempotency-Key": mutationId,
-        "If-Match": String(normalizeEvent(current).version),
-      },
-    });
-  }
+  }, normalizeEvent);
 }
 
 // ---------- Public API ----------

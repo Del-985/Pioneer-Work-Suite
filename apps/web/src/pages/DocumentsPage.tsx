@@ -10,6 +10,8 @@ import DocumentRecoveryPrompt from "../components/recovery/DocumentRecoveryPromp
 import DocumentEditor from "../components/documents/DocumentEditor";
 import type { DocumentEditorHandle } from "../components/documents/DocumentEditor";
 import DocumentInspector from "../components/documents/DocumentInspector";
+import DocumentLibrary from "../components/documents/DocumentLibrary";
+import DocumentWorkspace from "../components/documents/DocumentWorkspace";
 import type {
   DocumentLibraryView,
 } from "../components/documents/documentUiTypes";
@@ -38,6 +40,7 @@ import { useStatusBarItems } from "../hooks/useStatusBarItems";
 import { useAppSettings } from "../hooks/useAppSettings";
 import { useConfirmation } from "../hooks/useConfirmation";
 import { useDocumentWorkspaceUi } from "../hooks/useDocumentWorkspaceUi";
+import { useDocumentFindReplace } from "../hooks/useDocumentFindReplace";
 import type { StatusBarItem } from "../status/statusRegistry";
 import { toast } from "../toasts/toastStore";
 import { developerLogger } from "../developer/logger";
@@ -89,37 +92,6 @@ function getRememberedDocumentId(): string | null {
   } catch {
     return null;
   }
-}
-
-function getMatchIndexes(
-  text: string,
-  query: string
-): number[] {
-  const normalizedQuery = query.toLocaleLowerCase();
-
-  if (!normalizedQuery) {
-    return [];
-  }
-
-  const normalizedText = text.toLocaleLowerCase();
-  const matches: number[] = [];
-  let cursor = 0;
-
-  while (cursor <= normalizedText.length) {
-    const matchIndex = normalizedText.indexOf(
-      normalizedQuery,
-      cursor
-    );
-
-    if (matchIndex === -1) {
-      break;
-    }
-
-    matches.push(matchIndex);
-    cursor = matchIndex + Math.max(1, normalizedQuery.length);
-  }
-
-  return matches;
 }
 
 const DocumentsPage: React.FC = () => {
@@ -816,47 +788,21 @@ const DocumentsPage: React.FC = () => {
 
   useShortcuts(documentShortcuts);
 
-  useEffect(() => {
-    if (!findOpen || !findState.query) {
-      setFindState((current) => ({
-        ...current,
-        totalMatches: 0,
-        currentIndex: -1,
-      }));
-      return;
-    }
-
-    const editor =
-      quillRef.current?.getEditor?.();
-
-    if (!editor) {
-      return;
-    }
-
-    const matches = getMatchIndexes(
-      editor.getText(),
-      findState.query
-    );
-
-    setFindState((current) => ({
-      ...current,
-      totalMatches: matches.length,
-      currentIndex:
-        matches.length === 0
-          ? -1
-          : Math.min(
-              Math.max(
-                current.currentIndex,
-                0
-              ),
-              matches.length - 1
-            ),
-    }));
-  }, [
+  const {
+    navigateMatch,
+    replaceCurrentMatch,
+    replaceAllMatches,
+    closeFind,
+  } = useDocumentFindReplace({
+    editorRef: quillRef,
     editContent,
     findOpen,
-    findState.query,
-  ]);
+    setFindOpen,
+    setReplaceOpen,
+    findState,
+    setFindState,
+    resetFindState,
+  });
 
   async function handleSelectDocument(
     id: string
@@ -1230,181 +1176,6 @@ const DocumentsPage: React.FC = () => {
       );
       toast.error("HTML export failed");
     }
-  }
-
-  function navigateMatch(
-    direction: 1 | -1
-  ): void {
-    const editor =
-      quillRef.current?.getEditor?.();
-
-    if (
-      !editor ||
-      !findState.query
-    ) {
-      return;
-    }
-
-    const matches = getMatchIndexes(
-      editor.getText(),
-      findState.query
-    );
-
-    if (matches.length === 0) {
-      setFindState((current) => ({
-        ...current,
-        totalMatches: 0,
-        currentIndex: -1,
-      }));
-      return;
-    }
-
-    const nextIndex =
-      findState.currentIndex === -1
-        ? direction === 1
-          ? 0
-          : matches.length - 1
-        : (findState.currentIndex +
-            direction +
-            matches.length) %
-          matches.length;
-
-    editor.setSelection(
-      matches[nextIndex],
-      findState.query.length,
-      "silent"
-    );
-    editor.focus();
-
-    setFindState((current) => ({
-      ...current,
-      totalMatches: matches.length,
-      currentIndex: nextIndex,
-    }));
-  }
-
-  function replaceCurrentMatch(): void {
-    const editor =
-      quillRef.current?.getEditor?.();
-
-    if (
-      !editor ||
-      !findState.query
-    ) {
-      return;
-    }
-
-    const matches = getMatchIndexes(
-      editor.getText(),
-      findState.query
-    );
-
-    if (matches.length === 0) {
-      return;
-    }
-
-    const currentIndex =
-      findState.currentIndex >= 0
-        ? Math.min(
-            findState.currentIndex,
-            matches.length - 1
-          )
-        : 0;
-
-    const matchPosition =
-      matches[currentIndex];
-
-    const formats = editor.getFormat(
-      matchPosition,
-      findState.query.length
-    );
-
-    editor.deleteText(
-      matchPosition,
-      findState.query.length,
-      "user"
-    );
-
-    if (findState.replacement) {
-      editor.insertText(
-        matchPosition,
-        findState.replacement,
-        formats,
-        "user"
-      );
-    }
-
-    editor.setSelection(
-      matchPosition,
-      findState.replacement.length,
-      "silent"
-    );
-
-    window.setTimeout(
-      () => navigateMatch(1),
-      0
-    );
-  }
-
-  function replaceAllMatches(): void {
-    const editor =
-      quillRef.current?.getEditor?.();
-
-    if (
-      !editor ||
-      !findState.query
-    ) {
-      return;
-    }
-
-    const matches = getMatchIndexes(
-      editor.getText(),
-      findState.query
-    );
-
-    for (
-      let index = matches.length - 1;
-      index >= 0;
-      index -= 1
-    ) {
-      const position = matches[index];
-
-      const formats = editor.getFormat(
-        position,
-        findState.query.length
-      );
-
-      editor.deleteText(
-        position,
-        findState.query.length,
-        "user"
-      );
-
-      if (findState.replacement) {
-        editor.insertText(
-          position,
-          findState.replacement,
-          formats,
-          "user"
-        );
-      }
-    }
-
-    setFindState((current) => ({
-      ...current,
-      totalMatches: 0,
-      currentIndex: -1,
-    }));
-  }
-
-  function closeFind(): void {
-    setFindOpen(false);
-    setReplaceOpen(false);
-    resetFindState();
-
-    quillRef.current
-      ?.getEditor?.()
-      ?.focus?.();
   }
 
   function renderSaveStatus(): React.ReactNode {
@@ -1813,572 +1584,69 @@ const DocumentsPage: React.FC = () => {
       <div
         className={`documents-v2-layout${libraryOpen ? "" : " is-library-collapsed"}${inspectorOpen ? " has-inspector" : ""}`}
       >
-        <aside
-          className={
-            libraryOpen
-              ? "documents-v2-library"
-              : "documents-v2-library is-collapsed"
-          }
-          aria-label="Document library"
-        >
-          <div className="documents-v2-library-header">
-            <div>
-              <h2>Library</h2>
-              <span>
-                {documents.length} document
-                {documents.length === 1
-                  ? ""
-                  : "s"}
-              </span>
-            </div>
-          </div>
+        <DocumentLibrary
+          documents={documents}
+          filteredDocuments={filteredDocuments}
+          selectedId={selectedId}
+          libraryOpen={libraryOpen}
+          librarySearch={librarySearch}
+          libraryView={libraryView}
+          documentCounts={documentCounts}
+          listError={listError}
+          listLoading={listLoading}
+          deletingId={deletingId}
+          setLibrarySearch={setLibrarySearch}
+          setLibraryView={setLibraryView}
+          onSelect={handleSelectDocument}
+          onTogglePinned={handleTogglePinned}
+          onToggleFavorite={handleToggleFavorite}
+          onDelete={handleDelete}
+        />
 
-          <div className="documents-v2-library-search">
-            <input
-              type="search"
-              value={librarySearch}
-              onChange={(event) =>
-                setLibrarySearch(
-                  event.target.value
-                )
-              }
-              placeholder="Search documents"
-              aria-label="Search document library"
-            />
-          </div>
-
-          <nav
-            className="documents-v2-library-tabs"
-            aria-label="Document views"
-          >
-            {(
-              [
-                ["all", "All"],
-                ["recent", "Recent"],
-                ["pinned", "Pinned"],
-                ["favorites", "Favorites"],
-              ] as Array<
-                [DocumentLibraryView, string]
-              >
-            ).map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                className={
-                  libraryView === value
-                    ? "is-active"
-                    : ""
-                }
-                onClick={() =>
-                  setLibraryView(value)
-                }
-              >
-                <span>{label}</span>
-                <small>
-                  {documentCounts[value]}
-                </small>
-              </button>
-            ))}
-          </nav>
-
-          {listError && (
-            <div
-              className="documents-v2-library-error"
-              role="alert"
-            >
-              {listError}
-            </div>
-          )}
-
-          <div className="documents-v2-list">
-            {listLoading ? (
-              <LibraryLoading />
-            ) : filteredDocuments.length ===
-              0 ? (
-              <p className="documents-v2-empty">
-                {librarySearch
-                  ? "No documents match your search."
-                  : "No documents in this view."}
-              </p>
-            ) : (
-              filteredDocuments.map(
-                (document) => (
-                  <article
-                    key={document.id}
-                    className={
-                      document.id === selectedId
-                        ? "documents-v2-list-item is-active"
-                        : "documents-v2-list-item"
-                    }
-                  >
-                    <button
-                      className="documents-v2-list-main"
-                      type="button"
-                      onClick={() =>
-                        void handleSelectDocument(
-                          document.id
-                        )
-                      }
-                    >
-                      <span className="documents-v2-list-title">
-                        {document.isPinned && (
-                          <span
-                            aria-label="Pinned"
-                            title="Pinned"
-                          >
-                            ●
-                          </span>
-                        )}
-                        {document.isFavorite && (
-                          <span
-                            aria-label="Favorite"
-                            title="Favorite"
-                          >
-                            ★
-                          </span>
-                        )}
-                        <strong>
-                          {document.title ||
-                            "Untitled document"}
-                        </strong>
-                      </span>
-                      <small>
-                        Updated{" "}
-                        {formatDocumentDate(
-                          document.updatedAt ||
-                            document.createdAt
-                        )}
-                      </small>
-                    </button>
-
-                    <div className="documents-v2-list-actions">
-                      <button
-                        type="button"
-                        className={
-                          document.isPinned
-                            ? "is-active"
-                            : ""
-                        }
-                        onClick={() =>
-                          void handleTogglePinned(
-                            document
-                          )
-                        }
-                        aria-label={
-                          document.isPinned
-                            ? `Unpin ${document.title}`
-                            : `Pin ${document.title}`
-                        }
-                        title={
-                          document.isPinned
-                            ? "Unpin"
-                            : "Pin"
-                        }
-                      >
-                        P
-                      </button>
-                      <button
-                        type="button"
-                        className={
-                          document.isFavorite
-                            ? "is-active"
-                            : ""
-                        }
-                        onClick={() =>
-                          void handleToggleFavorite(
-                            document
-                          )
-                        }
-                        aria-label={
-                          document.isFavorite
-                            ? `Remove ${document.title} from favorites`
-                            : `Add ${document.title} to favorites`
-                        }
-                        title={
-                          document.isFavorite
-                            ? "Remove favorite"
-                            : "Favorite"
-                        }
-                      >
-                        ★
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() =>
-                          void handleDelete(
-                            document.id
-                          )
-                        }
-                        disabled={
-                          deletingId === document.id
-                        }
-                        aria-label={`Delete ${document.title}`}
-                        title="Delete"
-                      >
-                        {deletingId ===
-                        document.id
-                          ? "…"
-                          : "×"}
-                      </button>
-                    </div>
-                  </article>
-                )
-              )
-            )}
-          </div>
-        </aside>
-
-        <main className="documents-v2-editor-shell">
-          {!selectedDocument ? (
-            <div className="documents-v2-no-selection">
-              <h2>
-                Select or create a document
-              </h2>
-              <p>
-                Choose something from the
-                library, or create a new
-                document to begin writing.
-              </p>
-              <button
-                type="button"
-                onClick={() =>
-                  void handleCreateDocument()
-                }
-              >
-                New document
-              </button>
-            </div>
-          ) : (
-            <>
-              <section className="documents-v2-document-header">
-                <div className="documents-v2-title-row">
-                  <input
-                    type="text"
-                    value={editTitle}
-                    onChange={(event) => {
-                      setEditTitle(
-                        event.target.value
-                      );
-                      setHasLocalChanges(true);
-                      setSaveError(null);
-                    }}
-                    placeholder="Document title"
-                    aria-label="Document title"
-                  />
-
-                  <div className="documents-v2-document-actions">
-                    <button
-                      type="button"
-                      className={libraryOpen ? "is-active" : ""}
-                      onClick={() => setLibraryOpen((current) => !current)}
-                      aria-pressed={libraryOpen}
-                    >
-                      Library
-                    </button>
-
-                    <button
-                      type="button"
-                      className={
-                        selectedDocument.isPinned
-                          ? "is-active"
-                          : ""
-                      }
-                      onClick={() =>
-                        void handleTogglePinned(
-                          selectedDocument
-                        )
-                      }
-                    >
-                      {selectedDocument.isPinned
-                        ? "Pinned"
-                        : "Pin"}
-                    </button>
-
-                    <button
-                      type="button"
-                      className={
-                        selectedDocument.isFavorite
-                          ? "is-active"
-                          : ""
-                      }
-                      onClick={() =>
-                        void handleToggleFavorite(
-                          selectedDocument
-                        )
-                      }
-                    >
-                      {selectedDocument.isFavorite
-                        ? "Favorite"
-                        : "Favorite"}
-                    </button>
-
-                    <button
-                      type="button"
-                      className={inspectorOpen ? "is-active" : ""}
-                      onClick={() => setInspectorOpen((current) => !current)}
-                      aria-pressed={inspectorOpen}
-                    >
-                      Details
-                    </button>
-
-                    <button
-                      type="button"
-                      className={focusMode ? "is-active" : ""}
-                      onClick={() => setFocusMode((current) => !current)}
-                      aria-pressed={focusMode}
-                    >
-                      {focusMode ? "Exit focus" : "Focus"}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        void handleDuplicate()
-                      }
-                      disabled={duplicating}
-                    >
-                      {duplicating
-                        ? "Duplicating…"
-                        : "Duplicate"}
-                    </button>
-
-                    <div className="documents-v2-export-menu">
-                      <details>
-                        <summary>
-                          Export
-                        </summary>
-                        <div>
-                          <button
-                            type="button"
-                            onClick={handleExportText}
-                          >
-                            Export TXT
-                          </button>
-                          <button
-                            type="button"
-                            onClick={handleExportHtml}
-                          >
-                            Export HTML
-                          </button>
-                        </div>
-                      </details>
-                    </div>
-
-                    <button
-                      className="is-primary"
-                      type="button"
-                      onClick={() =>
-                        void saveCurrentDocument()
-                      }
-                      disabled={isSaving}
-                    >
-                      {isSaving
-                        ? "Saving…"
-                        : "Save"}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="documents-v2-status-row">
-                  <div className="documents-v2-save-status">
-                    {renderSaveStatus()}
-                  </div>
-
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setFindOpen(true);
-                      window.setTimeout(() => {
-                        document
-                          .querySelector<HTMLInputElement>(
-                            "#document-find-input"
-                          )
-                          ?.focus();
-                      }, 0);
-                    }}
-                  >
-                    Find in document
-                  </button>
-                </div>
-              </section>
-
-              {findOpen && (
-                <section
-                  className="documents-v2-find-panel"
-                  aria-label="Find and replace"
-                >
-                  <div className="documents-v2-find-row">
-                    <input
-                      id="document-find-input"
-                      type="search"
-                      value={findState.query}
-                      onChange={(event) =>
-                        setFindState(
-                          (current) => ({
-                            ...current,
-                            query:
-                              event.target
-                                .value,
-                            currentIndex:
-                              -1,
-                          })
-                        )
-                      }
-                      onKeyDown={(event) => {
-                        if (
-                          event.key === "Enter"
-                        ) {
-                          event.preventDefault();
-                          navigateMatch(
-                            event.shiftKey
-                              ? -1
-                              : 1
-                          );
-                        }
-
-                        if (
-                          event.key === "Escape"
-                        ) {
-                          closeFind();
-                        }
-                      }}
-                      placeholder="Find"
-                    />
-
-                    <span className="documents-v2-match-count">
-                      {findState.totalMatches === 0
-                        ? "0 results"
-                        : `${
-                            findState.currentIndex +
-                            1
-                          } of ${
-                            findState.totalMatches
-                          }`}
-                    </span>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        navigateMatch(-1)
-                      }
-                      aria-label="Previous match"
-                    >
-                      ↑
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        navigateMatch(1)
-                      }
-                      aria-label="Next match"
-                    >
-                      ↓
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setReplaceOpen(
-                          (current) =>
-                            !current
-                        )
-                      }
-                    >
-                      {replaceOpen
-                        ? "Hide replace"
-                        : "Replace"}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={closeFind}
-                      aria-label="Close find"
-                    >
-                      ×
-                    </button>
-                  </div>
-
-                  {replaceOpen && (
-                    <div className="documents-v2-replace-row">
-                      <input
-                        type="text"
-                        value={
-                          findState.replacement
-                        }
-                        onChange={(event) =>
-                          setFindState(
-                            (current) => ({
-                              ...current,
-                              replacement:
-                                event.target
-                                  .value,
-                            })
-                          )
-                        }
-                        placeholder="Replace with"
-                      />
-                      <button
-                        type="button"
-                        onClick={
-                          replaceCurrentMatch
-                        }
-                      >
-                        Replace
-                      </button>
-                      <button
-                        type="button"
-                        onClick={
-                          replaceAllMatches
-                        }
-                      >
-                        Replace all
-                      </button>
-                    </div>
-                  )}
-                </section>
-              )}
-
-              <DocumentEditor
-                key={`${selectedId ?? "no-document"}-${editorRevision}`}
-                ref={quillRef}
-                initialValue={editContent}
-                documentTitle={editTitle}
-                onChange={(html) => {
-                  setEditContent(html);
-                  setHasLocalChanges(true);
-                  setSaveError(null);
-                }}
-                onCursorChange={setCursorPosition}
-              />
-
-              {inspectorOpen && !focusMode && (
-                <DocumentInspector
-                  document={selectedDocument}
-                  statistics={statistics}
-                  lastSavedAt={lastSavedAt}
-                  cursorPosition={cursorPosition}
-                  onClose={() => setInspectorOpen(false)}
-                />
-              )}
-            </>
-          )}
-        </main>
+        <DocumentWorkspace
+          selectedDocument={selectedDocument}
+          onCreateDocument={handleCreateDocument}
+          editTitle={editTitle}
+          setEditTitle={setEditTitle}
+          setHasLocalChanges={setHasLocalChanges}
+          setSaveError={setSaveError}
+          libraryOpen={libraryOpen}
+          setLibraryOpen={setLibraryOpen}
+          onTogglePinned={handleTogglePinned}
+          onToggleFavorite={handleToggleFavorite}
+          inspectorOpen={inspectorOpen}
+          setInspectorOpen={setInspectorOpen}
+          focusMode={focusMode}
+          setFocusMode={setFocusMode}
+          onDuplicate={handleDuplicate}
+          duplicating={duplicating}
+          onExportText={handleExportText}
+          onExportHtml={handleExportHtml}
+          onSave={saveCurrentDocument}
+          isSaving={isSaving}
+          renderSaveStatus={renderSaveStatus}
+          findOpen={findOpen}
+          setFindOpen={setFindOpen}
+          replaceOpen={replaceOpen}
+          setReplaceOpen={setReplaceOpen}
+          findState={findState}
+          setFindState={setFindState}
+          navigateMatch={navigateMatch}
+          closeFind={closeFind}
+          replaceCurrentMatch={replaceCurrentMatch}
+          replaceAllMatches={replaceAllMatches}
+          selectedId={selectedId}
+          editorRevision={editorRevision}
+          editorRef={quillRef}
+          editContent={editContent}
+          setEditContent={setEditContent}
+          setCursorPosition={setCursorPosition}
+          statistics={statistics}
+          lastSavedAt={lastSavedAt}
+          cursorPosition={cursorPosition}
+        />
       </div>
       {confirmationDialog}
-    </div>
-  );
-};
-
-const LibraryLoading: React.FC = () => {
-  return (
-    <div
-      className="documents-v2-library-loading"
-      aria-label="Loading documents"
-    >
-      <span />
-      <span />
-      <span />
-      <span />
     </div>
   );
 };

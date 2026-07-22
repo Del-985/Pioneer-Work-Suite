@@ -1,7 +1,13 @@
 # Pioneer Work Suite
 
 Pioneer Work Suite is a local-first productivity workspace with optional cloud
-synchronization. Version 0.1.18 adds the production backend foundation:
+synchronization. Version 0.1.19 preserves that foundation while reducing frontend maintenance risk:
+
+- shared, regression-tested offline queue and version-conflict retry mechanics for Tasks, Documents, and Calendar;
+- focused Documents library/workspace/find-replace modules, reusable Tasks and Dashboard components, and separated IndexedDB responsibilities;
+- automated source-file maintainability budgets in CI to prevent new oversized modules.
+
+Version 0.1.18 added the production backend foundation:
 versioned records, replay-safe mutations, deletion tombstones, ordered cloud
 change pulls, committed PostgreSQL migrations, and a Render Blueprint.
 

@@ -26,5 +26,7 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter pioneer-student-api exec prisma validate
+      - run: pnpm check:architecture
+      - run: pnpm --filter pioneer-student-web test
       - run: pnpm --filter pioneer-student-api test
       - run: pnpm --filter pioneer-student-web build

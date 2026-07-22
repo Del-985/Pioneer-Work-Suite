@@ -1,7 +1,7 @@
 {
   "name": "work-suite",
   "private": true,
-  "version": "0.1.18",
+  "version": "0.1.19",
   "packageManager": "pnpm@11.9.0",
   "workspaces": [
     "apps/*",
@@ -19,7 +19,10 @@
     "build:pioneeros": "make -C pioneeros",
     "package:pioneeros": "make -C pioneeros package",
     "test:api": "pnpm --filter pioneer-student-api test",
-    "ci:backend": "pnpm test:api && pnpm build:web",
+    "test:web": "pnpm --filter pioneer-student-web test",
+    "test": "pnpm test:web && pnpm test:api",
+    "check:architecture": "node scripts/check-maintainability.mjs",
+    "ci:backend": "pnpm check:architecture && pnpm test && pnpm build:web",
     "build": "pnpm build:api && pnpm build:web && pnpm build:desktop"
   },
   "devDependencies": {

@@ -6,9 +6,16 @@ import {
   isBrowserOffline,
   isRecoverableOfflineError,
   makeSyncMutationId,
-  notifySyncStateChanged,
-  readVersionConflictEntity,
+  deleteWithVersionRetry,
+  updateWithVersionRetry,
 } from "./syncSupport";
+import {
+  createOfflineSyncQueue,
+  type OfflineCreateOperation,
+  type OfflineDeleteOperation,
+  type OfflineSyncOperation,
+  type OfflineUpdateOperation,
+} from "./offlineSyncQueue";
 import {
   migrateLegacyLocalStorage,
   readStoredDocumentQueue,
@@ -45,43 +52,17 @@ interface CreateDocumentOptions {
   isFavorite?: boolean;
 }
 
-interface CreateDocumentOp {
-  kind: "create";
-  tempId: string;
-  mutationId: string;
-  payload: {
+type DocumentCreatePayload = {
     title: string;
     content: string;
     isPinned: boolean;
     isFavorite: boolean;
-  };
-  timestamp: number;
-}
+};
 
-interface UpdateDocumentOp {
-  kind: "update";
-  id: string;
-  mutationId: string;
-  baseVersion: number;
-  patch: DocumentPatch;
-  timestamp: number;
-}
-
-interface DeleteDocumentOp {
-  kind: "delete";
-  id: string;
-  mutationId: string;
-  baseVersion: number;
-  timestamp: number;
-}
-
-type DocumentOp =
-  | CreateDocumentOp
-  | UpdateDocumentOp
-  | DeleteDocumentOp;
-
-let storageInitialization: Promise<void> | null = null;
-let pendingDocumentSyncCount = 0;
+type CreateDocumentOp = OfflineCreateOperation<DocumentCreatePayload>;
+type UpdateDocumentOp = OfflineUpdateOperation<DocumentPatch>;
+type DeleteDocumentOp = OfflineDeleteOperation;
+type DocumentOp = OfflineSyncOperation<DocumentCreatePayload, DocumentPatch>;
 
 
 
@@ -137,18 +118,6 @@ function normalizeDocument(raw: any): Document {
       ? Number(raw.version)
       : 1,
   };
-}
-
-async function ensureDocumentStorageReady(): Promise<void> {
-  if (!storageInitialization) {
-    storageInitialization = (async () => {
-      await migrateLegacyLocalStorage();
-
-      await refreshPendingDocumentSyncCount();
-    })();
-  }
-
-  await storageInitialization;
 }
 
 // ---------- IndexedDB cache ----------
@@ -266,50 +235,49 @@ function normalizeQueueOperation(
   return null;
 }
 
-async function readQueue(): Promise<DocumentOp[]> {
-  await ensureDocumentStorageReady();
+const documentQueue = createOfflineSyncQueue<
+  DocumentCreatePayload,
+  DocumentPatch
+>({
+  scope: "document",
+  migrate: migrateLegacyLocalStorage,
+  readStored: () => readStoredDocumentQueue<unknown>(),
+  writeStored: writeStoredDocumentQueue,
+  normalizePayload: (payload) => {
+    const operation = normalizeQueueOperation({ kind: "create", payload });
+    return operation && operation.kind === "create"
+      ? operation.payload
+      : {
+          title: "Untitled document",
+          content: "",
+          isPinned: false,
+          isFavorite: false,
+        };
+  },
+  normalizePatch: (patch) => normalizePatch((patch ?? {}) as DocumentPatch),
+});
 
-  const queue =
-    await readStoredDocumentQueue<DocumentOp>();
-
-  return queue
-    .map(normalizeQueueOperation)
-    .filter(
-      (operation): operation is DocumentOp =>
-        operation !== null
-    );
-}
-
-async function writeQueue(
-  queue: DocumentOp[]
-): Promise<void> {
-  await writeStoredDocumentQueue(queue);
-
-  pendingDocumentSyncCount = queue.length;
-  notifySyncStateChanged();
-}
+const ensureDocumentStorageReady = documentQueue.ensureReady;
+const readQueue = documentQueue.read;
+const writeQueue = documentQueue.replace;
 
 export function getPendingDocumentSyncCount(): number {
-  return pendingDocumentSyncCount;
+  return documentQueue.pendingCount();
 }
 
 export async function refreshPendingDocumentSyncCount(): Promise<number> {
-  const queue =
-    await readStoredDocumentQueue<DocumentOp>();
-
-  pendingDocumentSyncCount = queue.length;
-
-  return pendingDocumentSyncCount;
+  return documentQueue.refreshPendingCount();
 }
 
 
 async function enqueueCreate(
   operation: CreateDocumentOp
 ): Promise<void> {
-  const queue = await readQueue();
-
-  queue.push(operation);
-  await writeQueue(queue);
+  await documentQueue.enqueueCreate(
+    operation.tempId,
+    operation.payload,
+    operation.mutationId
+  );
 }
 
 async function enqueueUpdate(
@@ -318,70 +286,7 @@ async function enqueueUpdate(
   baseVersion: number,
   mutationId: string
 ): Promise<void> {
-  const normalizedPatch = normalizePatch(patch);
-  const queue = await readQueue();
-
-  const createIndex = queue.findIndex(
-    (operation) =>
-      operation.kind === "create" &&
-      operation.tempId === id
-  );
-
-  if (createIndex !== -1) {
-    queue.push({
-      kind: "update",
-      id,
-      patch: normalizedPatch,
-      mutationId,
-      baseVersion,
-      timestamp: Date.now(),
-    });
-
-    await writeQueue(queue);
-    return;
-  }
-
-  if (
-    queue.some(
-      (operation) =>
-        operation.kind === "delete" &&
-        operation.id === id
-    )
-  ) {
-    return;
-  }
-
-  const updateIndex = queue.findIndex(
-    (operation) =>
-      operation.kind === "update" &&
-      operation.id === id
-  );
-
-  if (updateIndex !== -1) {
-    const previous =
-      queue[updateIndex] as UpdateDocumentOp;
-
-    queue[updateIndex] = {
-      ...previous,
-      mutationId,
-      patch: {
-        ...previous.patch,
-        ...normalizedPatch,
-      },
-      timestamp: Date.now(),
-    };
-  } else {
-    queue.push({
-      kind: "update",
-      id,
-      mutationId,
-      baseVersion,
-      patch: normalizedPatch,
-      timestamp: Date.now(),
-    });
-  }
-
-  await writeQueue(queue);
+  await documentQueue.enqueueUpdate(id, patch, baseVersion, mutationId);
 }
 
 async function enqueueDelete(
@@ -389,35 +294,7 @@ async function enqueueDelete(
   baseVersion: number,
   mutationId: string
 ): Promise<void> {
-  const queue = (await readQueue()).filter(
-    (operation) => {
-      if (
-        operation.kind === "update" &&
-        operation.id === id
-      ) {
-        return false;
-      }
-
-      if (
-        operation.kind === "delete" &&
-        operation.id === id
-      ) {
-        return false;
-      }
-
-      return true;
-    }
-  );
-
-  queue.push({
-    kind: "delete",
-    id,
-    mutationId,
-    baseVersion,
-    timestamp: Date.now(),
-  });
-
-  await writeQueue(queue);
+  await documentQueue.enqueueDelete(id, baseVersion, mutationId);
 }
 
 // ---------- Cloud-only API ----------
@@ -455,22 +332,13 @@ async function updateDocumentOnlineOnly(
   baseVersion: number,
   mutationId: string
 ): Promise<Document> {
-  try {
+  return updateWithVersionRetry<Document>(baseVersion, async (version) => {
     const { data } = await http.put(`/documents/${id}`, {
       ...updates,
-      ifVersion: baseVersion,
+      ifVersion: version,
     }, { headers: { "Idempotency-Key": mutationId } });
     return normalizeDocument(data?.document ?? data);
-  } catch (error) {
-    const current = readVersionConflictEntity<Document>(error);
-    if (!current) throw error;
-    const normalizedCurrent = normalizeDocument(current);
-    const { data } = await http.put(`/documents/${id}`, {
-      ...updates,
-      ifVersion: normalizedCurrent.version,
-    }, { headers: { "Idempotency-Key": mutationId } });
-    return normalizeDocument(data?.document ?? data);
-  }
+  }, normalizeDocument);
 }
 
 async function deleteDocumentOnlineOnly(
@@ -478,20 +346,11 @@ async function deleteDocumentOnlineOnly(
   baseVersion: number,
   mutationId: string
 ): Promise<void> {
-  try {
+  await deleteWithVersionRetry<Document>(baseVersion, async (version) => {
     await http.delete(`/documents/${id}`, {
-      headers: { "Idempotency-Key": mutationId, "If-Match": String(baseVersion) },
+      headers: { "Idempotency-Key": mutationId, "If-Match": String(version) },
     });
-  } catch (error) {
-    const current = readVersionConflictEntity<Document>(error);
-    if (!current) throw error;
-    await http.delete(`/documents/${id}`, {
-      headers: {
-        "Idempotency-Key": mutationId,
-        "If-Match": String(normalizeDocument(current).version),
-      },
-    });
-  }
+  }, normalizeDocument);
 }
 
 // ---------- Public API ----------

@@ -31,6 +31,38 @@ export function readVersionConflictEntity<T>(error: unknown): T | null {
     : null;
 }
 
+interface VersionedEntity {
+  version: number;
+}
+
+export async function updateWithVersionRetry<T extends VersionedEntity>(
+  baseVersion: number,
+  request: (version: number) => Promise<T>,
+  normalize: (entity: T) => T
+): Promise<T> {
+  try {
+    return await request(baseVersion);
+  } catch (error) {
+    const current = readVersionConflictEntity<T>(error);
+    if (!current) throw error;
+    return request(normalize(current).version);
+  }
+}
+
+export async function deleteWithVersionRetry<T extends VersionedEntity>(
+  baseVersion: number,
+  request: (version: number) => Promise<void>,
+  normalize: (entity: T) => T
+): Promise<void> {
+  try {
+    await request(baseVersion);
+  } catch (error) {
+    const current = readVersionConflictEntity<T>(error);
+    if (!current) throw error;
+    await request(normalize(current).version);
+  }
+}
+
 export function hasBrowserWindow(): boolean {
   return typeof window !== "undefined";
 }

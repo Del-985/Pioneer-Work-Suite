@@ -158,7 +158,7 @@ after(async () => {
 test("health and HTTP safety boundaries respond predictably", async () => {
   const health = await fetch(`${baseUrl}/health`);
   assert.equal(health.status, 200);
-  assert.equal((await health.json() as any).version, "0.1.18");
+  assert.equal((await health.json() as any).version, "0.1.19");
   assert.ok(health.headers.get("x-request-id"));
 
   const unauthenticated = await fetch(`${baseUrl}/tasks`);

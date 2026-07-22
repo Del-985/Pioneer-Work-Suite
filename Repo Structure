@@ -1,6 +1,6 @@
 # Pioneer Work Suite repository structure
 
-This document describes the current source layout for 0.1.18 after the backend deployment, migration, replay-safe mutation, version-conflict, tombstone, incremental-sync, and API test foundation. Generated folders such as `node_modules`, `dist`, Prisma output, and Tauri build artifacts are intentionally omitted.
+This document describes the current source layout for 0.1.19 after the frontend architecture refactor and the 0.1.18 backend deployment, migration, replay-safe mutation, version-conflict, tombstone, incremental-sync, and API test foundation. Generated folders such as `node_modules`, `dist`, Prisma output, and Tauri build artifacts are intentionally omitted.
 
 ```text
 Pioneer-Work-Suite/
@@ -32,11 +32,14 @@ Pioneer-Work-Suite/
 |   `-- web/
 |       |-- src/
 |       |   |-- api/
+|       |   |   `-- storage/
 |       |   |-- commands/
 |       |   |-- components/
+|       |   |   |-- dashboard/
 |       |   |   |-- documents/
 |       |   |   |-- recovery/
 |       |   |   |-- right-sidebar/
+|       |   |   |-- tasks/
 |       |   |   `-- ui/
 |       |   |-- config/
 |       |   |-- hooks/
@@ -71,6 +74,7 @@ Pioneer-Work-Suite/
 |   |-- README.md
 |   `-- manifest.json
 |-- scripts/
+|   |-- check-maintainability.mjs
 |   `-- sync-version.mjs
 |-- package.json
 |-- pnpm-lock.yaml
@@ -88,7 +92,8 @@ Pioneer-Work-Suite/
 - `components/RightSidebar.tsx` composes the right sidebar without owning data-loading details.
 - `hooks/useRightSidebarData.ts` owns right-sidebar loading, mutation, and refresh behavior.
 - `components/right-sidebar/` contains the sidebar's focused presentation panels and shared messages.
-- `components/documents/` contains the Documents editor adapter, inspector, and shared workspace UI types.
+- `components/documents/` contains the Documents library, editor workspace, editor adapter, inspector, and shared workspace UI types.
+- `components/tasks/` and `components/dashboard/` contain reusable feature presentation components kept out of page controllers.
 - `commands/` owns the command registry, global commands, and page-level command lifecycle.
 - `keyboard/` owns keyboard shortcut matching, registration, and display metadata.
 - `status/` and `hooks/useStatusBarItems.ts` provide the page-context registry used by the application status bar.
@@ -97,9 +102,12 @@ Pioneer-Work-Suite/
 - `hooks/useAccessibleDialog.ts` owns focus trapping, initial focus, focus restoration, Escape handling, and dialog diagnostics for overlays.
 - `hooks/useAppSettings.ts` provides live, normalized settings to feature pages without duplicating subscription effects.
 - `hooks/useDocumentWorkspaceUi.ts` owns Documents workspace layout, focus mode, inspector, and keyboard state.
+- `hooks/useDocumentFindReplace.ts` owns document match navigation and formatted replacement behavior.
 - `components/ui/` and `styles/ui-primitives.css` provide the shared button, card, section-heading, and confirmation-dialog primitives used across settings and destructive workflows.
 - `hooks/useConfirmation.tsx` owns the promise-based confirmation lifecycle used by tasks, documents, calendar, mail, and settings.
-- `api/` owns local-first persistence, cloud requests, queues, synchronization, session state, and settings.
+- `api/offlineSyncQueue.ts` owns queue restoration, compaction, pending counts, and shared offline mutation ordering.
+- `api/storage/` separates IndexedDB lifecycle, migrations, repositories, and workspace backup behavior behind `api/storage.ts`.
+- The remaining `api/` modules own domain normalization, cloud requests, synchronization, session state, and settings.
 - `api/workspaceBackup.ts` owns the credential-free, versioned local workspace export and transactional restore workflow.
 - `pages/` owns feature-level screens; shared shell behavior should not be added there.
 - `config/`, `types/`, and `utils/` contain centralized metadata, shared contracts, and behavior-neutral helpers.
@@ -134,7 +142,9 @@ From the repository root:
 
 ```text
 pnpm --filter pioneer-student-api test
+pnpm --filter pioneer-student-web test
 pnpm --filter pioneer-student-api exec prisma validate
+pnpm check:architecture
 pnpm --filter pioneer-student-web build
 PIONEER_SDK=/absolute/path/to/pioneeros-sdk-1.5.0 make -C pioneeros package
 ```
